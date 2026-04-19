@@ -1,0 +1,54 @@
+# build artifacts
+build/
+/zyterm
+zyterm_embed.a
+*.o
+*.a
+*.d
+
+# packaging
+releases/
+*.deb
+*.tar.gz
+*.tar.zst
+
+# tests
+tests/build/
+tests/run_tests
+tests/test_subsystems
+
+# docs
+docs/api/
+docs/html/
+docs/latex/
+
+# editor / OS / tooling
+*.swp
+*.swo
+.vscode/
+.idea/
+.DS_Store
+tags
+TAGS
+GTAGS
+GRTAGS
+GPATH
+compile_commands.json
+.cache/
+.clangd/
+.ccls-cache/
+
+# profiling
+perf.data
+perf.data.old
+callgrind.out*
+massif.out*
+gmon.out
+*.gcda
+*.gcno
+*.gcov
+
+# core dumps
+/core
+# core.*
+vgcore.*

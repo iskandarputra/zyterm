@@ -1,0 +1,78 @@
+# clang-format config for zyterm.
+#
+# Style summary (mirrors docs/CONTRIBUTING.md):
+#   - C11, K&R braces, 4-space indent, 96-column hard limit (80 preferred).
+#   - Pointers bind to the variable: `char *p`, not `char* p`.
+#   - Short ifs and case bodies may stay on one line for tabular code.
+#   - Existing code uses aligned tables for `case` arms and field
+#     declarations; we preserve that.
+#
+# Run with: make format
+---
+Language: Cpp
+BasedOnStyle: LLVM
+Standard: c++03 # treat as C, no C++ specifics
+
+# Indentation
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ContinuationIndentWidth: 4
+ConstructorInitializerIndentWidth: 4
+
+# Line width
+ColumnLimit: 96
+
+# Braces. zyterm uses fully attached braces (K&R variant): the opening
+# brace stays on the same line for functions, structs, and control flow.
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortBlocksOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: true
+
+# Pointer & reference alignment
+PointerAlignment: Right
+DerivePointerAlignment: false
+
+# Spacing
+SpaceBeforeParens: ControlStatements
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+SpaceAfterCStyleCast: false
+SpaceBeforeAssignmentOperators: true
+SpacesBeforeTrailingComments: 1
+
+# Alignment (preserve the tabular style used in zt_ctx.h, registries, etc.)
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: AcrossEmptyLines
+AlignConsecutiveDeclarations: AcrossEmptyLines
+AlignConsecutiveMacros: AcrossEmptyLines
+AlignEscapedNewlines: Right
+AlignOperands: true
+AlignTrailingComments: true
+
+# Includes
+SortIncludes: false # we keep zt_ctx.h / zt_internal.h order intentional
+IncludeBlocks: Preserve
+
+# Misc
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+ReflowComments: true
+BinPackArguments: true
+BinPackParameters: true
+
+# Macros that look like statements / control flow (avoid mis-indent)
+MacroBlockBegin: ""
+MacroBlockEnd: ""
+ForEachMacros:
+  - "list_for_each"
+  - "list_for_each_safe"
+StatementMacros:
+  - "ZT_OK"
+  - "ZT_EQ"
+  - "ZT_NE"
+  - "ZT_TRUE"
+  - "ZT_FALSE"
