@@ -1,5 +1,5 @@
 /**
- * @file hud.c
+ * @file    ui_hud.c
  * @brief HUD + input bar + dialogs + command popup
  *
  * @author  Iskandar Putra (www.iskandarputra.com)
@@ -460,7 +460,7 @@ void draw_cmd_popup(zt_ctx *c) {
     static const char *body[] = {
         "",
         SEC("SESSION"),
-        ROW2("x", "exit            ", "p", "pause / resume"),
+        ROW2("q/x", "exit          ", "p", "pause / resume"),
         ROW2("c", "clear screen    ", "s", "show stats    "),
         ROW2("b", "send break      ", "a", "send Ctrl+A   "),
         "",
@@ -733,7 +733,7 @@ void draw_keybind_popup(zt_ctx *c) {
         BROW2("K", "CRC cycle       ", "G", "passthrough   "),
         BROW2("D", "mute <dbg>      ", "I", "mute <inf>    "),
         BROW2("+", "add bookmark    ", "[", "bookmark list "),
-        BROW2(".", "fuzzy history   ", "Q", "autobaud      "),
+        BROW2(".", "fuzzy history   ", "A", "autobaud      "),
         BROW2("o", "settings        ", "k", "this reference"),
         "",
         BSEC("INPUT"),

@@ -45,6 +45,8 @@ void handle_cmd_key(zt_ctx *c, unsigned char k) {
     c->tui.command_mode = false;
     c->tui.popup_active = false;
     switch (k) {
+    case 'q':
+    case 'Q':
     case 'x':
     case 'X': zt_g_quit = 1; break;
     case 'p':
@@ -93,10 +95,17 @@ void handle_cmd_key(zt_ctx *c, unsigned char k) {
         else
             set_flash(c, "break failed: %s", strerror(errno));
         break;
-    case 'a':
-    case 'A': {
+    case 'a': {
         unsigned char x = 0x01;
         direct_send(c, &x, 1);
+        break;
+    }
+    case 'A': {
+        if (c->serial.fd >= 0) {
+            close(c->serial.fd);
+            c->serial.fd = -1;
+        }
+        autobaud_probe(c);
         break;
     }
     case 's':
@@ -277,13 +286,7 @@ void handle_cmd_key(zt_ctx *c, unsigned char k) {
         c->log.mute_inf = !c->log.mute_inf;
         set_flash(c, "<inf> %s", c->log.mute_inf ? "muted" : "shown");
         break;
-    case 'Q':
-        if (c->serial.fd >= 0) {
-            close(c->serial.fd);
-            c->serial.fd = -1;
-        }
-        autobaud_probe(c);
-        break;
+
     case 'o':
     case 'O':
         c->tui.settings_mode = true;

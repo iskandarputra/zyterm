@@ -1,6 +1,6 @@
 /**
- * @file scrollback.c
- * @brief Scrollback ring buffer and scrolling
+ * @file    scrollback.c
+ * @brief   Scrollback ring buffer and viewport management.
  *
  * @author  Iskandar Putra (www.iskandarputra.com)
  * @copyright Copyright (c) 2026 Iskandar Putra. All rights reserved.

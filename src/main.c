@@ -72,7 +72,7 @@ static void usage(const char *a0) {
             "  -V, --version           print version and exit\n"
             "\n"
             "runtime (interactive):\n"
-            "  Ctrl+A        command menu (x/p/e/c/h/t/b/s/f/r///a/?)\n"
+            "  Ctrl+A        command menu (q/x/p/e/c/h/t/b/s/f/r///a/?)\n"
             "  F1..F12       fire bound macros\n"
             "  PgUp/PgDn     scroll back / forward through scrollback\n"
             "  n / N         (in scroll mode, after Ctrl+A /) next / prev match\n"

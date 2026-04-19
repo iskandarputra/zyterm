@@ -51,7 +51,7 @@ struct termios2 {
 #include <IOKit/serial/ioss.h>
 #endif
 
-/** Compile-time limits */
+/** @name Compile-time limits @{ */
 #define ZT_INPUT_CAP      4096       /**< Max chars in the on-screen input line.   */
 #define ZT_LINEBUF_CAP    4096       /**< Max chars in a single log/render line.   */
 #define ZT_READ_CHUNK     65536      /**< Largest single read() from serial/stdin. */
@@ -67,10 +67,10 @@ struct termios2 {
 #define ZT_BOOKMARK_MAX   64         /**< Max user-set scrollback bookmarks.       */
 #define ZT_SPARK_HIST     32         /**< Throughput sparkline sample depth.       */
 #define ZT_SPSC_CAP       (1u << 20) /**< Reader-thread SPSC ring (1 MiB).         */
-#define ZT_VERSION        "1.1.0"
-/* End Compile-time limits */
+#define ZT_VERSION        "1.2.0"
+/** @} */
 
-/** @brief Logical frame modes for the framing module.
+/** @brief Logical frame modes for the @ref framing module.
  *
  * When not @c ZT_FRAME_RAW, the framing decoder groups bytes into frames and
  * renders one scrollback entry per frame (with optional CRC check). */
@@ -79,7 +79,7 @@ typedef enum {
     ZT_FRAME_COBS   = 1, /**< Consistent-Overhead Byte Stuffing (RFC-esque).   */
     ZT_FRAME_SLIP   = 2, /**< RFC 1055 SLIP (0xC0 terminator + escape).        */
     ZT_FRAME_HDLC   = 3, /**< HDLC-ish (0x7E flag + 0x7D escape, no bit stuf). */
-    ZT_FRAME_LENPFX = 4, /**< \&lt;len16 LE\&gt;\&lt;payload\&gt; length-prefixed frames.      */
+    ZT_FRAME_LENPFX = 4, /**< <len16 LE><payload> length-prefixed frames.      */
     ZT_FRAME__COUNT
 } zt_frame_mode;
 
@@ -127,8 +127,8 @@ void              zt_embed_disarm(void);
  * @brief  Master runtime context passed to every subsystem.
  *
  * All fields are owned by the process; most are mutated only by the main
- * thread (zyterm is single-threaded). Signal handlers only touch the
- * `g_*` globals above.
+ * thread (zyterm uses a high-priority reader thread for serial I/O).
+ * Signal handlers only touch the `g_*` globals above.
  */
 typedef struct {
     struct {
@@ -163,7 +163,7 @@ typedef struct {
     struct {
         int             rows, cols; /**< Current terminal size.                   */
         unsigned char   input_buf[ZT_INPUT_CAP]; /**< Editable input line bytes.      */
-        size_t          input_len; /**< Valid length in input_buf.          */
+        size_t          input_len; /**< Valid length in @ref input_buf.          */
         size_t          sent_len;  /**< Prefix already committed to the device.  */
         size_t          cursor;    /**< Offset from @c sent_len into unsent.     */
 

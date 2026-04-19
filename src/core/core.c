@@ -1,14 +1,15 @@
 /**
- * @file core.c
- * @brief Cross-cutting helpers: globals, I/O, output buffer, signals, terminal.
+ * @file    core.c
+ * @brief   Cross-cutting helpers: globals, I/O, output buffer, signals, terminal.
  *
  * This translation unit owns:
- *   - The process-wide global flags (zt_g_quit, zt_g_winch, …)
- *   - The stdout output buffer (ob_write / ob_cstr / ob_flush)
- *   - Safe I/O helpers (zt_write_all, zt_write_cstr, zt_warn, zt_die)
- *   - Monotonic time helpers (now, ts_diff_sec)
- *   - Signal handlers and signal installation (install_signals, sig_winch)
- *   - Terminal raw-mode management (setup_stdin_raw, restore_terminal)
+ *   - The process-wide global flags (@ref zt_g_quit, @ref zt_g_winch, ...)
+ *   - The stdout output buffer (@ref ob_write / @ref ob_cstr / @ref ob_flush)
+ *   - Safe I/O helpers (@ref zt_write_all, @ref zt_write_cstr, @ref zt_die)
+ *   - Monotonic time helpers (@ref now, @ref ts_diff_sec)
+ *   - Signal handlers and installation (@ref install_signals, @ref sig_winch)
+ *
+ *   - Terminal raw-mode management (@ref setup_stdin_raw, @ref restore_terminal)
  *
  * @author  Iskandar Putra (www.iskandarputra.com)
  * @copyright Copyright (c) 2026 Iskandar Putra. All rights reserved.
