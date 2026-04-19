@@ -1,6 +1,6 @@
 /**
- * @file serial.c
- * @brief Serial-port setup, baud selection, flow control
+ * @file    serial.c
+ * @brief   Serial-port setup, baud selection, and flow control.
  *
  * @author  Iskandar Putra (www.iskandarputra.com)
  * @copyright Copyright (c) 2026 Iskandar Putra. All rights reserved.

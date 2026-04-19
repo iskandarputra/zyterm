@@ -1,14 +1,14 @@
 /**
- * @file framing.c
- * @brief Frame-oriented decoders/encoders: COBS, SLIP, HDLC-ish, length-prefix.
+ * @file    framing.c
+ * @brief   Frame-oriented decoders: COBS, SLIP, HDLC, and length-prefix.
  *
- * When @c c->proto.mode is non-@c RAW, raw bytes from the serial port are
- * fed through this module; each completed frame is:
- *   1. CRC-checked (if @c c->proto.crc_mode != NONE) with the trailing N bytes,
- *   2. rendered into scrollback as a single line, showing the decoded
- *      payload (as text or hex depending on current mode),
- *   3. counted, and on mismatch flagged with a red notice.
+ * Raw bytes from the serial port are fed through this module; each
+ * completed frame is CRC-checked, counted, and rendered into the
+ * scrollback buffer as a single logical entry.
  *
+ * @author  Iskandar Putra (www.iskandarputra.com)
+ * @copyright Copyright (c) 2026 Iskandar Putra. All rights reserved.
+ * @license MIT — see LICENSE for details.
  * Outgoing frames (Enter in interactive mode, or `Ctrl+A C send`) are
  * encoded with the inverse algorithm and, if the user requested it, a
  * trailing CRC.

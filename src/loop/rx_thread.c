@@ -1,13 +1,17 @@
 /**
- * @file rx_thread.c
- * @brief Optional single-producer/single-consumer reader thread.
+ * @file    rx_thread.c
+ * @brief   Optional single-producer/single-consumer reader thread.
  *
- * When enabled via @c --threaded (and the platform has pthreads), a dedicated
- * kernel thread drains @c serial_fd into a lock-free SPSC ring buffer. The
- * main thread reads from that ring and runs the render/log pipeline.
+ * When enabled via @c --threaded, a dedicated kernel thread drains the
+ * serial device into a lock-free SPSC ring buffer. The main thread reads
+ * from that ring and runs the render/log pipeline.
  *
- * This decouples UART interrupt latency from render latency — at ≥3 Mbps on
- * a busy workstation it reduces p99 end-to-end jitter dramatically. At low
+ * This decouples UART interrupt latency from render latency, reducing
+ * jitter dramatically during high-baud transmissions.
+ *
+ * @author  Iskandar Putra (www.iskandarputra.com)
+ * @copyright Copyright (c) 2026 Iskandar Putra. All rights reserved.
+ * @license MIT — see LICENSE for details.
  * baud rates it is strictly a pessimization (extra syscall per byte), so
  * it's opt-in.
  *
