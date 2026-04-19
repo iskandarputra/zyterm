@@ -1,0 +1,77 @@
+# Doxyfile for zyterm — module-organised C codebase, group-aware.
+# Run: make docs   →   docs/api/html/index.html
+PROJECT_NAME           = "zyterm"
+PROJECT_NUMBER         = 1.1.0
+PROJECT_BRIEF          = "Zero-dependency, high-performance serial terminal for RTOS targets"
+OUTPUT_DIRECTORY       = docs/api
+
+# ── input ────────────────────────────────────────────────────────────────────
+INPUT                  = include src \
+                         README.md \
+                         docs/ARCHITECTURE.md \
+                         docs/USER_GUIDE.md \
+                         docs/API.md \
+                         docs/CONTRIBUTING.md
+RECURSIVE              = YES
+FILE_PATTERNS          = *.c *.h *.md
+USE_MDFILE_AS_MAINPAGE = README.md
+EXTRACT_ALL            = YES
+EXTRACT_STATIC         = YES
+EXTRACT_PRIVATE        = YES
+EXTRACT_LOCAL_CLASSES  = YES
+
+# ── output ───────────────────────────────────────────────────────────────────
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+GENERATE_LATEX         = NO
+GENERATE_XML           = NO
+GENERATE_TREEVIEW      = YES
+DISABLE_INDEX          = NO
+FULL_SIDEBAR           = NO
+HTML_COLORSTYLE        = AUTO_LIGHT
+HTML_DYNAMIC_SECTIONS  = YES
+
+# ── style ────────────────────────────────────────────────────────────────────
+OPTIMIZE_OUTPUT_FOR_C  = YES
+SORT_MEMBER_DOCS       = NO
+SORT_BRIEF_DOCS        = NO
+SORT_GROUP_NAMES       = YES
+SHOW_USED_FILES        = YES
+SHOW_INCLUDE_FILES     = YES
+SHOW_FILES             = YES
+SHOW_NAMESPACES        = NO
+STRIP_FROM_PATH        = .
+JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = YES
+TAB_SIZE               = 4
+INHERIT_DOCS           = YES
+DISTRIBUTE_GROUP_DOC   = YES
+GROUP_NESTED_COMPOUNDS = YES
+
+# ── @defgroup / @ingroup support ────────────────────────────────────────────
+# Modules: core, serial, log, proto, render, tui, net, ext, loop
+ALIASES                = "module{1}=@ingroup zt_mod_\1" \
+                         "license=\par License: "
+
+# ── warnings ─────────────────────────────────────────────────────────────────
+WARN_IF_UNDOCUMENTED   = NO
+WARN_IF_DOC_ERROR      = YES
+WARN_AS_ERROR          = NO
+QUIET                  = YES
+
+# ── graphs (require dot from graphviz; gracefully off if missing) ───────────
+HAVE_DOT               = NO
+CLASS_GRAPH            = NO
+COLLABORATION_GRAPH    = NO
+INCLUDE_GRAPH          = YES
+INCLUDED_BY_GRAPH      = YES
+CALL_GRAPH             = NO
+CALLER_GRAPH           = NO
+
+# ── search & navigation ──────────────────────────────────────────────────────
+SEARCHENGINE           = YES
+SERVER_BASED_SEARCH    = NO
+
+# ── exclude generated dirs ───────────────────────────────────────────────────
+EXCLUDE                = build docs/api docs/html docs/latex
+EXCLUDE_PATTERNS       = */build/* */obj/* *.o */tests/build/*

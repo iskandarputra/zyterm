@@ -1,0 +1,71 @@
+name: zyterm CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.os }} / ${{ matrix.cc }} / ${{ matrix.sanitizer }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        cc: [gcc, clang]
+        sanitizer: ["none", "asan-ubsan"]
+        include:
+          - os: macos-latest
+            cc: clang
+            sanitizer: "none"
+    env:
+      CC: ${{ matrix.cc }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps with cache (Linux)
+        if: runner.os == 'Linux'
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: build-essential socat clang-format clang cppcheck
+          version: 1.0
+
+      - name: Check formatting
+        if: runner.os == 'Linux' && matrix.sanitizer == 'none' && matrix.cc == 'gcc'
+        run: make format-check
+
+      - name: Build (release)
+        if: matrix.sanitizer == 'none'
+        run: make
+
+      - name: Build (asan+ubsan)
+        if: matrix.sanitizer == 'asan-ubsan'
+        run: |
+          make clean
+          CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
+                  -Wall -Wextra -pedantic -std=gnu11 -D_GNU_SOURCE \
+                  -Iinclude -Isrc" \
+          LDFLAGS="-fsanitize=address,undefined" make
+
+      - name: Smoke test
+        run: |
+          ./zyterm --version
+          ./zyterm --help | head -20
+
+      - name: Unit tests (release)
+        if: matrix.sanitizer == 'none'
+        run: make test
+
+      - name: Unit tests (asan+ubsan)
+        if: matrix.sanitizer == 'asan-ubsan'
+        run: |
+          CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
+                  -Wall -Wextra -pedantic -std=gnu11 -D_GNU_SOURCE \
+                  -Iinclude -Isrc" \
+          LDFLAGS="-fsanitize=address,undefined" make test
+
+      - name: cppcheck (Linux only)
+        if: runner.os == 'Linux' && matrix.sanitizer == 'none' && matrix.cc == 'gcc'
+        run: make lint || true
+
