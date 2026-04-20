@@ -161,6 +161,13 @@ static void usage(const char *a0) {
     help_cont(fp, tty,                                         "mode: none | cr | lf | crlf | cr-crlf | lf-crlf");
     fputc('\n', fp);
 
+    /* Profiles */
+    fprintf(fp, "%sPROFILES%s\n", HEAD, RST);
+    help_row (fp, tty, NULL, "--profile",       "<name>",      "load ~/.config/zyterm/<name>.conf at startup");
+    help_cont(fp, tty,                                         "auto-reloads on edit (Linux inotify)");
+    help_row (fp, tty, NULL, "--profile-save",  "<name>",      "snapshot current settings to that profile and exit");
+    fputc('\n', fp);
+
     /* Misc */
     fprintf(fp, "%sHELP%s\n", HEAD, RST);
     help_row (fp, tty, "-h", "--help",          "",            "show this help");
@@ -502,7 +509,10 @@ int zyterm_main(int argc, char **argv) {
             scrollback_free(&c);
             return rc;
         }
-        case OPT_PROFILE: profile_load(&c, optarg); break;
+        case OPT_PROFILE:
+            profile_load(&c, optarg);
+            c.ext.profile_name = optarg;
+            break;
         case OPT_PROFILE_SAVE:
             free(c.net.session_name);
             c.net.session_name = strdup(optarg);
@@ -629,6 +639,8 @@ int zyterm_main(int argc, char **argv) {
     if (c.net.session_name) session_detach(&c, c.net.session_name);
     if (c.serial.spsc_enabled) rx_thread_start(&c);
 
+    if (c.ext.profile_name) (void) profile_watch_start(&c, c.ext.profile_name);
+
     if (c.log.rec_path) {
         if (cast_record_open(&c, c.log.rec_path) != 0)
             zt_die("zyterm: --rec %s: %s", c.log.rec_path, strerror(errno));
@@ -672,6 +684,7 @@ int zyterm_main(int argc, char **argv) {
     http_stop(&c);
     metrics_stop(&c);
     filter_stop(&c);
+    profile_watch_stop(&c);
 
     if (c.log.fd >= 0) close(c.log.fd);
     scrollback_free(&c);

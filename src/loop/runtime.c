@@ -236,6 +236,7 @@ int run_interactive(zt_ctx *c) {
         if (c->net.http_fd >= 0) http_tick(c);
         if (c->net.metrics_fd >= 0) metrics_tick(c);
         if (c->net.session_fd >= 0) session_tick(c);
+        if (c->ext.profile_inotify_fd > 0) profile_watch_tick(c);
         tty_stats_poll(c);
         ob_flush();
     }

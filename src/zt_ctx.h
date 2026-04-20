@@ -383,6 +383,11 @@ typedef struct {
         int   filter_pid;       /**< Child PID; 0 when not active.            */
         char *filter_cmd;       /**< Shell cmdline e.g. "jq .".               */
         char *macros[ZT_MACRO_COUNT];
+
+        /* config hot-reload (--profile + inotify); see ext/profile_watch.c */
+        const char *profile_name;
+        int         profile_inotify_fd;
+        int         profile_inotify_wd;
     } ext;
 
     struct {

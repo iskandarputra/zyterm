@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Config hot-reload** — `--profile NAME` now auto-watches the
+  resolved profile file (`$XDG_CONFIG_HOME/zyterm/NAME.conf` or
+  `~/.config/zyterm/NAME.conf`) via Linux **inotify** and re-applies
+  the profile on every edit. Watching the *parent directory* (not the
+  file itself) means atomic-rename writers — vim, neovim, helix,
+  vscode, `sponge`, `cp/mv` — survive the inode swap. A 200 ms debounce
+  coalesces editors that fire CREATE + CLOSE_WRITE + MOVED_TO in
+  rapid succession on `:w`. Runtime-safe keys (macros, watch
+  patterns, line endings, log level) take effect instantly; non-
+  runtime-safe keys (baud, device, framing) are loaded into context
+  and surfaced via a scrollback notice ("take effect on next
+  reconnect"). Cheap when not in use: zero-overhead non-blocking
+  drain on the inotify fd in the existing main-loop tick block, no
+  extra threads.
 - **Asciinema cast v2 session recording** — `--rec session.cast` taps
   every byte the renderer is about to emit (single static callback
   registered on the shared stdout output buffer in `core.c`) and

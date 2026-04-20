@@ -34,12 +34,18 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-static void profile_path(const char *name, char *out, size_t cap) {
+/* Resolve "$XDG_CONFIG_HOME/zyterm/<name>.conf" (falling back to
+ * "$HOME/.config/zyterm/<name>.conf"). Exposed for ext/profile_watch.c. */
+void zt_profile_path(const char *name, char *out, size_t cap) {
     const char *xdg = getenv("XDG_CONFIG_HOME");
     if (xdg && *xdg)
         snprintf(out, cap, "%s/zyterm/%s.conf", xdg, name);
     else
         snprintf(out, cap, "%s/.config/zyterm/%s.conf", getenv("HOME"), name);
+}
+
+static void profile_path(const char *name, char *out, size_t cap) {
+    zt_profile_path(name, out, cap);
 }
 
 static void mkparent(const char *path) {
