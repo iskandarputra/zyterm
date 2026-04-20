@@ -52,3 +52,6 @@ gmon.out
 /core
 # core.*
 vgcore.*
+
+# private planning notes (not for public distribution)
+/planning/

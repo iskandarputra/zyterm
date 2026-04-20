@@ -14,6 +14,7 @@
 make
 ./zyterm /dev/ttyUSB0 -b 115200
 ```
+
 That's pretty much it. You get a live HUD, scrollback, and search out of the box. No config files to write, no dependencies to chase down.
 
 ---
@@ -46,31 +47,34 @@ To quit, press `Ctrl+A` then `q`.
 
 Most things are behind `Ctrl+A`. Press it to open the command menu, or use these shortcuts directly:
 
-| Shortcut | Action |
-| :--- | :--- |
-| `Ctrl+A` then `q` | Quit |
-| `Ctrl+A` | Open the command menu |
+| Shortcut          | Action                    |
+| :---------------- | :------------------------ |
+| `Ctrl+A` then `q` | Quit                      |
+| `Ctrl+A`          | Open the command menu     |
 | `Ctrl+A` then `/` | Search through scrollback |
-| `Ctrl+A` then `l` | Toggle logging to a file |
-| `Ctrl+A` then `o` | Open the settings dialog |
-| `PgUp` / `PgDn` | Scroll through history |
-| `Ctrl+L` | Clear the screen |
+| `Ctrl+A` then `l` | Toggle logging to a file  |
+| `Ctrl+A` then `o` | Open the settings dialog  |
+| `PgUp` / `PgDn`   | Scroll through history    |
+| `Ctrl+L`          | Clear the screen          |
 
 There's more — F-key macros, hex view, fuzzy finding, multi-pane, bookmarks — but you can discover those at your own pace in the [User Guide](docs/USER_GUIDE.md).
 
 ## A Few Handy Recipes
 
 Capture boot output for 30 seconds, then exit:
+
 ```sh
 ./zyterm /dev/ttyUSB0 --dump 30 -l boot_capture.log
 ```
 
 Highlight error lines so they stand out:
+
 ```sh
 ./zyterm /dev/ttyUSB0 --watch ERROR --watch panic
 ```
 
 Replay a saved log:
+
 ```sh
 ./zyterm --replay boot_capture.log
 ```
@@ -78,18 +82,24 @@ Replay a saved log:
 ## Installation
 
 ### Ubuntu / Debian (.deb)
+
 Grab the latest `.deb` from the [Releases page](https://github.com/iskandarputra/zyterm/releases):
+
 ```sh
 sudo dpkg -i releases/zyterm_*.deb
 ```
 
 ### Build from source
+
 You need a C compiler and `make`. That's the whole list.
+
 ```sh
 make
 sudo make install
 ```
+
 Or use the convenience script, which also handles formatting, linting, and packaging:
+
 ```sh
 ./build.sh install
 ```
@@ -102,12 +112,12 @@ For clipboard support on X11 desktops, zyterm quietly tries to load `libxcb.so.1
 
 ## Documentation
 
-| Resource | What's in it |
-| :--- | :--- |
-| [User Guide](docs/USER_GUIDE.md) | Flags, shortcuts, and recipes |
-| [API Docs](docs/API.md) | Embedding zyterm's core in your own C program |
-| [Architecture](docs/ARCHITECTURE.md) | How the codebase is organized |
-| [Contributing](docs/CONTRIBUTING.md) | How to send patches, style rules, testing |
+| Resource                             | What's in it                                  |
+| :----------------------------------- | :-------------------------------------------- |
+| [User Guide](docs/USER_GUIDE.md)     | Flags, shortcuts, and recipes                 |
+| [API Docs](docs/API.md)              | Embedding zyterm's core in your own C program |
+| [Architecture](docs/ARCHITECTURE.md) | How the codebase is organized                 |
+| [Contributing](docs/CONTRIBUTING.md) | How to send patches, style rules, testing     |
 
 ## What's Inside
 
@@ -119,7 +129,7 @@ MIT. See [LICENSE](LICENSE).
 
 ---
 
-*zyterm builds on ideas from every serial terminal that came before it. If it's useful to you, that makes us happy. Stars, bug reports, and patches are always welcome. works, have a look around `src/`. We've tried to keep things straightforward.
+\*zyterm builds on ideas from every serial terminal that came before it. If it's useful to you, that makes us happy. Stars, bug reports, and patches are always welcome. works, have a look around `src/`. We've tried to keep things straightforward.
 
 ## License
 
@@ -127,4 +137,4 @@ MIT. See [LICENSE](LICENSE).
 
 ---
 
-*zyterm builds on ideas from every serial terminal that came before it. If it's useful to you, that makes us happy. Stars, bug reports, and patches are always welcome.*
+_zyterm builds on ideas from every serial terminal that came before it. If it's useful to you, that makes us happy. Stars, bug reports, and patches are always welcome._
