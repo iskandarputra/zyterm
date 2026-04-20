@@ -67,7 +67,7 @@ struct termios2 {
 #define ZT_BOOKMARK_MAX   64         /**< Max user-set scrollback bookmarks.       */
 #define ZT_SPARK_HIST     32         /**< Throughput sparkline sample depth.       */
 #define ZT_SPSC_CAP       (1u << 20) /**< Reader-thread SPSC ring (1 MiB).         */
-#define ZT_VERSION        "1.1.1"
+#define ZT_VERSION        "1.1.2"
 /** @} */
 
 /** @brief Logical frame modes for the @ref framing module.

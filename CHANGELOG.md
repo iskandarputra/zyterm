@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_No changes yet._
+
+## [1.1.2] — 2026-04-21
+
+Linux feature push: hooks, hot-reload, asciinema recording, TCP/Telnet,
+USB hot-plug discovery, line-ending mapping. Plus a deep multi-chapter
+tutorial book and a real test suite (208 unit + 11 e2e + 20 pty).
+
 ### Added
 - **Event hooks** — three new flags fire shell actions in response to
   session events: `--on-match '/REGEX/=ACTION'` (POSIX ERE, matched
@@ -87,6 +95,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   most-reported minicom-parity gap (Windows-firmware devices that
   expect CRLF, RTOS shells that expect bare CR).
 - `CHANGELOG.md` (this file) and `.github/` issue / PR templates.
+- **Modern, color-aware `--help` layout** — banner, section headers,
+  per-row aligned columns, ANSI palette that auto-disables on
+  `NO_COLOR`, `TERM=dumb`, or non-TTY stderr.
+- **Deep tutorial book** under `docs/tutorial/` (10 chapters, ~1500
+  lines): install, first session, logging, profiles, hooks, recording,
+  recipes, troubleshooting, full reference. Cross-linked from
+  `README.md` and `docs/USER_GUIDE.md`.
+- **USER_GUIDE first-5-minutes** quickstart and new-flag rows for
+  `--rec`, `--profile`, `--on-*`, `--port-glob`, `--match-vid-pid`,
+  `--map-out`, `--map-in`.
+- **README comparison table** vs minicom / picocom / screen / tio /
+  PuTTY.
+
+### Fixed
+- `--on-match '/REGEX/=ACTION'` parser now scans forward for the `/=`
+  separator instead of using `strrchr`, so `ACTION` values that
+  contain `/` (paths, sed expressions, etc.) are no longer mis-split.
+- `docs/USER_GUIDE.md` profile example now uses real, parser-supported
+  keys. The previous example listed `log-dir`, `watch`, `macro` —
+  the parser silently ignored those keys, so users editing the
+  example saw no effect. Real keys are documented in
+  `docs/tutorial/04-profiles.md`.
+- Removed phantom `--list` flag reference from `USER_GUIDE.md` (no
+  such flag exists; use `ls /dev/tty*` + `dmesg`).
+
+### Tests
+- **208 unit tests** (`tests/unit/test_subsystems.c`) covering the
+  hooks parser, asciinema cast writer, profile inotify watcher, and
+  the existing CRC / log-level / OSC8 / sparkline subsystems.
+- **11 e2e tests** (`tests/integration/test_e2e_hooks.c`) drive the
+  real `./zyterm` binary against a TCP listener with `fork+exec`
+  hook actions and a 100 ms rate-limit assertion.
+- **20 pty tests** (`tests/pty/pty_harness.c`) — pre-existing.
+- Total **239/239 passing**. Run with `make -C tests run`.
 
 ## [1.1.1] — 2025-01
 
@@ -143,6 +185,7 @@ Initial public release.
 - Headless capture (`--dump <sec>`)
 - Log rotation (`--log-max-kb`)
 
-[Unreleased]: https://github.com/iskandarputra/zyterm/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/iskandarputra/zyterm/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/iskandarputra/zyterm/releases/tag/v1.1.2
 [1.1.1]: https://github.com/iskandarputra/zyterm/releases/tag/v1.1.1
 [1.0.0]: https://github.com/iskandarputra/zyterm/releases/tag/v1.0.0
