@@ -22,6 +22,92 @@ very high baud rates and the main loop can't keep up.
 
 To quit at any time, press `Ctrl+A` then `q`.
 
+## First 5 minutes
+
+A guided tour for someone who just cloned the repo.
+
+**1. Build.** One dependency-free binary:
+
+```sh
+make -j
+./zyterm --version
+```
+
+**2. Open your first port.** Plug in a USB-serial adapter and run:
+
+```sh
+./zyterm /dev/ttyUSB0 -b 115200
+```
+
+If you're not sure which device appeared, run `./zyterm --list` to see
+what's attached. Permission denied? Add yourself to the `dialout` (or
+`uucp`) group and log out/in — don't `chmod 666` the device.
+
+You're now connected. Type to transmit. Incoming bytes appear in the
+pane. The status bar at the bottom shows RX/TX counters, CPS, and
+current line-ending mode.
+
+**3. Essential keys.** Every shortcut is `Ctrl+A` followed by a key:
+
+| Keys        | Action                                         |
+| ----------- | ---------------------------------------------- |
+| `Ctrl+A q`  | Quit.                                          |
+| `Ctrl+A ?`  | Full key list (pager).                         |
+| `Ctrl+A l`  | Start/stop logging to a file.                  |
+| `Ctrl+A /`  | Search scrollback.                             |
+| `Ctrl+A x`  | Toggle hex view.                               |
+| `Ctrl+A e`  | Toggle local echo.                             |
+| `Ctrl+A t`  | Toggle timestamps on each line.                |
+| `Ctrl+A b`  | Change baud without reconnecting.              |
+| `Ctrl+A p`  | Fuzzy command palette.                         |
+
+**4. Capture a session to disk.** Two flavours:
+
+```sh
+./zyterm /dev/ttyUSB0 -l boot.log                # timestamped text
+./zyterm /dev/ttyUSB0 --rec boot.cast            # asciinema v2 cast
+```
+
+The `.cast` file replays in a browser (`asciinema play`) or on
+asciinema.org. The `.log` file is plain text and `grep`-friendly.
+
+**5. Reuse settings with profiles.** Drop a file in
+`~/.config/zyterm/myboard.conf`:
+
+```
+device   = /dev/ttyUSB0
+baud     = 115200
+log-dir  = ~/captures
+watch    = (ERR|PANIC|BUG)
+macro    = F1=reboot\r
+```
+
+Then just:
+
+```sh
+./zyterm --profile myboard
+```
+
+The profile is **hot-reloaded** — edit the file and zyterm picks up
+runtime-safe keys (macros, watches, line-endings, log level) within
+~200 ms, with no reconnect needed.
+
+**6. Automate responses.** The three `--on-*` flags fire shell actions
+in reaction to session events:
+
+```sh
+./zyterm /dev/ttyUSB0 \
+    --on-connect  'notify-send "board up"' \
+    --on-disconnect 'notify-send "board down"' \
+    --on-match    '/PANIC|BUG/=echo "$(date +%T) $ZYTERM_LINE" >> panics.log' \
+    --on-match    '/login:/=send:root\n'
+```
+
+Prefix the action with `send:` to inject bytes back to the device.
+Each hook is rate-limited to one fire per 100 ms.
+
+That's it. Everything else in this guide is elaboration.
+
 ## Command-line options
 
 ### Connection
@@ -44,8 +130,18 @@ To quit at any time, press `Ctrl+A` then `q`.
 | `--log-max-kb <N>`   | Rotate to `<file>.1` when the log exceeds N kilobytes.             |
 | `--tx-ts`            | Also log TX with `->` prefix and timestamps.                       |
 | `--dump <sec>`       | Headless capture for N seconds. `0` means forever.                 |
+| `--rec <file.cast>`  | Record the session as an asciinema v2 cast file.                   |
 | `--replay <file>`    | Replay a capture through the live UI.                              |
 | `--replay-speed <x>` | Replay multiplier. `0` is as fast as possible.                     |
+
+### Profiles and hooks
+
+| Flag                       | Meaning                                                                    |
+| -------------------------- | -------------------------------------------------------------------------- |
+| `--profile <name>`         | Load `~/.config/zyterm/<name>.conf` and hot-reload on edits.              |
+| `--on-connect <action>`    | Run shell action after each successful connect. Repeatable.               |
+| `--on-disconnect <action>` | Run shell action on disconnect or exit. Repeatable.                        |
+| `--on-match '/RE/=action'` | Run action on lines matching POSIX ERE. Prefix `send:` to inject TX.       |
 
 ### Display and input
 
