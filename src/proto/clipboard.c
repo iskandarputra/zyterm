@@ -1,6 +1,6 @@
 /**
  * @file clipboard.c
- * @brief Native X11 clipboard owner (no external helper required).
+ * @brief Native X11 clipboard owner — runtime-loaded, zero build deps.
  *
  * Why this exists
  * ───────────────
@@ -21,13 +21,19 @@
  *      with our buffered text until either the process exits or
  *      another client steals the selection (SelectionClear).
  *
- * Build wiring
- * ────────────
- * The Makefile probes pkg-config for `xcb` + `xcb-xfixes` and defines
- * @c ZT_HAVE_X11 / links the libs only when present. On systems
- * without xcb (headless, BSD without the dev pkgs, etc.) the stubs at
- * the bottom of this file return false and callers fall through to
- * OSC 52 + helper-binary fallbacks. Zero hard build dep preserved.
+ * Runtime loading (dlopen)
+ * ────────────────────────
+ * Instead of requiring libxcb-dev at compile time, we dlopen
+ * libxcb.so.1 at first use and resolve the ~15 functions we need
+ * through dlsym(). libxcb.so.1 is present on virtually every
+ * graphical Linux desktop (X11 and XWayland) even without -dev
+ * packages, because it's a runtime dependency of GTK, Qt, Mesa, etc.
+ *
+ * If the library isn't available (headless, pure Wayland without
+ * XWayland, BSD without xcb), clipboard_native_set() returns false
+ * and callers fall through to OSC 52 + external-helper + file
+ * fallbacks. True zero dependency: no -lxcb, no -lxcb-xfixes,
+ * no headers, no pkg-config probe.
  *
  * @author  Iskandar Putra (www.iskandarputra.com)
  * @copyright Copyright (c) 2026 Iskandar Putra. All rights reserved.
@@ -36,22 +42,209 @@
 #include "zt_ctx.h"
 #include "zt_internal.h"
 
+#include <dlfcn.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <poll.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-
-#ifdef ZT_HAVE_X11
-
-#include <errno.h>
-#include <fcntl.h>
-#include <poll.h>
 #include <unistd.h>
-#include <xcb/xcb.h>
-#include <xcb/xfixes.h>
 
-/* Atom names we need. Order kept stable so atoms[] indexes are
- * predictable; ATOMS_END marks the count. */
+/* ─── Minimal xcb type definitions ──────────────────────────────────────────
+ * We define just enough of the xcb ABI to drive a selection owner.
+ * These match the X11 wire protocol (stable since 1987) and the xcb
+ * struct layouts generated from xcb-proto XML. Field order and padding
+ * follow the X11 event wire format: all events are exactly 32 bytes. */
+
+typedef struct zt_xcb_connection_t zt_xcb_connection_t; /* opaque */
+typedef struct zt_xcb_setup_t     zt_xcb_setup_t;      /* opaque */
+typedef uint32_t zt_xcb_window_t;
+typedef uint32_t zt_xcb_atom_t;
+typedef uint32_t zt_xcb_timestamp_t;
+typedef uint32_t zt_xcb_visualid_t;
+typedef uint32_t zt_xcb_colormap_t;
+
+typedef struct { unsigned int sequence; } zt_xcb_void_cookie_t;
+typedef struct { unsigned int sequence; } zt_xcb_intern_atom_cookie_t;
+
+typedef struct {
+    uint8_t     response_type;
+    uint8_t     pad0;
+    uint16_t    sequence;
+    uint32_t    length;
+    zt_xcb_atom_t atom;
+} zt_xcb_intern_atom_reply_t;
+
+typedef struct {
+    uint8_t  response_type;
+    uint8_t  pad0;
+    uint16_t sequence;
+    uint32_t pad[7];
+    uint32_t full_sequence;
+} zt_xcb_generic_event_t;
+
+typedef struct {
+    uint8_t  response_type;
+    uint8_t  pad0;
+    uint16_t sequence;
+    uint32_t length;
+    /* ... more fields we don't access */
+} zt_xcb_generic_error_t;
+
+/* SelectionRequest — 32 bytes (X event code 30) */
+typedef struct {
+    uint8_t           response_type;
+    uint8_t           pad0;
+    uint16_t          sequence;
+    zt_xcb_timestamp_t time;
+    zt_xcb_window_t   owner;
+    zt_xcb_window_t   requestor;
+    zt_xcb_atom_t     selection;
+    zt_xcb_atom_t     target;
+    zt_xcb_atom_t     property;
+    uint8_t           pad1[4]; /* pad to 32 bytes */
+} zt_sel_request_t;
+
+/* SelectionClear — 32 bytes (X event code 29) */
+typedef struct {
+    uint8_t           response_type;
+    uint8_t           pad0;
+    uint16_t          sequence;
+    zt_xcb_timestamp_t time;
+    zt_xcb_window_t   owner;
+    zt_xcb_atom_t     selection;
+    uint8_t           pad1[16]; /* pad to 32 bytes */
+} zt_sel_clear_t;
+
+/* SelectionNotify — 32 bytes (X event code 31) */
+typedef struct {
+    uint8_t           response_type;
+    uint8_t           pad0;
+    uint16_t          sequence;
+    zt_xcb_timestamp_t time;
+    zt_xcb_window_t   requestor;
+    zt_xcb_atom_t     selection;
+    zt_xcb_atom_t     target;
+    zt_xcb_atom_t     property;
+    uint8_t           pad1[8]; /* pad to 32 bytes */
+} zt_sel_notify_t;
+
+typedef struct {
+    zt_xcb_window_t   root;
+    zt_xcb_colormap_t default_colormap;
+    uint32_t          white_pixel;
+    uint32_t          black_pixel;
+    uint32_t          current_input_masks;
+    uint16_t          width_in_pixels;
+    uint16_t          height_in_pixels;
+    uint16_t          width_in_millimeters;
+    uint16_t          height_in_millimeters;
+    uint16_t          min_installed_maps;
+    uint16_t          max_installed_maps;
+    zt_xcb_visualid_t root_visual;
+    uint8_t           backing_stores;
+    uint8_t           save_unders;
+    uint8_t           root_depth;
+    uint8_t           allowed_depths_len;
+} zt_xcb_screen_t;
+
+typedef struct {
+    zt_xcb_screen_t *data;
+    int              rem;
+    int              index;
+} zt_xcb_screen_iterator_t;
+
+/* X11 constants we need. */
+enum {
+    ZT_XCB_PROP_MODE_REPLACE   = 0,
+    ZT_XCB_COPY_FROM_PARENT    = 0,
+    ZT_XCB_NONE                = 0,
+    ZT_XCB_CURRENT_TIME        = 0,
+    ZT_XCB_CW_EVENT_MASK       = 2048,    /* 0x800 */
+    ZT_XCB_EVENT_MASK_PROP_CHG = 4194304, /* 0x400000 */
+    ZT_XCB_EVENT_MASK_NONE     = 0,
+    ZT_XCB_WIN_CLASS_INPUT_ONLY= 2,
+    ZT_XCB_SELECTION_REQUEST   = 30,
+    ZT_XCB_SELECTION_CLEAR     = 29,
+    ZT_XCB_SELECTION_NOTIFY    = 31,
+};
+
+/* ─── Function pointer table (filled once by xcb_load()) ──────────────── */
+
+typedef struct {
+    void *handle; /* dlopen handle */
+
+    zt_xcb_connection_t *(*connect)(const char *, int *);
+    void                 (*disconnect)(zt_xcb_connection_t *);
+    int                  (*connection_has_error)(zt_xcb_connection_t *);
+    const zt_xcb_setup_t *(*get_setup)(zt_xcb_connection_t *);
+    zt_xcb_screen_iterator_t (*setup_roots_iterator)(const zt_xcb_setup_t *);
+    uint32_t             (*generate_id)(zt_xcb_connection_t *);
+    zt_xcb_void_cookie_t (*create_window)(zt_xcb_connection_t *, uint8_t,
+                          zt_xcb_window_t, zt_xcb_window_t,
+                          int16_t, int16_t, uint16_t, uint16_t,
+                          uint16_t, uint16_t, zt_xcb_visualid_t,
+                          uint32_t, const void *);
+    int                  (*flush)(zt_xcb_connection_t *);
+    int                  (*get_file_descriptor)(zt_xcb_connection_t *);
+    zt_xcb_intern_atom_cookie_t (*intern_atom)(zt_xcb_connection_t *,
+                                 uint8_t, uint16_t, const char *);
+    zt_xcb_intern_atom_reply_t *(*intern_atom_reply)(zt_xcb_connection_t *,
+                                  zt_xcb_intern_atom_cookie_t,
+                                  zt_xcb_generic_error_t **);
+    zt_xcb_void_cookie_t (*set_selection_owner)(zt_xcb_connection_t *,
+                          zt_xcb_window_t, zt_xcb_atom_t,
+                          zt_xcb_timestamp_t);
+    zt_xcb_void_cookie_t (*change_property)(zt_xcb_connection_t *,
+                          uint8_t, zt_xcb_window_t, zt_xcb_atom_t,
+                          zt_xcb_atom_t, uint8_t, uint32_t,
+                          const void *);
+    zt_xcb_void_cookie_t (*send_event)(zt_xcb_connection_t *,
+                          uint8_t, zt_xcb_window_t, uint32_t,
+                          const char *);
+    zt_xcb_generic_event_t *(*poll_for_event)(zt_xcb_connection_t *);
+} xcb_api_t;
+
+/* Load libxcb.so.1 and resolve every symbol we need.
+ * Returns true on success, false if *any* symbol is missing. */
+static bool xcb_load(xcb_api_t *api) {
+    api->handle = dlopen("libxcb.so.1", RTLD_LAZY);
+    if (!api->handle) {
+        /* Try unversioned name as a fallback. */
+        api->handle = dlopen("libxcb.so", RTLD_LAZY);
+    }
+    if (!api->handle) return false;
+
+#define LOAD(fn)                                                          \
+    do {                                                                  \
+        *(void **)(&api->fn) = dlsym(api->handle, "xcb_" #fn);           \
+        if (!api->fn) { dlclose(api->handle); api->handle = NULL; return false; } \
+    } while (0)
+
+    LOAD(connect);
+    LOAD(disconnect);
+    LOAD(connection_has_error);
+    LOAD(get_setup);
+    LOAD(setup_roots_iterator);
+    LOAD(generate_id);
+    LOAD(create_window);
+    LOAD(flush);
+    LOAD(get_file_descriptor);
+    LOAD(intern_atom);
+    LOAD(intern_atom_reply);
+    LOAD(set_selection_owner);
+    LOAD(change_property);
+    LOAD(send_event);
+    LOAD(poll_for_event);
+
+#undef LOAD
+    return true;
+}
+
+/* ─── Atom names ────────────────────────────────────────────────────────── */
+
 enum {
     A_CLIPBOARD = 0,
     A_PRIMARY,
@@ -62,126 +255,118 @@ enum {
     A_TEXT_PLAIN,
     A_TEXT_PLAIN_UTF8,
     A_TIMESTAMP,
-    A_INCR, /* unused but reserved for huge buffers */
+    A_INCR,
     A_ZYTERM_DATA,
     ATOMS_END
 };
 
 static const char *const k_atom_names[ATOMS_END] = {
-    "CLIPBOARD", "PRIMARY", "TARGETS",     "UTF8_STRING",
+    "CLIPBOARD", "PRIMARY", "TARGETS",    "UTF8_STRING",
     "STRING",    "TEXT",    "text/plain",  "text/plain;charset=utf-8",
-    "TIMESTAMP", "INCR",    "ZYTERM_DATA",
+    "TIMESTAMP", "INCR",   "ZYTERM_DATA",
 };
 
-/* Shared state between callers (set/clear) and the worker thread.
- * The worker holds the X connection. set() copies new data under
- * `mu`, then writes one byte to `wakefd[1]` so the worker's poll()
- * returns and it re-claims ownership with the new buffer. */
+/* ─── Shared state ──────────────────────────────────────────────────────── */
+
 static struct {
     pthread_mutex_t mu;
     pthread_t       tid;
     bool            running;
     bool            init_failed;
 
-    /* Buffer currently advertised on the CLIPBOARD selection. The
-     * worker reads under mu and copies the bytes into each
-     * SelectionNotify reply. Cleared on shutdown. */
     char  *buf;
     size_t len;
-    bool   need_claim; /* set() raises this; worker calls
-                        * xcb_set_selection_owner and clears it. */
+    bool   need_claim;
 
-    /* Self-pipe used to break out of poll() / xcb_wait_for_event. */
     int wakefd[2];
 
-    /* X resources owned by the worker. */
-    xcb_connection_t *conn;
-    xcb_window_t      window;
-    xcb_atom_t        atoms[ATOMS_END];
+    /* xcb resources */
+    zt_xcb_connection_t *conn;
+    zt_xcb_window_t      window;
+    zt_xcb_atom_t        atoms[ATOMS_END];
+
+    /* runtime-loaded API */
+    xcb_api_t api;
 } g = {.mu = PTHREAD_MUTEX_INITIALIZER, .wakefd = {-1, -1}};
 
-/* Send one byte into the wake pipe; ignores EAGAIN on a full pipe
- * because the worker is already pending-wake in that case. */
+/* ─── Helpers ───────────────────────────────────────────────────────────── */
+
 static void wake_worker(void) {
     if (g.wakefd[1] < 0) return;
     char b = 'w';
     while (write(g.wakefd[1], &b, 1) < 0 && errno == EINTR) {}
 }
 
-/* Reply to a SelectionRequest by writing `data` of `len` bytes onto
- * `requestor.property` with type `target`, then sending a
- * SelectionNotify event so the requestor knows the property is ready.
- *
- * If `target == TARGETS` we instead advertise the list of formats we
- * can serve so requestors can negotiate. */
-static void reply_selection(xcb_selection_request_event_t *req, xcb_atom_t target,
+static void reply_selection(zt_sel_request_t *req, zt_xcb_atom_t target,
                             const void *data, size_t len) {
-    xcb_atom_t prop = req->property ? req->property : req->target;
-    xcb_change_property(g.conn, XCB_PROP_MODE_REPLACE, req->requestor, prop, target,
-                        target == g.atoms[A_TARGETS] ? 32 : 8, (uint32_t)len, data);
+    zt_xcb_atom_t prop = req->property ? req->property : req->target;
+    g.api.change_property(g.conn, ZT_XCB_PROP_MODE_REPLACE, req->requestor,
+                          prop, target,
+                          target == g.atoms[A_TARGETS] ? 32 : 8,
+                          (uint32_t)len, data);
 
-    xcb_selection_notify_event_t ev = {0};
-    ev.response_type                = XCB_SELECTION_NOTIFY;
-    ev.time                         = req->time;
-    ev.requestor                    = req->requestor;
-    ev.selection                    = req->selection;
-    ev.target                       = req->target;
-    ev.property                     = prop;
-    xcb_send_event(g.conn, 0, req->requestor, XCB_EVENT_MASK_NO_EVENT, (const char *)&ev);
+    zt_sel_notify_t ev = {0};
+    ev.response_type   = ZT_XCB_SELECTION_NOTIFY;
+    ev.time            = req->time;
+    ev.requestor       = req->requestor;
+    ev.selection       = req->selection;
+    ev.target          = req->target;
+    ev.property        = prop;
+    g.api.send_event(g.conn, 0, req->requestor, ZT_XCB_EVENT_MASK_NONE,
+                     (const char *)&ev);
 }
 
-/* "I can't serve this format" — reply with property=None per ICCCM. */
-static void reject_selection(xcb_selection_request_event_t *req) {
-    xcb_selection_notify_event_t ev = {0};
-    ev.response_type                = XCB_SELECTION_NOTIFY;
-    ev.time                         = req->time;
-    ev.requestor                    = req->requestor;
-    ev.selection                    = req->selection;
-    ev.target                       = req->target;
-    ev.property                     = XCB_NONE;
-    xcb_send_event(g.conn, 0, req->requestor, XCB_EVENT_MASK_NO_EVENT, (const char *)&ev);
+static void reject_selection(zt_sel_request_t *req) {
+    zt_sel_notify_t ev = {0};
+    ev.response_type   = ZT_XCB_SELECTION_NOTIFY;
+    ev.time            = req->time;
+    ev.requestor       = req->requestor;
+    ev.selection       = req->selection;
+    ev.target          = req->target;
+    ev.property        = ZT_XCB_NONE;
+    g.api.send_event(g.conn, 0, req->requestor, ZT_XCB_EVENT_MASK_NONE,
+                     (const char *)&ev);
 }
 
-/* Service one SelectionRequest. Reads the buffer under mu so set()
- * can run concurrently from another thread without tearing. */
-static void handle_selection_request(xcb_selection_request_event_t *req) {
+static void handle_selection_request(zt_sel_request_t *req) {
     pthread_mutex_lock(&g.mu);
     char  *snap_buf = g.buf ? memcpy(malloc(g.len), g.buf, g.len) : NULL;
     size_t snap_len = g.len;
     pthread_mutex_unlock(&g.mu);
 
     if (req->target == g.atoms[A_TARGETS]) {
-        /* Tell the requestor what we serve. Order matters: most
-         * preferred (UTF-8) first. */
-        xcb_atom_t list[] = {
-            g.atoms[A_TARGETS],         g.atoms[A_TIMESTAMP], g.atoms[A_UTF8_STRING],
-            g.atoms[A_STRING],          g.atoms[A_TEXT],      g.atoms[A_TEXT_PLAIN],
+        zt_xcb_atom_t list[] = {
+            g.atoms[A_TARGETS],    g.atoms[A_TIMESTAMP],
+            g.atoms[A_UTF8_STRING], g.atoms[A_STRING],
+            g.atoms[A_TEXT],       g.atoms[A_TEXT_PLAIN],
             g.atoms[A_TEXT_PLAIN_UTF8],
         };
-        reply_selection(req, g.atoms[A_TARGETS], list, sizeof list / sizeof list[0]);
-    } else if (req->target == g.atoms[A_UTF8_STRING] || req->target == g.atoms[A_STRING] ||
-               req->target == g.atoms[A_TEXT] || req->target == g.atoms[A_TEXT_PLAIN] ||
+        reply_selection(req, g.atoms[A_TARGETS], list,
+                        sizeof list / sizeof list[0]);
+    } else if (req->target == g.atoms[A_UTF8_STRING] ||
+               req->target == g.atoms[A_STRING]      ||
+               req->target == g.atoms[A_TEXT]         ||
+               req->target == g.atoms[A_TEXT_PLAIN]   ||
                req->target == g.atoms[A_TEXT_PLAIN_UTF8]) {
-        if (snap_buf && snap_len > 0) {
+        if (snap_buf && snap_len > 0)
             reply_selection(req, req->target, snap_buf, snap_len);
-        } else {
+        else
             reject_selection(req);
-        }
     } else {
         reject_selection(req);
     }
 
     free(snap_buf);
-    xcb_flush(g.conn);
+    g.api.flush(g.conn);
 }
 
-/* Worker thread: open conn, intern atoms, create window, then loop
- * forever multiplexing wake-pipe + xcb fd via poll(). */
+/* ─── Worker thread ─────────────────────────────────────────────────────── */
+
 static void *worker_main(void *arg) {
     (void)arg;
 
-    g.conn = xcb_connect(NULL, NULL);
-    if (!g.conn || xcb_connection_has_error(g.conn)) {
+    g.conn = g.api.connect(NULL, NULL);
+    if (!g.conn || g.api.connection_has_error(g.conn)) {
         pthread_mutex_lock(&g.mu);
         g.init_failed = true;
         g.running     = false;
@@ -190,65 +375,56 @@ static void *worker_main(void *arg) {
     }
 
     /* Intern all atoms in one round-trip batch. */
-    xcb_intern_atom_cookie_t cookies[ATOMS_END];
+    zt_xcb_intern_atom_cookie_t cookies[ATOMS_END];
+    for (int i = 0; i < ATOMS_END; i++)
+        cookies[i] = g.api.intern_atom(g.conn, 0,
+                         (uint16_t)strlen(k_atom_names[i]),
+                         k_atom_names[i]);
     for (int i = 0; i < ATOMS_END; i++) {
-        cookies[i] =
-            xcb_intern_atom(g.conn, 0, (uint16_t)strlen(k_atom_names[i]), k_atom_names[i]);
-    }
-    for (int i = 0; i < ATOMS_END; i++) {
-        xcb_intern_atom_reply_t *r = xcb_intern_atom_reply(g.conn, cookies[i], NULL);
+        zt_xcb_intern_atom_reply_t *r =
+            g.api.intern_atom_reply(g.conn, cookies[i], NULL);
         if (r) {
             g.atoms[i] = r->atom;
             free(r);
         }
     }
 
-    const xcb_setup_t    *setup = xcb_get_setup(g.conn);
-    xcb_screen_iterator_t it    = xcb_setup_roots_iterator(setup);
+    const zt_xcb_setup_t     *setup = g.api.get_setup(g.conn);
+    zt_xcb_screen_iterator_t  it    = g.api.setup_roots_iterator(setup);
     if (!it.data) {
-        xcb_disconnect(g.conn);
+        g.api.disconnect(g.conn);
         g.conn        = NULL;
         g.init_failed = true;
         g.running     = false;
         return NULL;
     }
-    xcb_screen_t *screen = it.data;
+    zt_xcb_screen_t *screen = it.data;
 
-    /* InputOnly off-screen window. Never mapped — it exists only as
-     * a SelectionOwner target so the X server can route
-     * SelectionRequest events to this connection. */
-    g.window         = xcb_generate_id(g.conn);
-    uint32_t mask    = XCB_CW_EVENT_MASK;
-    uint32_t vals[1] = {XCB_EVENT_MASK_PROPERTY_CHANGE};
-    xcb_create_window(g.conn, XCB_COPY_FROM_PARENT, g.window, screen->root, -10, -10, 1, 1, 0,
-                      XCB_WINDOW_CLASS_INPUT_ONLY, screen->root_visual, mask, vals);
-    xcb_flush(g.conn);
+    g.window        = g.api.generate_id(g.conn);
+    uint32_t mask   = ZT_XCB_CW_EVENT_MASK;
+    uint32_t vals[] = {ZT_XCB_EVENT_MASK_PROP_CHG};
+    g.api.create_window(g.conn, ZT_XCB_COPY_FROM_PARENT, g.window,
+                        screen->root, -10, -10, 1, 1, 0,
+                        ZT_XCB_WIN_CLASS_INPUT_ONLY, screen->root_visual,
+                        mask, vals);
+    g.api.flush(g.conn);
 
-    int xfd = xcb_get_file_descriptor(g.conn);
+    int xfd = g.api.get_file_descriptor(g.conn);
 
     for (;;) {
-        /* Re-claim ownership if set() raised the flag. We do it in
-         * the worker (not the caller) so all X calls happen on one
-         * thread → no need to wrap xcb in a separate mutex. */
         pthread_mutex_lock(&g.mu);
         bool need_claim = g.need_claim;
         g.need_claim    = false;
         pthread_mutex_unlock(&g.mu);
         if (need_claim) {
-            /* CLIPBOARD only. We deliberately do NOT claim PRIMARY:
-             * other apps treat their highlighted text as the PRIMARY
-             * selection, and stealing PRIMARY (or having theirs steal
-             * ours via SelectionClear) wipes our buffer at exactly
-             * the wrong moment — e.g. user copies in zyterm, opens
-             * Notepad, hits Ctrl+A, then Ctrl+V finds an empty
-             * clipboard. CLIPBOARD is the explicit-copy buffer and
-             * is what Ctrl+V actually reads. */
-            xcb_set_selection_owner(g.conn, g.window, g.atoms[A_CLIPBOARD], XCB_CURRENT_TIME);
-            xcb_flush(g.conn);
+            g.api.set_selection_owner(g.conn, g.window,
+                                     g.atoms[A_CLIPBOARD],
+                                     ZT_XCB_CURRENT_TIME);
+            g.api.flush(g.conn);
         }
 
         struct pollfd pfds[2] = {{xfd, POLLIN, 0}, {g.wakefd[0], POLLIN, 0}};
-        int           n       = poll(pfds, 2, -1);
+        int n = poll(pfds, 2, -1);
         if (n < 0) {
             if (errno == EINTR) continue;
             break;
@@ -257,23 +433,15 @@ static void *worker_main(void *arg) {
             char drain[64];
             while (read(g.wakefd[0], drain, sizeof drain) > 0) {}
         }
-        /* Drain ALL pending events before re-polling — xcb buffers
-         * may hold several. */
-        for (xcb_generic_event_t *ev; (ev = xcb_poll_for_event(g.conn));) {
+
+        for (zt_xcb_generic_event_t *ev;
+             (ev = g.api.poll_for_event(g.conn));) {
             switch (ev->response_type & 0x7f) {
-            case XCB_SELECTION_REQUEST:
-                handle_selection_request((xcb_selection_request_event_t *)ev);
+            case ZT_XCB_SELECTION_REQUEST:
+                handle_selection_request((zt_sel_request_t *)ev);
                 break;
-            case XCB_SELECTION_CLEAR: {
-                /* Only react when CLIPBOARD itself was stolen
-                 * (another app called set_selection_owner on it,
-                 * usually because the user did an explicit Ctrl+C
-                 * elsewhere). PRIMARY clears are routine — every
-                 * highlight in every app fires one — and dropping
-                 * the buffer on those would empty the clipboard
-                 * the moment the user selects anything outside
-                 * zyterm. */
-                xcb_selection_clear_event_t *ce = (xcb_selection_clear_event_t *)ev;
+            case ZT_XCB_SELECTION_CLEAR: {
+                zt_sel_clear_t *ce = (zt_sel_clear_t *)ev;
                 if (ce->selection == g.atoms[A_CLIPBOARD]) {
                     pthread_mutex_lock(&g.mu);
                     free(g.buf);
@@ -287,18 +455,21 @@ static void *worker_main(void *arg) {
             }
             free(ev);
         }
-        if (xcb_connection_has_error(g.conn)) break;
+        if (g.api.connection_has_error(g.conn)) break;
     }
 
-    xcb_disconnect(g.conn);
+    g.api.disconnect(g.conn);
     g.conn = NULL;
     return NULL;
 }
 
+/* ─── Public API ────────────────────────────────────────────────────────── */
+
 bool clipboard_native_set(const char *buf, size_t n) {
     if (!buf || n == 0) return false;
-    /* Skip cleanly when there's no X server (SSH session, headless,
-     * Wayland w/o XWayland). Saves a libxcb connect attempt. */
+
+    /* No X server → nothing to own. Covers headless, SSH, and
+     * pure-Wayland without XWayland. */
     const char *display = getenv("DISPLAY");
     if (!display || !*display) return false;
 
@@ -307,20 +478,29 @@ bool clipboard_native_set(const char *buf, size_t n) {
         pthread_mutex_unlock(&g.mu);
         return false;
     }
+
+    /* First call: try to load libxcb at runtime. */
+    if (!g.running && !g.api.handle) {
+        if (!xcb_load(&g.api)) {
+            g.init_failed = true;
+            pthread_mutex_unlock(&g.mu);
+            return false;
+        }
+    }
+
     if (!g.running) {
         if (pipe(g.wakefd) < 0) {
             g.init_failed = true;
             pthread_mutex_unlock(&g.mu);
             return false;
         }
-        /* Non-blocking so wake_worker() never stalls under burst. */
         fcntl(g.wakefd[0], F_SETFL, O_NONBLOCK);
         fcntl(g.wakefd[1], F_SETFL, O_NONBLOCK);
         if (pthread_create(&g.tid, NULL, worker_main, NULL) != 0) {
             close(g.wakefd[0]);
             close(g.wakefd[1]);
             g.wakefd[0] = g.wakefd[1] = -1;
-            g.init_failed             = true;
+            g.init_failed = true;
             pthread_mutex_unlock(&g.mu);
             return false;
         }
@@ -343,13 +523,3 @@ bool clipboard_native_set(const char *buf, size_t n) {
     wake_worker();
     return true;
 }
-
-#else /* !ZT_HAVE_X11 */
-
-bool clipboard_native_set(const char *buf, size_t n) {
-    (void)buf;
-    (void)n;
-    return false;
-}
-
-#endif

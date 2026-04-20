@@ -1,7 +1,7 @@
 # Contributing
 
-Thanks for your interest. zyterm is small (around 8.8k LOC), focused,
-and friendly to drive-by patches.
+Thanks for your interest! zyterm is a small project and we're happy
+to accept patches of any size.
 
 ## 1. Build and run
 
@@ -10,11 +10,11 @@ git clone https://github.com/iskandarputra/zyterm.git
 cd zyterm
 make            # ./zyterm  (release, -O3)
 make debug      # ./zyterm  (-O0 -g3 for gdb / valgrind)
-make test       # 156 pass: 136 unit + 20 pty
+make test       # unit + pty tiers
 make modules    # per-module LOC summary
 ```
 
-You need: `cc` (gcc or clang), GNU make, and `pthread`. That's it.
+You need: a C compiler (`gcc` or `clang`) and GNU `make`. That's it.
 
 ### Using build.sh
 
@@ -75,8 +75,8 @@ Two-line summary: drop the `.c` under `src/<module>/`, add prototypes to
 Every change that touches a module should come with at least one
 assertion. Existing tests live in:
 
-- `tests/unit/test_subsystems.c`: 136 assertions across 20+ subsystems.
-- `tests/pty/pty_harness.c`: 20 assertions, end-to-end via `forkpty`.
+- `tests/unit/test_subsystems.c`: assertions across 20+ subsystems.
+- `tests/pty/pty_harness.c`: end-to-end assertions via `forkpty`.
 
 Place new files in:
 

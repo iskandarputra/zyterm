@@ -1,30 +1,29 @@
 # Architecture
 
-zyterm is approximately 8.8k lines of C11, organised into ten small
-modules under `src/`, plus `main.c`. Each module owns one concern,
-lives in its own directory, and exposes exactly one public header at
-`include/zyterm/internal/<module>.h`.
+zyterm is organised into ten modules under `src/`, plus `main.c`.
+Each module owns one concern, lives in its own directory, and exposes
+one public header at `include/zyterm/internal/<module>.h`.
 
 The whole runtime carries a single `zt_ctx` value (defined in
-`src/zt_ctx.h`). zyterm is single-threaded by default, so a flat struct
-gives the optimiser maximum inlining freedom.
+`src/zt_ctx.h`). zyterm is single-threaded by default; a flat struct
+keeps things simple and gives the compiler room to inline.
 
 ## 1. Module map
 
-| Module    | Files |  LOC | Responsibility                                                                                                                                                                                             |
-| --------- | ----: | ---: | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `core/`   |     2 |  506 | Logging, output buffer, signals, terminal raw mode, time, CRC. No state beyond `zt_g_*` globals.                                                                                                           |
-| `serial/` |     4 |  521 | Open and configure the serial port (`termios2` / `IOSSIOSPEED`), reconnect probe, `epoll(7)` + `splice(2)` fast path, `TIOCGICOUNT` / `TIOCMGET` polling, autobaud.                                        |
-| `log/`    |     3 |  737 | Persistent log file with rotation, JSONL emit, scrollback ring buffer.                                                                                                                                     |
-| `proto/`  |     7 | 1487 | COBS, SLIP, HDLC, and length-prefixed frame decoders, native XMODEM-CRC, YMODEM/ZMODEM via `lrzsz`, OSC 52 clipboard, OSC 8 hyperlinks, ANSI SGR pass-through, KGDB raw mode, F-key macro fire and expand. |
-| `render/` |     2 |  370 | RX byte-stream parsing plus Zephyr/severity colouring plus scrollback push, throughput sparkline.                                                                                                          |
-| `tui/`    |     4 |  990 | HUD row (neon status with activity LED), glassmorphism frosted-glass dialogs, command menu popup, settings menu (4-page serial/display/keyboard/logging), keybindings reference popup, search/rename overlays, less-style pager, subsequence fuzzy finder. |
-| `net/`    |     3 | 1296 | HTTP + SSE + WebSocket remote view, Prometheus text-format metrics, UNIX-socket detach/attach.                                                                                                             |
-| `ext/`    |     7 |  690 | Bookmarks, log-file diff, RX filter subprocess, log-level mute, multi-device panes, INI profiles, reconnect popup.                                                                                         |
-| `loop/`   |     4 | 1629 | Keyboard input plus escape parsing, send pipeline (trickle, direct, flush_unsent), optional SPSC RX thread, top-level `run_interactive` / `run_dump` / `run_replay`.                                       |
-| `main.c`  |     1 |  530 | CLI option parsing and entry point.                                                                                                                                                                        |
+| Module    | Responsibility                                                                                                                                                                    |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `core/`   | Logging, output buffer, signals, terminal raw mode, time, CRC.                                                                                                                    |
+| `serial/` | Open and configure the serial port (`termios2` / `IOSSIOSPEED`), reconnect probe, `epoll(7)` + `splice(2)` fast path on Linux, `TIOCGICOUNT` / `TIOCMGET` polling, autobaud.      |
+| `log/`    | Persistent log file with rotation, JSONL emit, scrollback ring buffer.                                                                                                            |
+| `proto/`  | COBS, SLIP, HDLC, and length-prefixed frame decoders, XMODEM-CRC, YMODEM/ZMODEM via `lrzsz`, clipboard (dlopen xcb at runtime), OSC 52, OSC 8 hyperlinks, ANSI SGR pass-through, KGDB raw mode, F-key macros. |
+| `render/` | RX byte-stream parsing, Zephyr/severity colouring, scrollback push, throughput sparkline.                                                                                         |
+| `tui/`    | HUD row, dialogs, command menu popup, settings menu (4-page serial/display/keyboard/logging), keybindings reference popup, search overlays, pager, fuzzy finder.                  |
+| `net/`    | HTTP + SSE + WebSocket remote view, Prometheus text-format metrics, UNIX-socket detach/attach.                                                                                    |
+| `ext/`    | Bookmarks, log-file diff, RX filter subprocess, log-level mute, multi-device panes, INI profiles, reconnect popup.                                                                |
+| `loop/`   | Keyboard input plus escape parsing, send pipeline, optional SPSC RX thread, top-level `run_interactive` / `run_dump` / `run_replay`.                                              |
+| `main.c`  | CLI option parsing and entry point.                                                                                                                                               |
 
-Run `make modules` for a live count.
+Run `make modules` for a live per-module breakdown.
 
 ## 2. Dependency rule
 
@@ -62,14 +61,17 @@ There is an optional reader thread (`--threaded`):
 
 ## 4. Hot paths
 
-| Path            | Optimisation                                                                                              |
-| --------------- | --------------------------------------------------------------------------------------------------------- |
-| RX to screen    | One `read()` (up to 64 KiB), one `framing_feed()`, one `render_rx()`.                                     |
-| Stdout writes   | All UI output goes through a coalescing buffer (`ob_*`), with a single `writev` flush per loop iteration. |
-| RAW log capture | On Linux, `splice(2)` from the serial fd straight into the log file fd. Zero copy through userspace.      |
-| TX              | Bytes are spaced by `ZT_FLUSH_DELAY_US` (2 ms) to protect slow embedded UART RX buffers.                  |
-| Frame decode    | Branch-free CRC tables, decoder driven by a small DFA.                                                    |
-| Scrollback      | Ring buffer of `char *` pointers. Push is O(1).                                                           |
+These are the performance-sensitive code paths. We've tried to keep
+them tight, though there's always room for improvement.
+
+| Path            | Approach                                                                                             |
+| --------------- | ---------------------------------------------------------------------------------------------------- |
+| RX to screen    | One `read()` (up to 64 KiB), one `framing_feed()`, one `render_rx()`.                                |
+| Stdout writes   | UI output goes through a coalescing buffer (`ob_*`), flushed once per loop iteration via `writev`.   |
+| RAW log capture | On Linux, `splice(2)` from the serial fd into the log file fd, avoiding a copy through userspace.    |
+| TX              | Bytes are spaced by `ZT_FLUSH_DELAY_US` (2 ms) to avoid overrunning slow embedded UART RX buffers.   |
+| Frame decode    | CRC tables are precomputed; decoder is a small state machine.                                        |
+| Scrollback      | Ring buffer of `char *` pointers. Push is O(1).                                                      |
 
 ## 5. The `zt_ctx` struct
 
@@ -104,21 +106,16 @@ Full pattern in [API.md](API.md).
 
 ## 7. UI design language
 
-All user-facing dialogs share a unified glassmorphism aesthetic
-implemented in `tui/hud.c::draw_dialog()`:
+The user-facing dialogs share a consistent dark-theme look implemented
+in `tui/hud.c::draw_dialog()`:
 
-- **Frame**: Rounded thin borders (`╭ ╮ ╰ ╯`), frosted-glass
-  background (RGB 42,42,42).
-- **Title bar**: Slightly lighter strip (RGB 50,50,50) with warm gold
-  accent icon and label.
-- **Accents**: Warm amber (xterm color 214, 178) for interactive
-  elements; dim separators (color 238, 239).
-- **Shadow**: Single subtle drop shadow (RGB 28,28,28) behind the
-  dialog.
-- **Spacing**: Generous inner padding; clean typography using
-  single-width glyphs only.
+- **Frame**: Rounded thin borders (`╭ ╮ ╰ ╯`), dark background.
+- **Title bar**: Slightly lighter strip with a warm gold accent.
+- **Accents**: Amber tones for interactive elements; dim separators.
+- **Shadow**: Subtle drop shadow behind the dialog.
+- **Spacing**: Generous inner padding; single-width glyphs.
 
-`draw_dialog()` is used by:
+`draw_dialog()` is shared by:
 
 - Command menu (`Ctrl+A`): `draw_cmd_popup()`
 - Settings menu (`Ctrl+A o`): `draw_settings_page()` -- four pages of
@@ -126,8 +123,8 @@ implemented in `tui/hud.c::draw_dialog()`:
 - Keybindings reference (`Ctrl+A k`): `draw_keybind_popup()`
 - Status flashes: transient feedback messages
 
-The HUD row itself (`draw_hud()`) uses a separate neon cyberpunk
-palette with an activity LED and throughput sparkline.
+The HUD row itself (`draw_hud()`) uses a different colour scheme with
+an activity LED and throughput sparkline.
 
 ## 8. Build pipeline
 
@@ -156,8 +153,7 @@ testing, and `.deb` packaging workflows. See the
 4. Add a unit test under `tests/unit/test_<thing>.c`.
 5. Document the module in `docs/USER_GUIDE.md` if it has a user-facing
    surface (CLI flag or keybinding).
-6. Bump the LOC table in section 1 if the module is new.
-7. Run `make modules && make && make test`.
+6. Run `make modules && make && make test`.
 
 ## 10. Anti-patterns
 

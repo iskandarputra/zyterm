@@ -22,8 +22,10 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -34,18 +36,27 @@ static const char B64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0
  * Wayland (wl-copy) first, then X11 (xclip, xsel), then macOS (pbcopy).
  * This is a hard fallback for terminals/multiplexers that drop OSC 52
  * (gnome-terminal, default kitty, default xterm, tmux without
- * `set-clipboard on`, screen, …). */
+ * `set-clipboard on`, screen, …).
+ *
+ * Environment-aware: skip helpers that need a display server we don't
+ * have — avoids wasteful fork+exec on pure-Wayland (no xclip) or
+ * headless (no wl-copy) systems. */
 static const char *clipboard_pipe(const char *buf, size_t n) {
+    const char *wl_disp = getenv("WAYLAND_DISPLAY");
+    const char *x_disp  = getenv("DISPLAY");
     static const struct {
         const char *name;
         const char *argv[4];
+        int         env; /* 0 = any, 1 = WAYLAND_DISPLAY, 2 = DISPLAY */
     } helpers[] = {
-        {"wl-copy", {"wl-copy", NULL, NULL, NULL}},
-        {"xclip", {"xclip", "-selection", "clipboard", NULL}},
-        {"xsel", {"xsel", "--clipboard", "--input", NULL}},
-        {"pbcopy", {"pbcopy", NULL, NULL, NULL}},
+        {"wl-copy", {"wl-copy", NULL, NULL, NULL}, 1},
+        {"xclip",   {"xclip", "-selection", "clipboard", NULL}, 2},
+        {"xsel",    {"xsel", "--clipboard", "--input", NULL}, 2},
+        {"pbcopy",  {"pbcopy", NULL, NULL, NULL}, 0},
     };
     for (size_t h = 0; h < sizeof helpers / sizeof helpers[0]; h++) {
+        if (helpers[h].env == 1 && (!wl_disp || !*wl_disp)) continue;
+        if (helpers[h].env == 2 && (!x_disp  || !*x_disp))  continue;
         int fds[2];
         if (pipe(fds) < 0) continue;
         pid_t pid = fork();
@@ -106,20 +117,84 @@ static void b64enc(const unsigned char *in, size_t n, char *out) {
     out[o] = '\0';
 }
 
+/* Tier 4 — file-based clipboard fallback.
+ *
+ * Absolute last resort when no system clipboard path succeeded.
+ * Writes the selection to $XDG_CACHE_HOME/zyterm/clipboard
+ * (default ~/.cache/zyterm/clipboard). File is overwritten on
+ * each copy — no unbounded growth. Permissions 0600 for privacy.
+ *
+ * This guarantees the user never loses a selection: even on a
+ * headless SSH session or a locked-down Wayland compositor with
+ * no helpers installed, the text lands somewhere retrievable
+ * (cat, xargs, pipe into another tool). */
+static const char *clipboard_file(const char *buf, size_t n) {
+    static char fpath[512];
+    const char *cache = getenv("XDG_CACHE_HOME");
+    const char *home  = getenv("HOME");
+
+    if (cache && *cache) {
+        snprintf(fpath, sizeof fpath, "%s/zyterm", cache);
+    } else if (home && *home) {
+        snprintf(fpath, sizeof fpath, "%s/.cache", home);
+        (void)mkdir(fpath, 0700);
+        snprintf(fpath, sizeof fpath, "%s/.cache/zyterm", home);
+    } else {
+        snprintf(fpath, sizeof fpath, "/tmp/zyterm-%d", (int)getpid());
+    }
+    (void)mkdir(fpath, 0700);
+
+    size_t dlen = strlen(fpath);
+    snprintf(fpath + dlen, sizeof fpath - dlen, "/clipboard");
+
+    int fd = open(fpath, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    if (fd < 0) return NULL;
+
+    size_t off = 0;
+    while (off < n) {
+        ssize_t w = write(fd, buf + off, n - off);
+        if (w < 0) {
+            if (errno == EINTR) continue;
+            close(fd);
+            return NULL;
+        }
+        off += (size_t)w;
+    }
+    close(fd);
+    return fpath;
+}
+
+/* ── Unified clipboard push ─────────────────────────────────────────────── *
+ *
+ * Four-tier cascade — every selection always lands somewhere:
+ *
+ *   Tier 1  Native X11 selection owner (xcb, optional build-time).
+ *           Works on X11 and Wayland+XWayland when $DISPLAY is set.
+ *
+ *   Tier 2  OSC 52 terminal escape (always emitted when enabled).
+ *           The host terminal places the text on the system clipboard.
+ *           Ghostty, Alacritty, kitty, foot, wezterm, iTerm2, etc.
+ *
+ *   Tier 3  External helper binary (wl-copy / xclip / xsel / pbcopy).
+ *           Only tried when Tier 1 didn't take ownership.
+ *           Environment-aware: skips helpers that need a display
+ *           server we don't have.
+ *
+ *   Tier 4  File fallback (~/.cache/zyterm/clipboard).
+ *           Fires only when Tiers 1+3 both failed. Guarantees the
+ *           user never loses a selection, even headless/SSH.
+ *
+ * The flash message tells the user exactly which tier succeeded and
+ * what to install to get a better path next time.                        */
 void osc52_copy(zt_ctx *c, const char *buf, size_t n) {
     if (!c || !buf || n == 0) return;
-    /* Clamp to 100k so we don't overflow pasted-line limits. */
     if (n > 100000) n = 100000;
 
-    /* 1. Native X11 selection-owner thread (zero external deps when
-     *    libxcb is present at build time). This is the path users
-     *    actually want — a buffer they can paste anywhere. */
-    bool native_ok = clipboard_native_set(buf, n);
+    /* ── Tier 1: native X11 selection owner ──────────────────────────── */
+    bool sys_ok = clipboard_native_set(buf, n);
 
-    /* 2. Always emit OSC 52 too when enabled — fast path for terminals
-     *    that support it (Ghostty, Alacritty, kitty w/ clipboard_control,
-     *    foot, wezterm, …). Costs one BEL-terminated escape and is
-     *    silently ignored on terminals that don't honor it. */
+    /* ── Tier 2: OSC 52 escape (always, when enabled) ────────────────── */
+    bool osc52_sent = false;
     if (c->proto.osc52_enabled) {
         char *b64 = malloc(4 * ((n + 2) / 3) + 1);
         if (b64) {
@@ -129,22 +204,35 @@ void osc52_copy(zt_ctx *c, const char *buf, size_t n) {
             ob_cstr("\x07");
             ob_flush();
             free(b64);
+            osc52_sent = true;
         }
     }
 
-    /* 3. External-helper fallback. Only fires when the native path
-     *    didn't take ownership (no $DISPLAY, no xcb at build time,
-     *    etc.) — pure Wayland sessions and headless boxes land here. */
-    const char *helper = native_ok ? NULL : clipboard_pipe(buf, n);
+    /* ── Tier 3: external helper ─────────────────────────────────────── */
+    if (!sys_ok) {
+        const char *h = clipboard_pipe(buf, n);
+        if (h) {
+            set_flash(c, "copied %zu bytes via %s", n, h);
+            return;
+        }
+    }
 
-    if (native_ok) {
-        set_flash(c, "copied %zu bytes (native X11 clipboard)", n);
-    } else if (helper) {
-        set_flash(c, "copied %zu bytes via %s", n, helper);
-    } else if (c->proto.osc52_enabled) {
-        set_flash(c, "copied %zu bytes via OSC 52 (no clipboard owner)", n);
+    /* ── Tier 4: file fallback ───────────────────────────────────────── */
+    const char *fpath = NULL;
+    if (!sys_ok)
+        fpath = clipboard_file(buf, n);
+
+    /* ── Status flash ────────────────────────────────────────────────── */
+    if (sys_ok) {
+        set_flash(c, "copied %zu bytes (native X11 owner)", n);
+    } else if (fpath && osc52_sent) {
+        set_flash(c, "copied %zu bytes \xc2\xb7 OSC 52 + %s", n, fpath);
+    } else if (fpath) {
+        set_flash(c, "copied %zu bytes \xe2\x86\x92 %s", n, fpath);
+    } else if (osc52_sent) {
+        set_flash(c, "copied %zu bytes via OSC 52", n);
     } else {
-        set_flash(c, "no clipboard available");
+        set_flash(c, "copy failed \xe2\x80\x94 no clipboard backend");
     }
 }
 

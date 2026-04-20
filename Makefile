@@ -1,20 +1,21 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# zyterm — zero-dependency high-performance serial terminal
+# zyterm — serial terminal for embedded development
 #
-# Source layout (semantic modules under src/):
-#   core/    cross-cutting helpers, signals, terminal, time, output buffer, CRC
+# Source layout (modules under src/):
+#   core/    helpers, signals, terminal, time, output buffer, CRC
 #   serial/  serial port setup, fast I/O, kernel UART counters, autobaud
 #   log/     persistent log file, JSONL emit, scrollback ring
-#   proto/   frame decoders, X/Y/ZMODEM, F-key macros, OSC, SGR, KGDB pass-through
+#   proto/   frame decoders, X/Y/ZMODEM, F-key macros, clipboard (dlopen xcb),
+#            OSC, SGR, KGDB pass-through
 #   render/  RX rendering pipeline, throughput sparkline
-#   tui/     HUD, dialogs, search/rename, pager, fuzzy finder
+#   tui/     HUD, dialogs, search, pager, fuzzy finder
 #   net/     HTTP/SSE/WS bridge, Prometheus metrics, detach/attach sessions
 #   ext/     bookmarks, diff, filter, log-level mute, multi-pane, profiles, reconnect
 #   loop/    keyboard input, send pipeline, RX reader thread, run loops
 #   main.c   CLI parsing + entry point
 #
 # Each src/.../<file>.c → build/obj/.../<file>.o → linked into ./zyterm.
-# Requires: POSIX libc (Linux/macOS), pthread. No external libraries.
+# Requires: cc + make. Runtime: libc (glibc >= 2.34 on Linux).
 # ─────────────────────────────────────────────────────────────────────────────
 
 CC       ?= cc
@@ -24,22 +25,28 @@ WARN     ?= -Wall -Wextra -pedantic
 INCS     ?= -Iinclude -Isrc
 CFLAGS   ?= $(OPT) $(WARN) $(CSTD) -D_GNU_SOURCE $(INCS)
 LDFLAGS  ?=
+
+# OS-aware link flags:
+#   Linux : -lpthread -ldl  (glibc < 2.34 ships these as separate .so;
+#                             glibc >= 2.34 absorbs them into libc but
+#                             the flags are harmless stubs.)
+#   macOS : -lpthread       (dlopen lives in libSystem; -ldl doesn't exist.)
+#   FreeBSD: -lpthread      (dlopen is in libc.)
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Linux)
+LDLIBS   ?= -lpthread -ldl
+else
 LDLIBS   ?= -lpthread
+endif
 
 BIN       = zyterm
 SRC_DIR   = src
 OBJ_DIR   = build/obj
 
-# Optional native X11 clipboard owner. Detected via pkg-config so the
-# build stays "zero hard dep": when libxcb + libxcb-xfixes dev pkgs
-# are present we compile src/proto/clipboard.c with a real X owner
-# thread; otherwise the same TU compiles to a no-op stub and we fall
-# back to OSC 52 + helper binaries (xclip/wl-copy/pbcopy) at runtime.
-HAVE_XCB := $(shell pkg-config --exists xcb xcb-xfixes 2>/dev/null && echo yes)
-ifeq ($(HAVE_XCB),yes)
-CFLAGS  += -DZT_HAVE_X11 $(shell pkg-config --cflags xcb xcb-xfixes)
-LDLIBS  += $(shell pkg-config --libs xcb xcb-xfixes)
-endif
+# Native X11 clipboard: loaded at runtime via dlopen("libxcb.so.1").
+# No compile-time headers or pkg-config probe needed. Works on any
+# graphical Linux desktop (X11 or XWayland). Falls back gracefully
+# on headless / pure-Wayland / macOS where libxcb isn't present.
 
 # Recursively gather all .c files under src/ (semantic modules + main.c).
 SOURCES  := $(shell find $(SRC_DIR) -type f -name '*.c' | sort)

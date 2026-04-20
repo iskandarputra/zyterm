@@ -1,15 +1,18 @@
 # User Guide
 
-Everything you need to drive zyterm from the keyboard.
+A walkthrough of what zyterm can do and how to use it.
 
 ## What zyterm does
 
-It opens a serial device, exchanges bytes with it, and shows you the
-result in a friendly terminal UI. You get scrollback, search, log
-capture, hex view, watch-pattern highlights, macros, and a fuzzy
-command finder. One binary. Single-threaded for the cold paths, with
-one optional reader thread per port for the hot RX path at very high
-baud rates.
+It opens a serial port, exchanges bytes with whatever is on the other
+end, and shows you the result in a terminal UI. You get scrollback,
+search, log capture, hex view, watch-pattern highlights, macros, and a
+fuzzy command finder — the kinds of things that are handy when you're
+talking to microcontrollers all day.
+
+One binary, no external dependencies. The main loop is single-threaded;
+there's an optional reader thread for the RX path if you're running at
+very high baud rates and the main loop can't keep up.
 
 ```sh
 ./zyterm /dev/ttyUSB0 -b 115200          # the most common invocation
@@ -96,35 +99,43 @@ The screen is divided into three locked zones:
 During log spam, only the middle region scrolls. The input bar stays
 locked at the bottom. You can:
 
-- Type commands while terabytes pass through
-- Press Tab for Zephyr RTOS shell completion (or any completion your
-  device supports)
-- See your keystrokes rendered in real-time
-- Watch the top bar update with baud and error metrics
+- Type commands while output is streaming past
+- Press Tab for shell completion (works with Zephyr RTOS and similar
+  interactive shells on the device side)
+- See your keystrokes rendered without noticeable lag
+- Glance at the top bar for baud rate and error counters
 
-This design is why zyterm stays interactive even at 4 million baud with
-thousands of lines per second.
+This helps zyterm stay usable at high baud rates, though very fast
+bursts on slow hardware may still occasionally drop characters — that's
+usually a USB-serial adapter limitation rather than a software one.
 
 ## Mouse and selection
 
-zyterm captures mouse input to let you select and copy text without
-leaving the keyboard. Drag to highlight a region; the text is then
-available in three ways:
+zyterm captures mouse input so you can select and copy text by
+dragging. When you release, zyterm tries to put the text on your
+system clipboard using a few approaches, in order:
 
-1. **Native X11 clipboard** (Linux with Xvfb/X11): zyterm owns the
-   CLIPBOARD selection internally, so paste works in any app.
-2. **OSC 52 escape** (all systems): Works over SSH and in tmux.
-3. **Helper binary** (fallback): Uses `xclip`, `xsel`, or `pbcopy` if
-   available.
+1. **Native X11 clipboard** — On Linux desktops with X11 (or Wayland
+   with XWayland), zyterm loads `libxcb.so.1` at runtime and becomes
+   the CLIPBOARD selection owner. This means Ctrl+V paste works in
+   other apps. No extra packages to install — `libxcb.so.1` is already
+   present on most graphical systems.
+2. **OSC 52 terminal escape** — Works over SSH, inside tmux, and on
+   terminals that support it (most modern ones do).
+3. **Helper binaries** — Falls back to `wl-copy` (Wayland), `xclip`,
+   `xsel` (X11), or `pbcopy` (macOS), if any are available.
+4. **File fallback** — As a last resort, saves to
+   `~/.cache/zyterm/clipboard`. Not ideal, but at least the text
+   isn't lost.
 
 The selection persists when you scroll, so you can drag, scroll down,
-and copy later. Right-click anywhere inside the selection to copy it
-again. Press `Ctrl+A` then `m` to toggle mouse capture on/off (default
-is **on**).
+and copy later. Right-click inside the selection to copy it again.
+Press `Ctrl+A` then `m` to toggle mouse capture on/off (default is
+**on**).
 
-A smart `Ctrl+A` then `Y` command chains: if you have an active
-selection, it copies that; otherwise it copies the current output line;
-or if nothing to copy, it flashes the HUD briefly. Useful for macros.
+`Ctrl+A` then `Y` is a quick-copy shortcut: it copies the active
+selection if there is one, otherwise the current output line, or
+flashes the HUD if there's nothing to copy.
 
 ### Ctrl+A menu
 
