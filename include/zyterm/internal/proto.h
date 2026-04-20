@@ -53,4 +53,21 @@ void passthrough_enter(zt_ctx *c);
 void passthrough_exit(zt_ctx *c);
 bool passthrough_handle(zt_ctx *c, const unsigned char *buf, size_t n);
 
+/* ── proto/line_endings.c ──────────────────────────────────────────────── */
+/** Worst-case output size for a translation of @c n bytes (LF→CRLF doubles). */
+#define ZT_EOL_OUT_CAP(n) ((n) * 2u)
+/** Parse a CLI token (`none|cr|lf|crlf|cr-crlf|lf-crlf`); returns -1 on bad. */
+int eol_parse(const char *token, zt_eol_map *out);
+/** Stable short name for an enum value (for HUD / `--help`). */
+const char *eol_name(zt_eol_map m);
+/** Apply the outgoing rewrite. Returns bytes written into @c out (≤ out_cap).
+ *  @c out must be at least ZT_EOL_OUT_CAP(n) bytes. */
+size_t eol_translate_out(zt_eol_map mode, zt_eol_state *st,
+                         const unsigned char *in, size_t n,
+                         unsigned char *out, size_t out_cap);
+/** Apply the incoming rewrite. Returns bytes written into @c out. */
+size_t eol_translate_in(zt_eol_map mode, zt_eol_state *st,
+                        const unsigned char *in, size_t n,
+                        unsigned char *out, size_t out_cap);
+
 #endif /* ZYTERM_INTERNAL_PROTO_H_ */

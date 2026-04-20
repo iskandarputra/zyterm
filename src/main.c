@@ -67,6 +67,9 @@ static void usage(const char *a0) {
             "      --watch-beep        beep (BEL) on watch match\n"
             "      --macro F<n>=<str>  bind a macro to F1..F12 (supports \\r \\n \\t \\xNN;\n"
             "                          repeatable)\n"
+            "      --map-out <mode>    rewrite outgoing line endings\n"
+            "                          mode: none|cr|lf|crlf|cr-crlf|lf-crlf (default none)\n"
+            "      --map-in <mode>     rewrite incoming line endings (same modes)\n"
             "\n"
             "  -h, --help              show this help\n"
             "  -V, --version           print version and exit\n"
@@ -201,6 +204,8 @@ int zyterm_main(int argc, char **argv) {
         OPT_EPOLL,
         OPT_AUTOBAUD,
         OPT_DIFF,
+        OPT_MAP_OUT,
+        OPT_MAP_IN,
     };
     static const struct option lo[] = {
         {"baud", required_argument, NULL, 'b'},
@@ -243,6 +248,8 @@ int zyterm_main(int argc, char **argv) {
         {"epoll", no_argument, NULL, OPT_EPOLL},
         {"autobaud", no_argument, NULL, OPT_AUTOBAUD},
         {"diff", required_argument, NULL, OPT_DIFF},
+        {"map-out", required_argument, NULL, OPT_MAP_OUT},
+        {"map-in", required_argument, NULL, OPT_MAP_IN},
         {"help", no_argument, NULL, 'h'},
         {"version", no_argument, NULL, 'V'},
         {0, 0, 0, 0},
@@ -412,6 +419,14 @@ int zyterm_main(int argc, char **argv) {
             scrollback_free(&c);
             return rc;
         }
+        case OPT_MAP_OUT:
+            if (eol_parse(optarg, &c.proto.map_out) < 0)
+                zt_die("zyterm: --map-out must be none|cr|lf|crlf|cr-crlf|lf-crlf");
+            break;
+        case OPT_MAP_IN:
+            if (eol_parse(optarg, &c.proto.map_in) < 0)
+                zt_die("zyterm: --map-in must be none|cr|lf|crlf|cr-crlf|lf-crlf");
+            break;
         case 'V':
             printf("zyterm " ZT_VERSION "\n");
             scrollback_free(&c);

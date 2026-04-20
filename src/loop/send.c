@@ -32,6 +32,20 @@
 
 void trickle_send(zt_ctx *c, const unsigned char *buf, size_t n) {
     if (c->serial.fd < 0 || !n) return;
+
+    unsigned char  scratch[1024];
+    unsigned char *heap = NULL;
+    if (c->proto.map_out != ZT_EOL_NONE) {
+        size_t         cap = ZT_EOL_OUT_CAP(n);
+        unsigned char *xb  = (cap <= sizeof scratch) ? scratch
+                                                     : (heap = malloc(cap));
+        if (!xb) return;
+        n   = eol_translate_out(c->proto.map_out, &c->proto.eol_state_out,
+                                buf, n, xb, cap);
+        buf = xb;
+        if (!n) { free(heap); return; }
+    }
+
     log_write_tx(c, buf, n);
     http_broadcast_tx(c, buf, n);
     struct timespec d = {0, ZT_FLUSH_DELAY_US * 1000L};
@@ -45,17 +59,33 @@ void trickle_send(zt_ctx *c, const unsigned char *buf, size_t n) {
             if (w < 0 && errno == EINTR) continue;
             if (w < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                 struct pollfd p = {.fd = c->serial.fd, .events = POLLOUT};
-                if (poll(&p, 1, 250) < 0 && errno != EINTR) return;
+                if (poll(&p, 1, 250) < 0 && errno != EINTR) goto out;
                 continue;
             }
-            return;
+            goto out;
         }
         if (i + 1 < n) nanosleep(&d, NULL);
     }
+out:
+    free(heap);
 }
 
 void direct_send(zt_ctx *c, const unsigned char *buf, size_t n) {
     if (c->serial.fd < 0 || !n) return;
+
+    unsigned char  scratch[1024];
+    unsigned char *heap = NULL;
+    if (c->proto.map_out != ZT_EOL_NONE) {
+        size_t         cap = ZT_EOL_OUT_CAP(n);
+        unsigned char *xb  = (cap <= sizeof scratch) ? scratch
+                                                     : (heap = malloc(cap));
+        if (!xb) return;
+        n   = eol_translate_out(c->proto.map_out, &c->proto.eol_state_out,
+                                buf, n, xb, cap);
+        buf = xb;
+        if (!n) { free(heap); return; }
+    }
+
     log_write_tx(c, buf, n);
     http_broadcast_tx(c, buf, n);
     size_t off = 0;
@@ -69,11 +99,12 @@ void direct_send(zt_ctx *c, const unsigned char *buf, size_t n) {
         if (w < 0 && errno == EINTR) continue;
         if (w < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             struct pollfd p = {.fd = c->serial.fd, .events = POLLOUT};
-            if (poll(&p, 1, 250) < 0 && errno != EINTR) return;
+            if (poll(&p, 1, 250) < 0 && errno != EINTR) break;
             continue;
         }
-        return;
+        break;
     }
+    free(heap);
 }
 
 void flush_unsent(zt_ctx *c) {

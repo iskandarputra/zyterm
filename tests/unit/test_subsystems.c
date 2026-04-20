@@ -916,6 +916,92 @@ static void test_flash(void) {
 }
 
 /* ------------------------------------------------------------------ */
+/* line-ending translation                                            */
+/* ------------------------------------------------------------------ */
+static void test_eol(void) {
+    SECTION("eol (--map-out / --map-in)");
+
+    zt_eol_map    m;
+    unsigned char out[64];
+    zt_eol_state  st;
+
+    /* parser */
+    ASSERT(eol_parse("none", &m) == 0 && m == ZT_EOL_NONE, "parse none");
+    ASSERT(eol_parse("crlf", &m) == 0 && m == ZT_EOL_CRLF, "parse crlf");
+    ASSERT(eol_parse("cr-crlf", &m) == 0 && m == ZT_EOL_CR_CRLF, "parse cr-crlf");
+    ASSERT(eol_parse("nope", &m) == -1, "parse rejects garbage");
+
+    /* names round-trip */
+    ASSERT(strcmp(eol_name(ZT_EOL_LF_CRLF), "lf-crlf") == 0, "name lf-crlf");
+
+    /* OUT: NONE is identity */
+    memset(&st, 0, sizeof st);
+    size_t n = eol_translate_out(ZT_EOL_NONE, &st,
+                                 (const unsigned char *) "ab\r\n", 4, out, sizeof out);
+    ASSERT(n == 4 && memcmp(out, "ab\r\n", 4) == 0, "out NONE identity");
+
+    /* OUT: CR — every LF becomes CR */
+    memset(&st, 0, sizeof st);
+    n = eol_translate_out(ZT_EOL_CR, &st,
+                          (const unsigned char *) "a\nb\n", 4, out, sizeof out);
+    ASSERT(n == 4 && memcmp(out, "a\rb\r", 4) == 0, "out CR maps LF→CR");
+
+    /* OUT: LF — every CR becomes LF */
+    memset(&st, 0, sizeof st);
+    n = eol_translate_out(ZT_EOL_LF, &st,
+                          (const unsigned char *) "a\rb\r", 4, out, sizeof out);
+    ASSERT(n == 4 && memcmp(out, "a\nb\n", 4) == 0, "out LF maps CR→LF");
+
+    /* OUT: CRLF — bare LF → CRLF, lone CR → CRLF, existing CRLF kept once */
+    memset(&st, 0, sizeof st);
+    n = eol_translate_out(ZT_EOL_CRLF, &st,
+                          (const unsigned char *) "a\nb", 3, out, sizeof out);
+    ASSERT(n == 4 && memcmp(out, "a\r\nb", 4) == 0, "out CRLF: LF→CRLF");
+
+    memset(&st, 0, sizeof st);
+    n = eol_translate_out(ZT_EOL_CRLF, &st,
+                          (const unsigned char *) "a\rb", 3, out, sizeof out);
+    ASSERT(n == 4 && memcmp(out, "a\r\nb", 4) == 0, "out CRLF: lone CR→CRLF");
+
+    memset(&st, 0, sizeof st);
+    n = eol_translate_out(ZT_EOL_CRLF, &st,
+                          (const unsigned char *) "a\r\nb", 4, out, sizeof out);
+    ASSERT(n == 4 && memcmp(out, "a\r\nb", 4) == 0, "out CRLF: CRLF idempotent");
+
+    /* OUT: LF_CRLF — only LF expands */
+    memset(&st, 0, sizeof st);
+    n = eol_translate_out(ZT_EOL_LF_CRLF, &st,
+                          (const unsigned char *) "a\rb\nc", 5, out, sizeof out);
+    ASSERT(n == 6 && memcmp(out, "a\rb\r\nc", 6) == 0, "out LF_CRLF expands LF only");
+
+    /* IN: CRLF — coalesce CRLF→LF, lone CR/LF passthrough */
+    memset(&st, 0, sizeof st);
+    n = eol_translate_in(ZT_EOL_CRLF, &st,
+                         (const unsigned char *) "a\r\nb", 4, out, sizeof out);
+    ASSERT(n == 3 && memcmp(out, "a\nb", 3) == 0, "in CRLF: CRLF→LF");
+
+    /* IN: CRLF split across two calls (CR at end of chunk 1, LF at start of chunk 2) */
+    memset(&st, 0, sizeof st);
+    size_t n1 = eol_translate_in(ZT_EOL_CRLF, &st,
+                                 (const unsigned char *) "x\r", 2, out, sizeof out);
+    size_t n2 = eol_translate_in(ZT_EOL_CRLF, &st,
+                                 (const unsigned char *) "\ny", 2, out + n1, sizeof out - n1);
+    ASSERT(n1 == 1 && n2 == 2 && memcmp(out, "x\ny", 3) == 0, "in CRLF: split-chunk coalesce");
+
+    /* IN: CRLF — lone CR at end of stream is held but eol_state flag retains it */
+    memset(&st, 0, sizeof st);
+    n = eol_translate_in(ZT_EOL_CRLF, &st,
+                        (const unsigned char *) "abc\r", 4, out, sizeof out);
+    ASSERT(n == 3 && st.saw_cr == 1, "in CRLF: trailing CR is held in state");
+
+    /* IN: CR_CRLF — CRLF→CR */
+    memset(&st, 0, sizeof st);
+    n = eol_translate_in(ZT_EOL_CR_CRLF, &st,
+                         (const unsigned char *) "a\r\nb", 4, out, sizeof out);
+    ASSERT(n == 3 && memcmp(out, "a\rb", 3) == 0, "in CR_CRLF: CRLF→CR");
+}
+
+/* ------------------------------------------------------------------ */
 /* main                                                               */
 /* ------------------------------------------------------------------ */
 int main(void) {
@@ -932,6 +1018,7 @@ int main(void) {
     test_modem_str();
     test_zephyr_color();
     test_flash();
+    test_eol();
 
     /* zt_ctx-based / Tier 2 */
     test_watch();

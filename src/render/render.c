@@ -303,17 +303,37 @@ void render_rx(zt_ctx *c, const unsigned char *buf, size_t n) {
  * raw line content via render_rx(), never via rx_ingest(). */
 void rx_ingest(zt_ctx *c, const unsigned char *buf, size_t n) {
     if (!c || !buf || n == 0) return;
+
+    /* Apply --map-in line-ending translation up-front so every downstream
+     * consumer (JSONL log, HTTP/SSE, filter subprocess, framer, render)
+     * sees the same normalised stream. */
+    unsigned char  scratch[4096];
+    unsigned char *heap = NULL;
+    if (c->proto.map_in != ZT_EOL_NONE) {
+        size_t         cap = ZT_EOL_OUT_CAP(n);
+        unsigned char *xb  = (cap <= sizeof scratch) ? scratch
+                                                     : (heap = malloc(cap));
+        if (!xb) return;
+        n = eol_translate_in(c->proto.map_in, &c->proto.eol_state_in,
+                             buf, n, xb, cap);
+        buf = xb;
+        if (!n) { free(heap); return; }
+    }
+
     if (c->log.format == ZT_LOG_JSON) log_json_rx(c, buf, n);
     if (c->net.http_fd >= 0) http_broadcast(c, buf, n);
     if (c->ext.filter_pid > 0) {
         filter_feed(c, buf, n);
+        free(heap);
         return;
     }
     if (c->proto.mode != ZT_FRAME_RAW) {
         framing_feed(c, buf, n);
+        free(heap);
         return;
     }
     render_rx(c, buf, n);
+    free(heap);
 }
 
 __attribute__((format(printf, 2, 3))) void log_notice(zt_ctx *c, const char *fmt, ...) {

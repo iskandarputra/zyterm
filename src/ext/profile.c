@@ -125,6 +125,10 @@ int profile_load(zt_ctx *c, const char *name) {
                 c->log.format = ZT_LOG_RAW;
             else
                 c->log.format = ZT_LOG_TEXT;
+        } else if (!strcmp(k, "map_out")) {
+            (void) eol_parse(v, &c->proto.map_out);
+        } else if (!strcmp(k, "map_in")) {
+            (void) eol_parse(v, &c->proto.map_in);
         }
     }
     fclose(fp);
@@ -153,6 +157,8 @@ int profile_save(zt_ctx *c, const char *name) {
     fprintf(fp, "frame = %s\n", FM[c->proto.mode]);
     fprintf(fp, "crc = %s\n", CM[c->proto.crc_mode]);
     fprintf(fp, "log_format = %s\n", LF[c->log.format]);
+    fprintf(fp, "map_out = %s\n", eol_name(c->proto.map_out));
+    fprintf(fp, "map_in = %s\n", eol_name(c->proto.map_in));
     fclose(fp);
     log_notice(c, "profile saved: %s", name);
     return 0;

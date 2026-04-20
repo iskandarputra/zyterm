@@ -100,6 +100,42 @@ typedef enum {
     ZT_LOG__COUNT
 } zt_log_format;
 
+/** @brief Line-ending translation modes for `--map-out` / `--map-in`.
+ *
+ * Some firmware expects bare CR, others bare LF, others CRLF. Rather
+ * than force the user to retype with `Ctrl+V <CR>` tricks, zyterm can
+ * translate end-of-line bytes on the wire. Mappings are direction-
+ * independent: the same enum value picks both an outgoing and an
+ * incoming rewrite, applied symmetrically.
+ *
+ * | mode             | outgoing (typed → device) | incoming (device → screen) |
+ * |------------------|---------------------------|----------------------------|
+ * | NONE             | passthrough                | passthrough                |
+ * | CR               | LF → CR                    | CR → LF                    |
+ * | LF               | CR → LF                    | LF → CR                    |
+ * | CRLF             | LF → CRLF, lone CR → CRLF  | CRLF → LF                  |
+ * | CR_CRLF          | CR → CRLF                  | CRLF → CR                  |
+ * | LF_CRLF          | LF → CRLF                  | CRLF → LF                  |
+ *
+ * State is per-direction (a one-byte "saw_cr" latch) so multi-byte
+ * sequences split across read() boundaries still round-trip correctly. */
+typedef enum {
+    ZT_EOL_NONE    = 0,
+    ZT_EOL_CR      = 1,
+    ZT_EOL_LF      = 2,
+    ZT_EOL_CRLF    = 3,
+    ZT_EOL_CR_CRLF = 4,
+    ZT_EOL_LF_CRLF = 5,
+    ZT_EOL__COUNT
+} zt_eol_map;
+
+/** @brief Per-direction state for the line-ending translator.
+ *  @c saw_cr is set when the previous input byte was a CR and the
+ *  active mode coalesces CRLF pairs. */
+typedef struct {
+    uint8_t saw_cr;
+} zt_eol_state;
+
 /* ---------------------------- global (signal-safe) state ------------------ */
 extern volatile sig_atomic_t zt_g_quit;  /**< Set by SIGINT/TERM/HUP/QUIT. */
 extern volatile sig_atomic_t zt_g_winch; /**< Set by SIGWINCH.             */
@@ -312,6 +348,12 @@ typedef struct {
 
         bool   tab_echo; /**< Capturing device completion echo.        */
         size_t tab_skip;
+
+        /* Tier 1 — line-ending translation (--map-out / --map-in). */
+        zt_eol_map   map_out;
+        zt_eol_map   map_in;
+        zt_eol_state eol_state_out;
+        zt_eol_state eol_state_in;
     } proto;
 
     struct {
