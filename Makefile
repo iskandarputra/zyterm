@@ -58,6 +58,10 @@ OBJ_SUBDIRS := $(sort $(dir $(OBJECTS)))
 
 PREFIX   ?= /usr/local
 BINDIR   ?= $(PREFIX)/bin
+MANDIR   ?= $(PREFIX)/share/man
+BASHCOMPDIR ?= $(PREFIX)/share/bash-completion/completions
+ZSHCOMPDIR  ?= $(PREFIX)/share/zsh/site-functions
+FISHCOMPDIR ?= $(PREFIX)/share/fish/vendor_completions.d
 
 .PHONY: all clean install uninstall debug release docs lint format format-check \
         test bench modules help check
@@ -88,9 +92,20 @@ zyterm_embed.a: $(filter-out $(OBJ_DIR)/main.o,$(OBJECTS))
 # ── install ──────────────────────────────────────────────────────────────────
 install: $(BIN)
 	install -Dm755 $(BIN) $(DESTDIR)$(BINDIR)/$(BIN)
+	install -Dm644 docs/zyterm.1 $(DESTDIR)$(MANDIR)/man1/zyterm.1
+	install -Dm644 contrib/completions/zyterm.bash \
+	    $(DESTDIR)$(BASHCOMPDIR)/zyterm
+	install -Dm644 contrib/completions/_zyterm \
+	    $(DESTDIR)$(ZSHCOMPDIR)/_zyterm
+	install -Dm644 contrib/completions/zyterm.fish \
+	    $(DESTDIR)$(FISHCOMPDIR)/zyterm.fish
 
 uninstall:
-	rm -f $(DESTDIR)$(BINDIR)/$(BIN)
+	rm -f $(DESTDIR)$(BINDIR)/$(BIN) \
+	      $(DESTDIR)$(MANDIR)/man1/zyterm.1 \
+	      $(DESTDIR)$(BASHCOMPDIR)/zyterm \
+	      $(DESTDIR)$(ZSHCOMPDIR)/_zyterm \
+	      $(DESTDIR)$(FISHCOMPDIR)/zyterm.fish
 
 # ── docs / tidy ──────────────────────────────────────────────────────────────
 docs:

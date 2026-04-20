@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Man page and shell completions.** `docs/zyterm.1` (groff), plus
+  `contrib/completions/{zyterm.bash,_zyterm,zyterm.fish}`. `make install`
+  now lays them down under `$MANDIR`, `$BASHCOMPDIR`, `$ZSHCOMPDIR`,
+  `$FISHCOMPDIR` (all overridable). Completions know the option list,
+  baud-rate / parity / EOL-mode value sets, common USB VID:PID examples,
+  and offer `tcp://` / `telnet://` / `rfc2217://` for the positional
+  device argument.
 - **TCP / Telnet transport** — `<device>` may now be a network URL:
   `tcp://host:port`, `telnet://host:port`, or `rfc2217://host:port`
   (the last is stubbed with an actionable error pointing at the

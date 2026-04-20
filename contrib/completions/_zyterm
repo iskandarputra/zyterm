@@ -1,0 +1,50 @@
+#compdef zyterm
+# zsh completion for zyterm
+# Install:  cp _zyterm /usr/share/zsh/site-functions/_zyterm
+#       or: add contrib/completions to $fpath in ~/.zshrc and `autoload -U _zyterm`
+
+_zyterm() {
+    local -a opts
+    opts=(
+        '(-b --baud)'{-b,--baud}'[baud rate]:rate:(9600 19200 38400 57600 115200 230400 460800 921600 1500000 3000000)'
+        '--data[data bits]:bits:(5 6 7 8)'
+        '--parity[parity]:parity:(n e o)'
+        '--stop[stop bits]:stop:(1 2)'
+        '--flow[flow control]:flow:(n r x)'
+        '--reconnect[auto-reopen on hang-up (default)]'
+        '--no-reconnect[exit on hang-up]'
+        '--port-glob[re-resolve device via glob on each reconnect]:pattern:(/dev/ttyUSB\* /dev/ttyACM\* /dev/serial/by-id/\*)'
+        '--match-vid-pid[filter discovered ports by USB VID:PID]:vid\:pid:(0403:6001 0403:6014 067b:2303 10c4:ea60 1a86:7523 2341:0043)'
+        '--map-out[rewrite outgoing line endings]:mode:(none cr lf crlf cr-crlf lf-crlf)'
+        '--map-in[rewrite incoming line endings]:mode:(none cr lf crlf cr-crlf lf-crlf)'
+        '(-l --log)'{-l,--log}'[append timestamped log]:file:_files'
+        '--log-max-kb[rotate log when it exceeds N KB]:kb:'
+        '--replay[replay a captured log instead of opening a device]:logfile:_files'
+        '--profile[load profile by name or path]:profile:_files'
+        '--profile-save[save current options as profile]:name:'
+        '--profile-list[list saved profiles and exit]'
+        '--watch[regex; trigger on match in stream]:regex:'
+        '--watch-color[colour for watch matches]:color:'
+        '--watch-beep[BEL on watch match]'
+        '--macro[bind macro to function key, e.g. F1=text]:macro:'
+        '--hud[show statistics overlay]'
+        '--no-hud[disable HUD]'
+        '--http[start HTTP/SSE bridge on port]:port:'
+        '--http-bind[bind HTTP bridge to address]:addr:'
+        '--jsonl[write structured JSONL log]:file:_files'
+        '(-h --help)'{-h,--help}'[show help and exit]'
+        '(-V --version)'{-V,--version}'[print version and exit]'
+        '*:device:->device'
+    )
+    _arguments -s -S $opts
+    case $state in
+        device)
+            local -a devs urls
+            devs=( /dev/ttyUSB*(N) /dev/ttyACM*(N) /dev/serial/by-id/*(N) )
+            urls=( 'tcp://' 'telnet://' 'rfc2217://' )
+            _describe -t devices 'serial device' devs
+            _describe -t urls    'network URL'   urls
+            ;;
+    esac
+}
+_zyterm "$@"

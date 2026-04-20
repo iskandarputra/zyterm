@@ -1,0 +1,153 @@
+.TH ZYTERM 1 "2026-01" "zyterm 1.1.1" "User Commands"
+.SH NAME
+zyterm \- high-performance RTOS serial terminal
+.SH SYNOPSIS
+.B zyterm
+[\fIoptions\fR] \fIdevice\fR
+.br
+.B zyterm
+\fB\-\-replay\fR \fIlogfile\fR
+.SH DESCRIPTION
+.B zyterm
+is a fast, single-binary serial terminal for embedded / RTOS development on
+Linux. It targets parity with \fBminicom\fR(1), \fBpicocom\fR(1) and
+\fBtio\fR(1) for everyday tasks while adding a built-in HUD, scrollback
+search, JSONL logging, an HTTP/SSE bridge for browsers, and hot-plug-aware
+USB port discovery.
+.PP
+\fIdevice\fR is normally a serial node (e.g. \fI/dev/ttyUSB0\fR), but may
+also be a network URL:
+.RS
+.TP
+.BR tcp:// \fIhost\fR : \fIport\fR
+Raw TCP connection (e.g. \fBser2net\fR(8) configured for raw mode).
+.TP
+.BR telnet:// \fIhost\fR : \fIport\fR
+TCP plus Telnet IAC escape on the wire (outgoing 0xFF is doubled, incoming
+WILL/WONT/DO/DONT and sub-negotiations are stripped).
+.TP
+.BR rfc2217:// \fIhost\fR : \fIport\fR
+Reserved for future RFC\ 2217 (Telnet COM-PORT-OPTION) support; currently
+exits with a pointer to the \fBser2net\fR raw + \fBtcp://\fR workaround.
+.RE
+.SH OPTIONS
+.SS Connection
+.TP
+.BR \-b ", " \-\-baud " " \fIrate\fR
+Baud rate (default 115200). Arbitrary baud is supported via \fBtermios2\fR
+(BOTHER) and ignored on socket transports.
+.TP
+.BR \-\-data " " { 5 | 6 | 7 | 8 }
+Data bits (default 8).
+.TP
+.BR \-\-parity " " { n | e | o }
+Parity: none, even, or odd (default n).
+.TP
+.BR \-\-stop " " { 1 | 2 }
+Stop bits (default 1).
+.TP
+.BR \-\-flow " " { n | r | x }
+Flow control: none, RTS/CTS, or XON/XOFF (default n).
+.TP
+.B \-\-reconnect ", " \-\-no\-reconnect
+Auto-reopen the device on hang-up. Default is on.
+.TP
+.BI \-\-port\-glob " pattern"
+Re-resolve \fIdevice\fR via a shell glob on every reconnect attempt
+(e.g. \fI"/dev/ttyUSB*"\fR). When given, the positional \fIdevice\fR
+argument becomes optional. Useful for FT232 / CH340 dongles that come
+back as a different \fBttyUSBn\fR after a replug.
+.TP
+.BI \-\-match\-vid\-pid " V:P"
+Filter discovered devices by USB vendor:product (hex, e.g. \fB0403:6001\fR
+for FT232R). Walks \fI/sys\fR; no libudev dependency. Combine with
+\fB\-\-port\-glob\fR or use alone to scan default candidates
+(\fI/dev/ttyUSB*\fR, \fI/dev/ttyACM*\fR, \fI/dev/serial/by\-id/*\fR).
+.SS Line endings
+.TP
+.BI \-\-map\-out " mode"
+Rewrite outgoing line endings.
+\fImode\fR is one of \fBnone\fR, \fBcr\fR, \fBlf\fR, \fBcrlf\fR,
+\fBcr\-crlf\fR, \fBlf\-crlf\fR (default \fBnone\fR).
+.TP
+.BI \-\-map\-in " mode"
+Rewrite incoming line endings (same modes). Stateful across read chunks.
+.SS Logging
+.TP
+.BR \-l ", " \-\-log " " \fIfile\fR
+Append to a log file with millisecond timestamps. In the TUI, \fBCtrl+A l\fR
+toggles an auto-named \fBzyterm-YYYYMMDD-NNN.txt\fR.
+.TP
+.BI \-\-log\-max\-kb " N"
+Rotate to \fIfile\fR.1 when it exceeds N KB.
+.TP
+.B \-\-replay " " \fIlogfile\fR
+Replay a previously captured log instead of opening a device.
+.SS Help
+.TP
+.BR \-h ", " \-\-help
+Show full usage and exit.
+.TP
+.BR \-V ", " \-\-version
+Print the version and exit.
+.PP
+The full option list is shown by \fBzyterm \-\-help\fR; this page covers
+the most common flags.
+.SH INTERACTIVE KEYS
+.TP
+.B Ctrl+A
+Command menu (q/x/p/e/c/h/t/b/s/f/r//?).
+.TP
+.B F1..F12
+Fire bound macros (see \fB\-\-macro\fR).
+.TP
+.B PgUp / PgDn
+Scroll back and forward through scrollback.
+.TP
+.B Tab
+Remote completion (sync-and-flush).
+.TP
+.B Ctrl+L / Ctrl+C
+Clear screen / send ETX to remote.
+.SH EXAMPLES
+.PP
+Open a USB serial dongle at 115200 baud:
+.PP
+.RS
+.B zyterm /dev/ttyUSB0
+.RE
+.PP
+Open whatever CH340 is currently plugged in, and find it again on replug:
+.PP
+.RS
+.B zyterm \-\-match\-vid\-pid 1a86:7523
+.RE
+.PP
+Connect to a remote serial server (\fBser2net\fR raw mode):
+.PP
+.RS
+.B zyterm tcp://lab\-pi.local:23000
+.RE
+.PP
+Send LF as CRLF (Windows-style firmware shells):
+.PP
+.RS
+.B zyterm \-\-map\-out crlf /dev/ttyACM0
+.RE
+.SH FILES
+.TP
+.I ~/.config/zyterm/profiles/
+Saved profiles written by \fB\-\-profile\-save\fR.
+.TP
+.I ~/.zyterm_history
+Line-edit history (created on first run).
+.SH SEE ALSO
+.BR minicom (1),
+.BR picocom (1),
+.BR tio (1),
+.BR ser2net (8),
+.BR setserial (8)
+.SH BUGS
+Report at <https://github.com/iskandarputra/zyterm/issues>.
+.SH AUTHOR
+Iskandar Putra <www.iskandarputra.com>
