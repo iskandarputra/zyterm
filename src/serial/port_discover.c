@@ -87,8 +87,10 @@ int port_match_vid_pid(const char *device_path, uint16_t vid, uint16_t pid) {
     if (find_usb_ancestor(device_path, usb_dir, sizeof usb_dir) < 0) return -1;
 
     char vpath[PATH_MAX], ppath[PATH_MAX];
-    snprintf(vpath, sizeof vpath, "%s/idVendor",  usb_dir);
-    snprintf(ppath, sizeof ppath, "%s/idProduct", usb_dir);
+    if ((size_t) snprintf(vpath, sizeof vpath, "%s/idVendor", usb_dir) >= sizeof vpath)
+        return -1;
+    if ((size_t) snprintf(ppath, sizeof ppath, "%s/idProduct", usb_dir) >= sizeof ppath)
+        return -1;
 
     uint16_t got_vid = read_sysfs_hex(vpath);
     uint16_t got_pid = read_sysfs_hex(ppath);
