@@ -30,6 +30,24 @@ We wanted something that felt a bit more comfortable for daily use, so we built 
 - **Live HUD** — A small status bar showing baud rate, parity, throughput, and a sparkline. Nothing fancy, but useful at a glance.
 - **Small and self-contained** — It's a single C binary. No Python, no Node, no runtime dependencies beyond your system's libc. It should build and run on most Linux machines, and macOS too with minor caveats.
 
+### How it compares
+
+A rough feature snapshot against the usual suspects on Linux. None of these
+tools are bad — pick whatever fits your workflow:
+
+| Feature                                | minicom | picocom | screen | tio | zyterm |
+|----------------------------------------|:-------:|:-------:|:------:|:---:|:------:|
+| Scrollback + in-stream search          |    —    |    —    |   ·    |  ·  |   ✓    |
+| Built-in HUD (baud, throughput, sparkline) |  —  |    —    |   —    |  —  |   ✓    |
+| USB hot-plug rediscovery (`--port-glob` / VID:PID) | — | — | — | ✓ |   ✓    |
+| Network transports (`tcp://`, `telnet://`) |  —  |    —    |   —    |  ·  |   ✓    |
+| Line-ending translation (CRLF / LF / CR / mixed) | ✓ | ✓ | — | ✓ |   ✓    |
+| Timestamped + JSONL logging            |    ·    |    ·    |   —    |  ✓  |   ✓    |
+| HTTP/SSE bridge for browsers           |    —    |    —    |   —    |  —  |   ✓    |
+| Single static C binary, no runtime deps |   ✓    |    ✓    |   ✓    |  ✓  |   ✓    |
+
+✓ first-class · partial / via add-on — not supported
+
 ## Quick Start
 
 ```sh
