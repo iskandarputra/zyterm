@@ -2,22 +2,23 @@
 
 zyterm builds as both a standalone binary (`./zyterm`) and a static
 archive (`build/zyterm_embed.a`) you can link into another program.
-The host program drives zyterm via the public header `<zyterm.h>` and a
-deliberately tiny surface of seven symbols. Optional X11 clipboard
-support is compiled in if libxcb is detected; falling back to no-op
-stubs on systems without it.
+The host program drives zyterm via the public header `<zyterm.h>` and
+a small surface of seven symbols.
+
+Clipboard support on X11 is handled at runtime via `dlopen` —
+no extra build-time dependencies needed.
 
 ## 1. Linking
 
 ```sh
-make zyterm_embed.a                 # produces build/zyterm_embed.a (~304K)
+make zyterm_embed.a                 # produces build/zyterm_embed.a
 cc host.c -Iinclude \
     build/zyterm_embed.a \
     -lpthread -o host
 ```
 
-The archive links libc and pthread. X11 clipboard support is
-auto-detected and statically linked if libxcb is present.
+The archive links libc and pthread. On Linux, add `-ldl` for the
+runtime clipboard (`dlopen` of libxcb). On macOS, `-ldl` is not needed.
 
 ## 2. Surface
 
@@ -124,11 +125,10 @@ The seven symbols above are stable. Internal headers under
 `include/zyterm/internal/` are not part of the API and may change in
 any release. Do not include them from your host.
 
-## 9. Archive size
+## 9. Size and dependencies
 
-| Component                    | Size                              |
-| ---------------------------- | --------------------------------- |
-| `build/zyterm_embed.a`       | ~304K                             |
-| Stripped binary (`./zyterm`) | ~184K                             |
-| Runtime dependencies         | libc, pthread                     |
-| Optional X11 support         | xcb, xcb-xfixes (build-time only) |
+| Component                    | Notes                                              |
+| ---------------------------- | -------------------------------------------------- |
+| `build/zyterm_embed.a`       | Static archive — run `ls -lh` to see current size  |
+| Stripped binary (`./zyterm`) | `strip -s zyterm` — typically well under 200 KB    |
+| Runtime dependencies         | libc (glibc ≥ 2.34 on Linux)                       |

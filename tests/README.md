@@ -1,15 +1,15 @@
 # Tests
 
-Comprehensive test suite across three tiers: 136 unit tests + 20
-PTY-harness tests = 156 total assertions. All tiers run in CI.
+Test suite across three tiers. All tiers run in CI.
+Run `make test` from the repo root to see the current counts.
 
 ## Layout
 
 ```
 tests/
-├── unit/         pure-function tests, no side effects (136 tests)
+├── unit/         pure-function tests, no side effects
 ├── integration/  cross-module flows that need files or pipes
-└── pty/          forkpty harness, full UI through a real TTY (20 tests)
+└── pty/          forkpty harness, full UI through a real TTY
 ```
 
 The Makefile auto-discovers any `*.c` it finds under those three
@@ -19,8 +19,8 @@ subdirectories.
 
 ```sh
 make test            # build and run all tiers (from repo root)
-make -C tests unit   # only the unit tier (136 pass expected)
-make -C tests pty    # only the pty harness (20 pass expected)
+make -C tests unit   # only the unit tier
+make -C tests pty    # only the pty harness
 ```
 
 Or use the build helper:
@@ -28,8 +28,6 @@ Or use the build helper:
 ```sh
 ./build.sh test      # build embed archive + run all test tiers
 ```
-
-Expected: **136 unit + 20 pty = 156 / 156 pass**.
 
 ## Add a test
 
@@ -48,8 +46,8 @@ for the established pattern.
 - One concern per test file. If a file grows past about 300 LOC, split it.
 - No global state. Each `main` cleans up after itself.
 - No network calls.
-- Wall-clock budget: the full suite must finish in under 10 seconds on
-  a laptop.
+- Wall-clock budget: the full suite should finish in under 10 seconds
+  on a laptop.
 
 See [docs/ARCHITECTURE.md, section 11](../docs/ARCHITECTURE.md#11-testing-strategy)
 for the testing rationale.
