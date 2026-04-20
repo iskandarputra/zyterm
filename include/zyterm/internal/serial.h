@@ -57,4 +57,23 @@ char *port_discover(const char *glob_pat, uint16_t vid, uint16_t pid);
  *  0 if unchanged or no hints set, -1 on no-match. */
 int port_rediscover(zt_ctx *c);
 
+/* ── serial/transport.c ────────────────────────────────────────────────── */
+/** True if @c device looks like a transport URL we handle natively. */
+bool transport_is_url(const char *device);
+
+/** Open a connected TCP socket for the URL. Sets @c *out_telnet to true
+ *  when the scheme requires Telnet IAC escaping (telnet://). Returns the
+ *  fd, or -1 on connect failure (errno set). zt_die() on bad URL. */
+int transport_open(const char *url, bool *out_telnet);
+
+/** Strip Telnet IAC sequences in-place from an incoming buffer.
+ *  @c st carries the parser across read boundaries. Returns the number
+ *  of bytes remaining after stripping. */
+size_t telnet_rx_filter(uint8_t *state, unsigned char *buf, size_t n);
+
+/** Escape outgoing 0xFF bytes by doubling them. Writes at most 2*n
+ *  bytes into @c out. Returns bytes written. */
+size_t telnet_tx_escape(const unsigned char *in, size_t n,
+                        unsigned char *out, size_t out_cap);
+
 #endif /* ZYTERM_INTERNAL_SERIAL_H_ */

@@ -112,6 +112,18 @@ int set_custom_baud(int fd, unsigned baud) {
 
 int setup_serial(const char *path, unsigned baud, int data_bits, char parity, int stop_bits,
                  int flow) {
+    /* Network transport: tcp:// telnet:// rfc2217:// — return a connected
+     * socket fd; the rest of zyterm uses poll/read/write which are fd-agnostic.
+     * Termios baud / framing flags are silently ignored on a socket; for
+     * RFC 2217 the future implementation will negotiate them on-wire. */
+    if (transport_is_url(path)) {
+        bool telnet = false;
+        int  fd     = transport_open(path, &telnet);
+        if (fd < 0) zt_die("zyterm: connect %s: %s", path, strerror(errno));
+        (void) baud; (void) data_bits; (void) parity; (void) stop_bits; (void) flow;
+        return fd;
+    }
+
     int fd = open(path, O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
     if (fd < 0) zt_die("zyterm: open(%s): %s", path, strerror(errno));
     if (!isatty(fd)) zt_die("zyterm: %s is not a TTY", path);
@@ -168,6 +180,15 @@ int apply_flow(int fd, int flow) {
 /* Non-fatal reopen for reconnect path: returns -1 on failure. */
 int try_reopen_serial(const char *path, unsigned baud, int data_bits, char parity,
                       int stop_bits, int flow) {
+    /* Network transport — non-fatal connect. */
+    if (transport_is_url(path)) {
+        bool telnet = false;
+        int  fd     = transport_open(path, &telnet);
+        if (fd < 0) return -1;
+        (void) baud; (void) data_bits; (void) parity; (void) stop_bits; (void) flow;
+        return fd;
+    }
+
     int fd = open(path, O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
     if (fd < 0) return -1;
     if (!isatty(fd)) {

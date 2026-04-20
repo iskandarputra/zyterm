@@ -1030,6 +1030,77 @@ static void test_port_discover(void) {
 }
 
 /* ------------------------------------------------------------------ */
+/* transport (tcp:// / telnet:// URL parsing + IAC filters)           */
+/* ------------------------------------------------------------------ */
+static void test_transport(void) {
+    SECTION("transport (URL detect + Telnet IAC)");
+
+    /* URL detection */
+    ASSERT(transport_is_url("tcp://1.2.3.4:23"),       "detect tcp://");
+    ASSERT(transport_is_url("telnet://host:23"),       "detect telnet://");
+    ASSERT(transport_is_url("rfc2217://host:2217"),    "detect rfc2217://");
+    ASSERT(!transport_is_url("/dev/ttyUSB0"),          "no detect: /dev path");
+    ASSERT(!transport_is_url("ttyUSB0"),               "no detect: bare name");
+    ASSERT(!transport_is_url(""),                      "no detect: empty");
+    ASSERT(!transport_is_url(NULL),                    "no detect: NULL");
+
+    /* RX filter: IAC IAC → literal 0xFF */
+    {
+        uint8_t       st  = 0;
+        unsigned char b[] = {'a', 0xFF, 0xFF, 'b'};
+        size_t        n   = telnet_rx_filter(&st, b, sizeof b);
+        ASSERT(n == 3 && b[0] == 'a' && b[1] == 0xFF && b[2] == 'b',
+               "RX: IAC IAC unescapes to single 0xFF");
+    }
+
+    /* RX filter: IAC WILL <opt> drops 3 bytes silently */
+    {
+        uint8_t       st  = 0;
+        unsigned char b[] = {'x', 0xFF, 0xFB, 0x01, 'y'};
+        size_t        n   = telnet_rx_filter(&st, b, sizeof b);
+        ASSERT(n == 2 && b[0] == 'x' && b[1] == 'y',
+               "RX: IAC WILL <opt> stripped");
+    }
+
+    /* RX filter: IAC SB ... IAC SE drops the whole sub-negotiation */
+    {
+        uint8_t       st  = 0;
+        unsigned char b[] = {'p', 0xFF, 0xFA, 1, 2, 3, 0xFF, 0xF0, 'q'};
+        size_t        n   = telnet_rx_filter(&st, b, sizeof b);
+        ASSERT(n == 2 && b[0] == 'p' && b[1] == 'q',
+               "RX: IAC SB ... IAC SE stripped");
+    }
+
+    /* RX filter: state survives across calls (IAC at end of chunk) */
+    {
+        uint8_t       st = 0;
+        unsigned char b1[] = {'a', 0xFF};
+        unsigned char b2[] = {0xFF, 'b'};
+        size_t n1 = telnet_rx_filter(&st, b1, sizeof b1);
+        size_t n2 = telnet_rx_filter(&st, b2, sizeof b2);
+        ASSERT(n1 == 1 && b1[0] == 'a',                 "RX split: chunk1 holds IAC");
+        ASSERT(n2 == 2 && b2[0] == 0xFF && b2[1] == 'b',"RX split: chunk2 emits 0xFF then 'b'");
+    }
+
+    /* TX escape: 0xFF doubles, normal bytes pass through */
+    {
+        const unsigned char in[] = {'h', 0xFF, 'i'};
+        unsigned char       out[8] = {0};
+        size_t              w = telnet_tx_escape(in, sizeof in, out, sizeof out);
+        ASSERT(w == 4 && out[0] == 'h' && out[1] == 0xFF && out[2] == 0xFF
+                      && out[3] == 'i', "TX: 0xFF doubled");
+    }
+
+    /* TX escape: passthrough when no IAC present */
+    {
+        const unsigned char in[] = {1, 2, 3, 4};
+        unsigned char       out[8] = {0};
+        size_t              w = telnet_tx_escape(in, sizeof in, out, sizeof out);
+        ASSERT(w == 4 && memcmp(out, in, 4) == 0, "TX: clean bytes pass through");
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* main                                                               */
 /* ------------------------------------------------------------------ */
 int main(void) {
@@ -1048,6 +1119,7 @@ int main(void) {
     test_flash();
     test_eol();
     test_port_discover();
+    test_transport();
 
     /* zt_ctx-based / Tier 2 */
     test_watch();

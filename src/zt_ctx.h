@@ -187,6 +187,14 @@ typedef struct {
         uint16_t    match_vid; /**< USB vendor id (0 = any / off).           */
         uint16_t    match_pid; /**< USB product id (0 = any / off).          */
 
+        /* Tier 1 — TCP / telnet / RFC 2217 transport (--device tcp://host:port).
+         * When @c is_socket is true, the fd is a connected stream socket and
+         * tty-only ioctls (TIOCGICOUNT, TIOCMGET, tcsendbreak, custom baud)
+         * silently no-op. @c telnet enables IAC escaping/stripping. */
+        bool         is_socket;
+        bool         telnet;       /**< TX 0xFF→0xFF 0xFF; strip RX IAC seq.    */
+        uint8_t      telnet_rx_st; /**< Telnet RX parser state (see transport.c).*/
+
         /* Tier 1 — line-state & kernel counters */
         unsigned        kern_frame_err;   /**< TIOCGICOUNT frame.                       */
         unsigned        kern_overrun_err; /**< TIOCGICOUNT overrun.                     */

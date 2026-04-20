@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **TCP / Telnet transport** — `<device>` may now be a network URL:
+  `tcp://host:port`, `telnet://host:port`, or `rfc2217://host:port`
+  (the last is stubbed with an actionable error pointing at the
+  ser2net raw-mode workaround). Lets zyterm talk to remote serial
+  servers (ser2net, esp-link, USB-IP, SSH-tunneled tty) the same way
+  it talks to a local `/dev/ttyUSB0`. TCP defaults to `TCP_NODELAY`
+  + `SO_KEEPALIVE` + non-blocking; `telnet://` adds passive IAC
+  negotiation (escape outgoing `0xFF`, strip incoming
+  WILL/WONT/DO/DONT and sub-negotiations). Baud / parity flags are
+  silently ignored on socket transports.
 - **`--port-glob` / `--match-vid-pid`** — USB hot-plug-aware port
   discovery. `--port-glob "/dev/ttyUSB*"` re-resolves the device path
   on every reconnect attempt, so an FT232 / CH340 that comes back as

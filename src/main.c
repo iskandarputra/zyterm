@@ -38,6 +38,11 @@ static void usage(const char *a0) {
             "usage: %s [options] <device>\n"
             "       %s --replay <logfile>\n"
             "\n"
+            "<device> may be a serial node (/dev/ttyUSB0) or a network URL:\n"
+            "    tcp://host:port       raw TCP (e.g. ser2net in raw mode)\n"
+            "    telnet://host:port    TCP + Telnet IAC escaping\n"
+            "    rfc2217://host:port   (NYI; use 'ser2net' raw mode + tcp://)\n"
+            "\n"
             "connection:\n"
             "  -b, --baud <rate>       baud rate (default 115200; arbitrary via termios2)\n"
             "      --data <5|6|7|8>    data bits (default 8)\n"
@@ -517,6 +522,9 @@ int zyterm_main(int argc, char **argv) {
     }
 
     install_signals();
+    c.serial.is_socket = transport_is_url(c.serial.device);
+    c.serial.telnet    = c.serial.is_socket
+                         && strncmp(c.serial.device, "telnet://", 9) == 0;
     c.serial.fd = setup_serial(c.serial.device, c.serial.baud, c.serial.data_bits,
                                c.serial.parity, c.serial.stop_bits, c.serial.flow);
 

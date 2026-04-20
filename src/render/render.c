@@ -304,6 +304,24 @@ void render_rx(zt_ctx *c, const unsigned char *buf, size_t n) {
 void rx_ingest(zt_ctx *c, const unsigned char *buf, size_t n) {
     if (!c || !buf || n == 0) return;
 
+    /* Telnet IAC stripping (telnet:// transport only) — runs before EOL
+     * translation so the IAC parser sees raw wire bytes. The filter is
+     * stateful across read() chunks via c->serial.telnet_rx_st. We must
+     * copy into a writable scratch buffer because the parser strips in
+     * place. */
+    unsigned char *telnet_heap = NULL;
+    if (c->serial.telnet) {
+        unsigned char  tscratch[4096];
+        unsigned char *tb = (n <= sizeof tscratch)
+                              ? tscratch
+                              : (telnet_heap = malloc(n));
+        if (!tb) return;
+        memcpy(tb, buf, n);
+        n = telnet_rx_filter(&c->serial.telnet_rx_st, tb, n);
+        if (!n) { free(telnet_heap); return; }
+        buf = tb;
+    }
+
     /* Apply --map-in line-ending translation up-front so every downstream
      * consumer (JSONL log, HTTP/SSE, filter subprocess, framer, render)
      * sees the same normalised stream. */
@@ -313,11 +331,11 @@ void rx_ingest(zt_ctx *c, const unsigned char *buf, size_t n) {
         size_t         cap = ZT_EOL_OUT_CAP(n);
         unsigned char *xb  = (cap <= sizeof scratch) ? scratch
                                                      : (heap = malloc(cap));
-        if (!xb) return;
+        if (!xb) { free(telnet_heap); return; }
         n = eol_translate_in(c->proto.map_in, &c->proto.eol_state_in,
                              buf, n, xb, cap);
         buf = xb;
-        if (!n) { free(heap); return; }
+        if (!n) { free(heap); free(telnet_heap); return; }
     }
 
     if (c->log.format == ZT_LOG_JSON) log_json_rx(c, buf, n);
@@ -325,15 +343,18 @@ void rx_ingest(zt_ctx *c, const unsigned char *buf, size_t n) {
     if (c->ext.filter_pid > 0) {
         filter_feed(c, buf, n);
         free(heap);
+        free(telnet_heap);
         return;
     }
     if (c->proto.mode != ZT_FRAME_RAW) {
         framing_feed(c, buf, n);
         free(heap);
+        free(telnet_heap);
         return;
     }
     render_rx(c, buf, n);
     free(heap);
+    free(telnet_heap);
 }
 
 __attribute__((format(printf, 2, 3))) void log_notice(zt_ctx *c, const char *fmt, ...) {

@@ -30,21 +30,50 @@
 
 /* ------------------------------ send ------------------------------------- */
 
+/* Apply outbound transforms (EOL mapping, then Telnet IAC escaping) to the
+ * caller's buffer. On entry @c *buf and @c *n point at the user data; on
+ * return they describe the transformed bytes ready for write(2). Either
+ * the original buffer is returned unchanged (no transform configured) or
+ * a fresh allocation lives in @c *out_heap (caller frees on completion).
+ * Returns false on allocation failure (nothing to send). */
+static bool tx_preprocess(zt_ctx *c, const unsigned char **buf, size_t *n,
+                          unsigned char **out_heap) {
+    *out_heap = NULL;
+    bool need_eol = (c->proto.map_out != ZT_EOL_NONE);
+    bool need_tn  = c->serial.telnet;
+    if (!need_eol && !need_tn) return true;
+
+    unsigned char *stage1 = NULL; /* after EOL */
+    if (need_eol) {
+        size_t cap = ZT_EOL_OUT_CAP(*n);
+        stage1     = malloc(cap);
+        if (!stage1) return false;
+        *n   = eol_translate_out(c->proto.map_out, &c->proto.eol_state_out,
+                                 *buf, *n, stage1, cap);
+        *buf = stage1;
+    }
+
+    if (need_tn) {
+        size_t         cap2   = (*n) * 2;
+        unsigned char *stage2 = malloc(cap2 ? cap2 : 1);
+        if (!stage2) { free(stage1); return false; }
+        *n   = telnet_tx_escape(*buf, *n, stage2, cap2);
+        *buf = stage2;
+        free(stage1);
+        *out_heap = stage2;
+    } else {
+        *out_heap = stage1;
+    }
+
+    if (!*n) { free(*out_heap); *out_heap = NULL; return false; }
+    return true;
+}
+
 void trickle_send(zt_ctx *c, const unsigned char *buf, size_t n) {
     if (c->serial.fd < 0 || !n) return;
 
-    unsigned char  scratch[1024];
     unsigned char *heap = NULL;
-    if (c->proto.map_out != ZT_EOL_NONE) {
-        size_t         cap = ZT_EOL_OUT_CAP(n);
-        unsigned char *xb  = (cap <= sizeof scratch) ? scratch
-                                                     : (heap = malloc(cap));
-        if (!xb) return;
-        n   = eol_translate_out(c->proto.map_out, &c->proto.eol_state_out,
-                                buf, n, xb, cap);
-        buf = xb;
-        if (!n) { free(heap); return; }
-    }
+    if (!tx_preprocess(c, &buf, &n, &heap)) return;
 
     log_write_tx(c, buf, n);
     http_broadcast_tx(c, buf, n);
@@ -73,18 +102,8 @@ out:
 void direct_send(zt_ctx *c, const unsigned char *buf, size_t n) {
     if (c->serial.fd < 0 || !n) return;
 
-    unsigned char  scratch[1024];
     unsigned char *heap = NULL;
-    if (c->proto.map_out != ZT_EOL_NONE) {
-        size_t         cap = ZT_EOL_OUT_CAP(n);
-        unsigned char *xb  = (cap <= sizeof scratch) ? scratch
-                                                     : (heap = malloc(cap));
-        if (!xb) return;
-        n   = eol_translate_out(c->proto.map_out, &c->proto.eol_state_out,
-                                buf, n, xb, cap);
-        buf = xb;
-        if (!n) { free(heap); return; }
-    }
+    if (!tx_preprocess(c, &buf, &n, &heap)) return;
 
     log_write_tx(c, buf, n);
     http_broadcast_tx(c, buf, n);
