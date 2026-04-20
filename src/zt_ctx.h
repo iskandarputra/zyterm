@@ -314,6 +314,9 @@ typedef struct {
         /* Tier 3 — log-level volume */
         bool mute_dbg;
         bool mute_inf;
+
+        /* asciinema cast v2 recording (--rec) */
+        const char *rec_path;
     } log;
 
     struct {

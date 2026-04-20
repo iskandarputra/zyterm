@@ -139,12 +139,21 @@ void zt_embed_reset(void) {
 static unsigned char s_ob[OB_CAP];
 static size_t        s_ob_len = 0;
 
+/* Optional observer of every byte about to hit STDOUT. Registered by
+ * the asciinema cast recorder; NULL when no recording is active. */
+static void (*s_ob_record_cb)(const unsigned char *, size_t) = NULL;
+
+void ob_set_record_callback(void (*cb)(const unsigned char *, size_t)) {
+    s_ob_record_cb = cb;
+}
+
 void                 ob_write(const void *p, size_t n) {
     if (!p || n == 0) return;
     if (s_ob_len + n > OB_CAP) {
         /* Flush what we have, then write the rest directly. */
         ob_flush();
         if (n > OB_CAP) {
+            if (s_ob_record_cb) s_ob_record_cb((const unsigned char *)p, n);
             (void)zt_write_all(STDOUT_FILENO, p, n);
             return;
         }
@@ -159,6 +168,7 @@ void ob_cstr(const char *s) {
 
 void ob_flush(void) {
     if (s_ob_len == 0) return;
+    if (s_ob_record_cb) s_ob_record_cb(s_ob, s_ob_len);
     (void)zt_write_all(STDOUT_FILENO, s_ob, s_ob_len);
     s_ob_len = 0;
 }

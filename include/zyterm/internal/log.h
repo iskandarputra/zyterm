@@ -31,6 +31,16 @@ void log_json_tx(zt_ctx *c, const unsigned char *buf, size_t n);
 void log_json_event(zt_ctx *c, const char *event, const char *fmt, ...)
     __attribute__((format(printf, 3, 4)));
 
+/* ── log/record_cast.c ─────────────────────────────────────────────────── */
+/** Open an asciinema cast v2 recording at @p path. Writes the JSON header
+ *  immediately. Returns 0 on success, -1 on error (errno set). */
+int  cast_record_open(zt_ctx *c, const char *path);
+/** Append rendered output bytes (typically called from ob_flush). Safe to
+ *  call when no recording is active — becomes a no-op. */
+void cast_record_o(const unsigned char *buf, size_t n);
+/** Flush buffered events and close the file. Safe to call multiple times. */
+void cast_record_close(zt_ctx *c);
+
 /* ── log/scrollback.c ──────────────────────────────────────────────────── */
 void scrollback_push(zt_ctx *c);
 void scrollback_free(zt_ctx *c);

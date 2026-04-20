@@ -45,6 +45,11 @@ void ob_cstr(const char *s);
 /** Flush the stdout output buffer. */
 void ob_flush(void);
 
+/** Register (or clear, with NULL) a tap that observes every byte the
+ *  render path is about to write to stdout. Used by the cast recorder
+ *  (see @ref cast_record_open). At most one callback is active. */
+void ob_set_record_callback(void (*cb)(const unsigned char *buf, size_t n));
+
 /** Difference between two monotonic timespecs, in seconds. */
 double ts_diff_sec(const struct timespec *a, const struct timespec *b);
 

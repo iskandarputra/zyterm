@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Asciinema cast v2 session recording** — `--rec session.cast` taps
+  every byte the renderer is about to emit (single static callback
+  registered on the shared stdout output buffer in `core.c`) and
+  writes a standards-conformant `.cast` file: a JSON header line
+  (`{"version":2,"width":W,"height":H,"timestamp":T,"env":{TERM,SHELL},
+  "title":"zyterm <ver>"}`) followed by `[t_seconds,"o","data"]`
+  events with `\b\f\n\r\t`, backslash, double-quote, and `\u00XX`
+  control-byte escaping. Plays back with `asciinema play file.cast`,
+  embeds in the asciinema web player, and round-trips through `agg`
+  to GIF/SVG. Works in both interactive mode (records the rendered
+  TUI: scrollback, HUD, colour passthrough) and `--dump` mode
+  (records raw RX from a serial / TCP transport — perfect for
+  shareable bug repros). File is line-buffered so a Ctrl+C still
+  leaves a parseable artefact on disk.
 - **Man page and shell completions.** `docs/zyterm.1` (groff), plus
   `contrib/completions/{zyterm.bash,_zyterm,zyterm.fish}`. `make install`
   now lays them down under `$MANDIR`, `$BASHCOMPDIR`, `$ZSHCOMPDIR`,

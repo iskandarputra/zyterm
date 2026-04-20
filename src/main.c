@@ -143,6 +143,8 @@ static void usage(const char *a0) {
     help_row (fp, tty, NULL, "--dump",          "<sec>",       "headless capture for N seconds (0 = forever)");
     help_row (fp, tty, NULL, "--replay",        "<file>",      "replay a capture through the UI");
     help_row (fp, tty, NULL, "--replay-speed",  "<x>",         "speed multiplier (default 1.0, 0 = max)");
+    help_row (fp, tty, NULL, "--rec",           "<file>",      "record session as asciinema cast v2");
+    help_cont(fp, tty,                                         "play back with: asciinema play <file>");
     fputc('\n', fp);
 
     /* Display & input */
@@ -306,6 +308,7 @@ int zyterm_main(int argc, char **argv) {
         OPT_MAP_IN,
         OPT_PORT_GLOB,
         OPT_MATCH_VID_PID,
+        OPT_REC,
     };
     static const struct option lo[] = {
         {"baud", required_argument, NULL, 'b'},
@@ -352,6 +355,7 @@ int zyterm_main(int argc, char **argv) {
         {"map-in", required_argument, NULL, OPT_MAP_IN},
         {"port-glob", required_argument, NULL, OPT_PORT_GLOB},
         {"match-vid-pid", required_argument, NULL, OPT_MATCH_VID_PID},
+        {"rec", required_argument, NULL, OPT_REC},
         {"help", no_argument, NULL, 'h'},
         {"version", no_argument, NULL, 'V'},
         {0, 0, 0, 0},
@@ -548,6 +552,9 @@ int zyterm_main(int argc, char **argv) {
             c.serial.match_pid = (uint16_t) p;
             break;
         }
+        case OPT_REC:
+            c.log.rec_path = optarg;
+            break;
         case 'V':
             printf("zyterm " ZT_VERSION "\n");
             scrollback_free(&c);
@@ -622,6 +629,11 @@ int zyterm_main(int argc, char **argv) {
     if (c.net.session_name) session_detach(&c, c.net.session_name);
     if (c.serial.spsc_enabled) rx_thread_start(&c);
 
+    if (c.log.rec_path) {
+        if (cast_record_open(&c, c.log.rec_path) != 0)
+            zt_die("zyterm: --rec %s: %s", c.log.rec_path, strerror(errno));
+    }
+
     int rc = (dump_secs >= 0) ? run_dump(&c, dump_secs) : run_interactive(&c);
 
     /* ── Restore terminal FIRST — before any cleanup that could crash.
@@ -631,6 +643,7 @@ int zyterm_main(int argc, char **argv) {
      * faults, the atexit handler never runs and the parent shell is
      * left in raw-mode + alt-screen (appears "stuck"). */
     ob_flush();
+    cast_record_close(&c);
     restore_terminal();
 
     /* Standalone UX: hand control back on a fresh line so the parent shell

@@ -268,6 +268,7 @@ int run_dump(zt_ctx *c, int seconds) {
             ssize_t r = read(c->serial.fd, rbuf, sizeof rbuf);
             if (r > 0) {
                 log_write(c, rbuf, (size_t)r);
+                cast_record_o(rbuf, (size_t)r);
                 (void)zt_write_all(STDOUT_FILENO, rbuf, (size_t)r);
                 c->core.rx_bytes += (uint64_t)r;
             }
@@ -278,6 +279,7 @@ int run_dump(zt_ctx *c, int seconds) {
                 ssize_t r = read(c->serial.fd, rbuf, sizeof rbuf);
                 if (r > 0) {
                     log_write(c, rbuf, (size_t)r);
+                    cast_record_o(rbuf, (size_t)r);
                     (void)zt_write_all(STDOUT_FILENO, rbuf, (size_t)r);
                     c->core.rx_bytes += (uint64_t)r;
                     if ((size_t)r < sizeof rbuf) break;
