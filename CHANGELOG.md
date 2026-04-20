@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet._
 
+## [1.1.3] — 2026-04-21
+
+Patch release to align the tagged release with `main` after a follow-up
+warning cleanup.
+
+### Fixed
+- **USB port discovery build warnings** — `src/serial/port_discover.c`
+  now bounds-checks sysfs attribute path construction for `idVendor`
+  and `idProduct`, which removes fortified `snprintf` truncation
+  warnings on strict Linux builds without changing runtime behaviour.
+
 ## [1.1.2] — 2026-04-21
 
 Linux feature push: hooks, hot-reload, asciinema recording, TCP/Telnet,
@@ -185,7 +196,8 @@ Initial public release.
 - Headless capture (`--dump <sec>`)
 - Log rotation (`--log-max-kb`)
 
-[Unreleased]: https://github.com/iskandarputra/zyterm/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/iskandarputra/zyterm/compare/v1.1.3...HEAD
+[1.1.3]: https://github.com/iskandarputra/zyterm/releases/tag/v1.1.3
 [1.1.2]: https://github.com/iskandarputra/zyterm/releases/tag/v1.1.2
 [1.1.1]: https://github.com/iskandarputra/zyterm/releases/tag/v1.1.1
 [1.0.0]: https://github.com/iskandarputra/zyterm/releases/tag/v1.0.0
