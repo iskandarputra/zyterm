@@ -35,16 +35,16 @@ We wanted something that felt a bit more comfortable for daily use, so we built 
 A rough feature snapshot against the usual suspects on Linux. None of these
 tools are bad — pick whatever fits your workflow:
 
-| Feature                                | minicom | picocom | screen | tio | zyterm |
-|----------------------------------------|:-------:|:-------:|:------:|:---:|:------:|
-| Scrollback + in-stream search          |    —    |    —    |   ·    |  ·  |   ✓    |
-| Built-in HUD (baud, throughput, sparkline) |  —  |    —    |   —    |  —  |   ✓    |
-| USB hot-plug rediscovery (`--port-glob` / VID:PID) | — | — | — | ✓ |   ✓    |
-| Network transports (`tcp://`, `telnet://`) |  —  |    —    |   —    |  ·  |   ✓    |
-| Line-ending translation (CRLF / LF / CR / mixed) | ✓ | ✓ | — | ✓ |   ✓    |
-| Timestamped + JSONL logging            |    ·    |    ·    |   —    |  ✓  |   ✓    |
-| HTTP/SSE bridge for browsers           |    —    |    —    |   —    |  —  |   ✓    |
-| Single static C binary, no runtime deps |   ✓    |    ✓    |   ✓    |  ✓  |   ✓    |
+| Feature                                            | minicom | picocom | screen | tio | zyterm |
+| -------------------------------------------------- | :-----: | :-----: | :----: | :-: | :----: |
+| Scrollback + in-stream search                      |    —    |    —    |   ·    |  ·  |   ✓    |
+| Built-in HUD (baud, throughput, sparkline)         |    —    |    —    |   —    |  —  |   ✓    |
+| USB hot-plug rediscovery (`--port-glob` / VID:PID) |    —    |    —    |   —    |  ✓  |   ✓    |
+| Network transports (`tcp://`, `telnet://`)         |    —    |    —    |   —    |  ·  |   ✓    |
+| Line-ending translation (CRLF / LF / CR / mixed)   |    ✓    |    ✓    |   —    |  ✓  |   ✓    |
+| Timestamped + JSONL logging                        |    ·    |    ·    |   —    |  ✓  |   ✓    |
+| HTTP/SSE bridge for browsers                       |    —    |    —    |   —    |  —  |   ✓    |
+| Single static C binary, no runtime deps            |    ✓    |    ✓    |   ✓    |  ✓  |   ✓    |
 
 ✓ first-class · partial / via add-on — not supported
 
@@ -130,12 +130,13 @@ For clipboard support on X11 desktops, zyterm quietly tries to load `libxcb.so.1
 
 ## Documentation
 
-| Resource                             | What's in it                                  |
-| :----------------------------------- | :-------------------------------------------- |
-| [User Guide](docs/USER_GUIDE.md)     | Flags, shortcuts, and recipes                 |
-| [API Docs](docs/API.md)              | Embedding zyterm's core in your own C program |
-| [Architecture](docs/ARCHITECTURE.md) | How the codebase is organized                 |
-| [Contributing](docs/CONTRIBUTING.md) | How to send patches, style rules, testing     |
+| Resource                              | What's in it                                  |
+| :------------------------------------ | :-------------------------------------------- |
+| [Tutorial](docs/tutorial/00-index.md) | Deep, chapter-by-chapter walkthrough          |
+| [User Guide](docs/USER_GUIDE.md)      | Flags, shortcuts, and recipes                 |
+| [API Docs](docs/API.md)               | Embedding zyterm's core in your own C program |
+| [Architecture](docs/ARCHITECTURE.md)  | How the codebase is organized                 |
+| [Contributing](docs/CONTRIBUTING.md)  | How to send patches, style rules, testing     |
 
 ## What's Inside
 

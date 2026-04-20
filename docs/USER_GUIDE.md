@@ -2,6 +2,10 @@
 
 A walkthrough of what zyterm can do and how to use it.
 
+> **Want the deep version?** See the multi-chapter
+> [tutorial book](tutorial/00-index.md) — installation, profiles,
+> hooks, recording, recipes, troubleshooting, and a full reference.
+
 ## What zyterm does
 
 It opens a serial port, exchanges bytes with whatever is on the other
@@ -39,8 +43,9 @@ make -j
 ./zyterm /dev/ttyUSB0 -b 115200
 ```
 
-If you're not sure which device appeared, run `./zyterm --list` to see
-what's attached. Permission denied? Add yourself to the `dialout` (or
+If you're not sure which device appeared, run
+`ls /dev/ttyUSB* /dev/ttyACM*` or `dmesg | tail -20 | grep tty`.
+Permission denied? Add yourself to the `dialout` (or
 `uucp`) group and log out/in — don't `chmod 666` the device.
 
 You're now connected. Type to transmit. Incoming bytes appear in the
@@ -49,17 +54,17 @@ current line-ending mode.
 
 **3. Essential keys.** Every shortcut is `Ctrl+A` followed by a key:
 
-| Keys        | Action                                         |
-| ----------- | ---------------------------------------------- |
-| `Ctrl+A q`  | Quit.                                          |
-| `Ctrl+A ?`  | Full key list (pager).                         |
-| `Ctrl+A l`  | Start/stop logging to a file.                  |
-| `Ctrl+A /`  | Search scrollback.                             |
-| `Ctrl+A x`  | Toggle hex view.                               |
-| `Ctrl+A e`  | Toggle local echo.                             |
-| `Ctrl+A t`  | Toggle timestamps on each line.                |
-| `Ctrl+A b`  | Change baud without reconnecting.              |
-| `Ctrl+A p`  | Fuzzy command palette.                         |
+| Keys       | Action                            |
+| ---------- | --------------------------------- |
+| `Ctrl+A q` | Quit.                             |
+| `Ctrl+A ?` | Full key list (pager).            |
+| `Ctrl+A l` | Start/stop logging to a file.     |
+| `Ctrl+A /` | Search scrollback.                |
+| `Ctrl+A x` | Toggle hex view.                  |
+| `Ctrl+A e` | Toggle local echo.                |
+| `Ctrl+A t` | Toggle timestamps on each line.   |
+| `Ctrl+A b` | Change baud without reconnecting. |
+| `Ctrl+A p` | Fuzzy command palette.            |
 
 **4. Capture a session to disk.** Two flavours:
 
@@ -74,12 +79,14 @@ asciinema.org. The `.log` file is plain text and `grep`-friendly.
 **5. Reuse settings with profiles.** Drop a file in
 `~/.config/zyterm/myboard.conf`:
 
-```
-device   = /dev/ttyUSB0
-baud     = 115200
-log-dir  = ~/captures
-watch    = (ERR|PANIC|BUG)
-macro    = F1=reboot\r
+```ini
+device      = /dev/ttyUSB0
+baud        = 115200
+data_bits   = 8
+parity      = n
+stop_bits   = 1
+reconnect   = true
+map_out     = lf
 ```
 
 Then just:
@@ -89,8 +96,16 @@ Then just:
 ```
 
 The profile is **hot-reloaded** — edit the file and zyterm picks up
-runtime-safe keys (macros, watches, line-endings, log level) within
-~200 ms, with no reconnect needed.
+runtime-safe keys (line-endings, log format, framing, OSC 52, etc.)
+within ~200 ms with no reconnect needed. Connection-affecting keys
+(`device`, `baud`, `data_bits`, `parity`, `stop_bits`) take effect on
+the next reconnect (`Ctrl+A r`).
+
+Profiles support **only the keys above** plus `osc52`, `frame`,
+`crc`, `log_format`, `map_in`. For macros, watches, and event hooks,
+write a small wrapper script around `zyterm --profile <name>`. See
+[the deep tutorial](tutorial/04-profiles.md) for the full list and
+the wrapper recipe.
 
 **6. Automate responses.** The three `--on-*` flags fire shell actions
 in reaction to session events:
@@ -112,15 +127,15 @@ That's it. Everything else in this guide is elaboration.
 
 ### Connection
 
-| Flag                          | Default  | Meaning                                           |
-| ----------------------------- | -------- | ------------------------------------------------- |
-| `-b, --baud <rate>`           | 115200   | Any baud termios2 will accept (75 to 4 000 000+). |
-| `--data <5\|6\|7\|8>`        | 8        | Data bits.                                        |
-| `--parity <n\|e\|o>`         | n        | None, even, or odd.                               |
-| `--stop <1\|2>`              | 1        | Stop bits.                                        |
-| `--flow <n\|r\|x>`           | n        | None, RTS/CTS, or XON/XOFF.                      |
-| `--reconnect`                 | on       | Auto-reopen device on hangup.                     |
-| `--no-reconnect`              |          | Exit on hangup instead.                           |
+| Flag                  | Default | Meaning                                           |
+| --------------------- | ------- | ------------------------------------------------- |
+| `-b, --baud <rate>`   | 115200  | Any baud termios2 will accept (75 to 4 000 000+). |
+| `--data <5\|6\|7\|8>` | 8       | Data bits.                                        |
+| `--parity <n\|e\|o>`  | n       | None, even, or odd.                               |
+| `--stop <1\|2>`       | 1       | Stop bits.                                        |
+| `--flow <n\|r\|x>`    | n       | None, RTS/CTS, or XON/XOFF.                       |
+| `--reconnect`         | on      | Auto-reopen device on hangup.                     |
+| `--no-reconnect`      |         | Exit on hangup instead.                           |
 
 ### Logging and capture
 
@@ -136,12 +151,12 @@ That's it. Everything else in this guide is elaboration.
 
 ### Profiles and hooks
 
-| Flag                       | Meaning                                                                    |
-| -------------------------- | -------------------------------------------------------------------------- |
-| `--profile <name>`         | Load `~/.config/zyterm/<name>.conf` and hot-reload on edits.              |
-| `--on-connect <action>`    | Run shell action after each successful connect. Repeatable.               |
-| `--on-disconnect <action>` | Run shell action on disconnect or exit. Repeatable.                        |
-| `--on-match '/RE/=action'` | Run action on lines matching POSIX ERE. Prefix `send:` to inject TX.       |
+| Flag                       | Meaning                                                              |
+| -------------------------- | -------------------------------------------------------------------- |
+| `--profile <name>`         | Load `~/.config/zyterm/<name>.conf` and hot-reload on edits.         |
+| `--on-connect <action>`    | Run shell action after each successful connect. Repeatable.          |
+| `--on-disconnect <action>` | Run shell action on disconnect or exit. Repeatable.                  |
+| `--on-match '/RE/=action'` | Run action on lines matching POSIX ERE. Prefix `send:` to inject TX. |
 
 ### Display and input
 
@@ -247,7 +262,7 @@ flashes the HUD if there's nothing to copy.
 | `b` | Send BREAK.                                                        |
 | `r` | Force reconnect now.                                               |
 | `/` | Search. Type your query, then `n` and `N` to step through matches. |
-| `f` | Cycle flow control (none/RTS·CTS/XON·XOFF).                       |
+| `f` | Cycle flow control (none/RTS·CTS/XON·XOFF).                        |
 | `a` | Toggle the auto-baud probe.                                        |
 | `m` | Toggle mouse capture (on/off). Default is **on**.                  |
 | `s` | Open the session picker (multi-window split or attach).            |
@@ -255,7 +270,7 @@ flashes the HUD if there's nothing to copy.
 | `o` | Open settings dialog (4-page serial/display/keyboard/logging).     |
 | `k` | Show keybindings reference popup.                                  |
 | `j` | Cycle log format (text/JSON/raw).                                  |
-| `F` | Cycle framing mode (Raw/COBS/SLIP/HDLC/LenPfx).                   |
+| `F` | Cycle framing mode (Raw/COBS/SLIP/HDLC/LenPfx).                    |
 | `K` | Cycle CRC mode.                                                    |
 | `G` | Toggle raw passthrough mode.                                       |
 | `D` | Mute/unmute `<dbg>` log-level lines.                               |
