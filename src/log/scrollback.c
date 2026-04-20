@@ -243,14 +243,27 @@ void redraw_scrollback(zt_ctx *c) {
          * span — same as gnome-terminal/iTerm/etc. */
         if (have_sel && line_from_bottom <= sel_fl && line_from_bottom >= sel_ll && line &&
             line_len > 0) {
-            int total_cols = utf8_cols(line, line_len);
+            /* When timestamps are hidden, the on-screen layout skips the
+             * embedded [HH:MM:SS.mmm] prefix (15 chars). Map selection
+             * columns against the same visible portion so the highlight
+             * overlay aligns with what emit_colored_line() actually drew
+             * and hidden timestamps don't leak into the reverse-video
+             * span. */
+            size_t      ts_off   = 0;
+            if (!c->proto.show_ts && line_len >= 15 &&
+                line[0] == '[' && line[3] == ':' && line[6] == ':' &&
+                line[9] == '.' && line[13] == ']' && line[14] == ' ')
+                ts_off = 15;
+            const char *vis      = line + ts_off;
+            size_t      vis_len  = line_len - ts_off;
+            int total_cols = utf8_cols(vis, vis_len);
             int sc         = (line_from_bottom == sel_fl) ? sel_fc : 1;
             int ec         = (line_from_bottom == sel_ll) ? sel_lc : total_cols;
             if (sc < 1) sc = 1;
             if (ec > total_cols) ec = total_cols;
             if (ec >= sc && total_cols > 0) {
-                size_t bs = col_to_byte(line, line_len, sc - 1);
-                size_t be = col_to_byte(line, line_len, ec);
+                size_t bs = col_to_byte(vis, vis_len, sc - 1);
+                size_t be = col_to_byte(vis, vis_len, ec);
                 if (be > bs) {
                     char pos[32];
                     snprintf(pos, sizeof pos, "\033[%d;%dH\033[7m", row_num, sc);
@@ -260,11 +273,11 @@ void redraw_scrollback(zt_ctx *c) {
                      * a stripped copy per row. */
                     size_t i = bs;
                     while (i < be) {
-                        if ((unsigned char)line[i] == 0x1b) {
-                            i = skip_esc(line, line_len, i);
+                        if ((unsigned char)vis[i] == 0x1b) {
+                            i = skip_esc(vis, vis_len, i);
                             continue;
                         }
-                        ob_write(line + i, 1);
+                        ob_write(vis + i, 1);
                         i++;
                     }
                     ob_cstr("\033[27m");
@@ -444,14 +457,23 @@ void selection_copy(zt_ctx *c) {
         const char *s = c->log.sb_lines[idx];
         if (!s) s = "";
         size_t s_len = strlen(s);
-        int    total = utf8_cols(s, s_len);
+        /* Skip hidden timestamp prefix so column mapping matches the
+         * visible layout (same logic as emit_colored_line / overlay). */
+        size_t ts_off = 0;
+        if (!c->proto.show_ts && s_len >= 15 &&
+            s[0] == '[' && s[3] == ':' && s[6] == ':' &&
+            s[9] == '.' && s[13] == ']' && s[14] == ' ')
+            ts_off = 15;
+        const char *vis     = s + ts_off;
+        size_t      vis_len = s_len - ts_off;
+        int    total = utf8_cols(vis, vis_len);
         int    sc    = (line == sel_fl) ? sel_fc : 1;
         int    ec    = (line == sel_ll) ? sel_lc : total;
         if (sc < 1) sc = 1;
         if (ec > total) ec = total;
 
-        size_t bs = (ec < sc || total == 0) ? 0 : col_to_byte(s, s_len, sc - 1);
-        size_t be = (ec < sc || total == 0) ? 0 : col_to_byte(s, s_len, ec);
+        size_t bs = (ec < sc || total == 0) ? 0 : col_to_byte(vis, vis_len, sc - 1);
+        size_t be = (ec < sc || total == 0) ? 0 : col_to_byte(vis, vis_len, ec);
         if (be > bs) {
             size_t need = (be - bs) + 1; /* +1 for possible trailing \n */
             while (len + need >= cap) {
@@ -468,7 +490,7 @@ void selection_copy(zt_ctx *c) {
                 }
                 out = t;
             }
-            memcpy(out + len, s + bs, be - bs);
+            memcpy(out + len, vis + bs, be - bs);
             len += (be - bs);
         }
         if (line != sel_ll) {
