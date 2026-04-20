@@ -31,70 +31,157 @@
 
 /* ------------------------------ CLI -------------------------------------- */
 
+/* Modern, color-aware help layout. Auto-disables ANSI when stderr is not a
+ * TTY (piping to less/grep/file) or when NO_COLOR is set. Help goes to
+ * stderr by historical convention so `zyterm 2>/dev/null` still behaves. */
+
+/* Visible-width column where descriptions start. */
+#define HELP_DESC_COL 34
+
+/* Print one option row with deterministic alignment in plain mode. ANSI
+ * sequences in @flag / @val are visually zero-width so we measure with
+ * @flag_visible_len passed in (caller knows the plain text). */
+static void help_row(FILE *fp, bool tty, const char *short_opt,
+                     const char *long_opt, const char *val_plain,
+                     const char *desc) {
+    /* ANSI palette (mirrors usage()). */
+    const char *RST  = tty ? "\033[0m"    : "";
+    const char *FLAG = tty ? "\033[1;32m" : "";
+    const char *VAL  = tty ? "\033[33m"   : "";
+    const char *MUT  = tty ? "\033[2;37m" : "";
+
+    /* Build the visible-width prefix:
+     *   "  " + (short_opt ? "-X, " : "    ") + long_opt + " " + val
+     */
+    int vis = 2 + 4 + (int) strlen(long_opt);
+    if (val_plain && *val_plain) vis += 1 + (int) strlen(val_plain);
+
+    fputs("  ", fp);
+    if (short_opt) fprintf(fp, "%s%s%s, ", FLAG, short_opt, RST);
+    else           fputs("    ", fp);
+    fprintf(fp, "%s%s%s", FLAG, long_opt, RST);
+    if (val_plain && *val_plain) fprintf(fp, " %s%s%s", VAL, val_plain, RST);
+
+    int pad = HELP_DESC_COL - vis;
+    if (pad < 1) pad = 1;
+    for (int i = 0; i < pad; i++) fputc(' ', fp);
+
+    fprintf(fp, "%s%s%s\n", MUT, desc, RST);
+}
+
+/* Continuation line under a row — indented to the description column. */
+static void help_cont(FILE *fp, bool tty, const char *desc) {
+    const char *RST = tty ? "\033[0m"    : "";
+    const char *MUT = tty ? "\033[2;37m" : "";
+    for (int i = 0; i < HELP_DESC_COL; i++) fputc(' ', fp);
+    fprintf(fp, "%s%s%s\n", MUT, desc, RST);
+}
+
 static void usage(const char *a0) {
-    fprintf(stderr,
-            "zyterm " ZT_VERSION " - high-performance RTOS serial terminal\n"
-            "\n"
-            "usage: %s [options] <device>\n"
-            "       %s --replay <logfile>\n"
-            "\n"
-            "<device> may be a serial node (/dev/ttyUSB0) or a network URL:\n"
-            "    tcp://host:port       raw TCP (e.g. ser2net in raw mode)\n"
-            "    telnet://host:port    TCP + Telnet IAC escaping\n"
-            "    rfc2217://host:port   (NYI; use 'ser2net' raw mode + tcp://)\n"
-            "\n"
-            "connection:\n"
-            "  -b, --baud <rate>       baud rate (default 115200; arbitrary via termios2)\n"
-            "      --data <5|6|7|8>    data bits (default 8)\n"
-            "      --parity <n|e|o>    parity: none | even | odd (default n)\n"
-            "      --stop <1|2>        stop bits (default 1)\n"
-            "      --flow <n|r|x>      flow: none | rts/cts | xon/xoff (default n)\n"
-            "      --reconnect         auto-reopen device on hang-up (default: ON)\n"
-            "      --no-reconnect      exit on serial hang-up instead of retrying\n"
-            "      --port-glob <pat>   re-resolve device on each reconnect via glob\n"
-            "                          (e.g. \"/dev/ttyUSB*\"); device argument optional\n"
-            "      --match-vid-pid <V:P>  filter discovered devices by USB id (hex,\n"
-            "                          e.g. 0403:6001 = FT232R). Combine with\n"
-            "                          --port-glob or use alone to scan defaults\n"
-            "                          (/dev/ttyUSB*, /dev/ttyACM*, /dev/serial/by-id/*)\n"
-            "\n"
-            "logging & capture:\n"
-            "  -l, --log <file>        append log with ms-resolution timestamps\n"
-            "                          (interactive: Ctrl+A l toggles auto-named log\n"
-            "                          zyterm-YYYYMMDD-NNN.txt)\n"
-            "      --log-max-kb <N>    rotate log to <file>.1 when it exceeds N KB\n"
-            "      --tx-ts             also log TX stream with timestamps (-> prefix)\n"
-            "      --dump <sec>        headless capture for N seconds (0 = forever)\n"
-            "      --replay <file>     replay a capture file through the UI\n"
-            "      --replay-speed <x>  replay speed multiplier (default 1.0, 0 = max)\n"
-            "\n"
-            "display & input:\n"
-            "  -x, --hex               render RX as hex dump\n"
-            "  -e, --echo              start with local echo on\n"
-            "      --no-color          disable RX log-level coloring\n"
-            "      --ts                start with timestamp display on\n"
-            "      --watch <pattern>   highlight lines containing <pattern> (repeatable,\n"
-            "                          up to 8, each gets a distinct colour)\n"
-            "      --watch-beep        beep (BEL) on watch match\n"
-            "      --macro F<n>=<str>  bind a macro to F1..F12 (supports \\r \\n \\t \\xNN;\n"
-            "                          repeatable)\n"
-            "      --map-out <mode>    rewrite outgoing line endings\n"
-            "                          mode: none|cr|lf|crlf|cr-crlf|lf-crlf (default none)\n"
-            "      --map-in <mode>     rewrite incoming line endings (same modes)\n"
-            "\n"
-            "  -h, --help              show this help\n"
-            "  -V, --version           print version and exit\n"
-            "\n"
-            "runtime (interactive):\n"
-            "  Ctrl+A        command menu (q/x/p/e/c/h/t/b/s/f/r///a/?)\n"
-            "  F1..F12       fire bound macros\n"
-            "  PgUp/PgDn     scroll back / forward through scrollback\n"
-            "  n / N         (in scroll mode, after Ctrl+A /) next / prev match\n"
-            "  Up/Down       line history    Left/Right  cursor move\n"
-            "  Tab           remote complete (sync-and-flush)\n"
-            "  Ctrl+U        clear line      Ctrl+W  delete word\n"
-            "  Ctrl+L        clear screen    Ctrl+C  send ETX to remote\n",
-            a0, a0);
+    bool tty = isatty(STDERR_FILENO) && !getenv("NO_COLOR");
+    const char *T = getenv("TERM");
+    if (T && !strcmp(T, "dumb")) tty = false;
+
+    const char *RST  = tty ? "\033[0m"    : "";
+    const char *DIM  = tty ? "\033[2m"    : "";
+    const char *B    = tty ? "\033[1m"    : "";
+    const char *HEAD = tty ? "\033[1;36m" : "";
+    const char *VAL  = tty ? "\033[33m"   : "";
+    const char *URL  = tty ? "\033[35m"   : "";
+    const char *MUT  = tty ? "\033[2;37m" : "";
+    const char *ACC  = tty ? "\033[1;35m" : "";
+    const char *FLAG = tty ? "\033[1;32m" : "";
+
+    FILE *fp = stderr;
+
+    /* Banner */
+    fprintf(fp,
+            "\n  %s▍%s %szyterm%s %s%s%s  %s· high-performance serial terminal%s\n"
+            "  %s▍%s %swww.iskandarputra.com%s · %sMIT%s\n\n",
+            ACC, RST, B, RST, DIM, ZT_VERSION, RST, MUT, RST,
+            ACC, RST, URL, RST, DIM, RST);
+
+    /* Usage */
+    fprintf(fp, "%sUSAGE%s\n", HEAD, RST);
+    fprintf(fp, "  %s%s%s [%sOPTIONS%s] %s<DEVICE>%s\n",
+            B, a0, RST, FLAG, RST, VAL, RST);
+    fprintf(fp, "  %s%s%s --replay %s<LOGFILE>%s\n\n",
+            B, a0, RST, VAL, RST);
+
+    /* Device */
+    fprintf(fp, "%sDEVICE%s\n", HEAD, RST);
+    fprintf(fp, "  %s/dev/ttyUSB0%s         %sserial node (or any character device)%s\n",
+            VAL, RST, MUT, RST);
+    fprintf(fp, "  %stcp://%s%shost:port%s       %sraw TCP (e.g. ser2net in raw mode)%s\n",
+            URL, RST, VAL, RST, MUT, RST);
+    fprintf(fp, "  %stelnet://%s%shost:port%s    %sTCP + Telnet IAC escaping%s\n",
+            URL, RST, VAL, RST, MUT, RST);
+    fprintf(fp, "  %srfc2217://%s%shost:port%s   %sNYI — use ser2net raw + tcp://%s\n\n",
+            URL, RST, VAL, RST, MUT, RST);
+
+    /* Connection */
+    fprintf(fp, "%sCONNECTION%s\n", HEAD, RST);
+    help_row (fp, tty, "-b", "--baud",          "<rate>",      "baud rate (default 115200; arbitrary via termios2)");
+    help_row (fp, tty, NULL, "--data",          "<5|6|7|8>",   "data bits (default 8)");
+    help_row (fp, tty, NULL, "--parity",        "<n|e|o>",     "parity: none | even | odd (default n)");
+    help_row (fp, tty, NULL, "--stop",          "<1|2>",       "stop bits (default 1)");
+    help_row (fp, tty, NULL, "--flow",          "<n|r|x>",     "none | rts/cts | xon/xoff (default n)");
+    help_row (fp, tty, NULL, "--reconnect",     "",            "auto-reopen on hang-up (default ON)");
+    help_row (fp, tty, NULL, "--no-reconnect",  "",            "exit on serial hang-up");
+    help_row (fp, tty, NULL, "--port-glob",     "<pat>",       "re-resolve device on each reconnect");
+    help_cont(fp, tty,                                         "e.g. \"/dev/ttyUSB*\"; <DEVICE> becomes optional");
+    help_row (fp, tty, NULL, "--match-vid-pid", "<V:P>",       "filter discovered ports by USB id (hex)");
+    help_cont(fp, tty,                                         "e.g. 0403:6001 (FT232R), 1a86:7523 (CH340)");
+    fputc('\n', fp);
+
+    /* Logging */
+    fprintf(fp, "%sLOGGING & CAPTURE%s\n", HEAD, RST);
+    help_row (fp, tty, "-l", "--log",           "<file>",      "append log with ms timestamps");
+    help_cont(fp, tty,                                         "Ctrl+A l toggles auto-named zyterm-YYYYMMDD-NNN.txt");
+    help_row (fp, tty, NULL, "--log-max-kb",    "<N>",         "rotate to <file>.1 when it exceeds N KB");
+    help_row (fp, tty, NULL, "--tx-ts",         "",            "also log TX with \"-> \" prefix");
+    help_row (fp, tty, NULL, "--dump",          "<sec>",       "headless capture for N seconds (0 = forever)");
+    help_row (fp, tty, NULL, "--replay",        "<file>",      "replay a capture through the UI");
+    help_row (fp, tty, NULL, "--replay-speed",  "<x>",         "speed multiplier (default 1.0, 0 = max)");
+    fputc('\n', fp);
+
+    /* Display & input */
+    fprintf(fp, "%sDISPLAY & INPUT%s\n", HEAD, RST);
+    help_row (fp, tty, "-x", "--hex",           "",            "render RX as hex dump");
+    help_row (fp, tty, "-e", "--echo",          "",            "start with local echo on");
+    help_row (fp, tty, NULL, "--no-color",      "",            "disable RX log-level colouring");
+    help_row (fp, tty, NULL, "--ts",            "",            "start with timestamp display on");
+    help_row (fp, tty, NULL, "--watch",         "<pattern>",   "highlight matching lines (repeatable, up to 8)");
+    help_row (fp, tty, NULL, "--watch-beep",    "",            "BEL on watch match");
+    help_row (fp, tty, NULL, "--macro",         "F<n>=<str>",  "bind macro to F1..F12 (\\r \\n \\t \\xNN; repeatable)");
+    help_row (fp, tty, NULL, "--map-out",       "<mode>",      "rewrite outgoing line endings");
+    help_row (fp, tty, NULL, "--map-in",        "<mode>",      "rewrite incoming line endings");
+    help_cont(fp, tty,                                         "mode: none | cr | lf | crlf | cr-crlf | lf-crlf");
+    fputc('\n', fp);
+
+    /* Misc */
+    fprintf(fp, "%sHELP%s\n", HEAD, RST);
+    help_row (fp, tty, "-h", "--help",          "",            "show this help");
+    help_row (fp, tty, "-V", "--version",       "",            "print version and exit");
+    fputc('\n', fp);
+
+    /* Interactive */
+    fprintf(fp, "%sINTERACTIVE%s\n", HEAD, RST);
+    fprintf(fp, "  %sCtrl+A%s        command menu  %s(q x p e c h t b s f r / a ?)%s\n", B, RST, MUT, RST);
+    fprintf(fp, "  %sF1..F12%s       fire bound macros\n", B, RST);
+    fprintf(fp, "  %sPgUp%s/%sPgDn%s     scroll back / forward through scrollback\n", B, RST, B, RST);
+    fprintf(fp, "  %sn%s / %sN%s         %s(in scroll mode after Ctrl+A /)%s next / prev match\n",
+            B, RST, B, RST, MUT, RST);
+    fprintf(fp, "  %sUp%s/%sDown%s       line history       %sLeft%s/%sRight%s  cursor move\n",
+            B, RST, B, RST, B, RST, B, RST);
+    fprintf(fp, "  %sTab%s           remote completion (sync-and-flush)\n", B, RST);
+    fprintf(fp, "  %sCtrl+U%s        clear line         %sCtrl+W%s  delete word\n", B, RST, B, RST);
+    fprintf(fp, "  %sCtrl+L%s        clear screen       %sCtrl+C%s  send ETX to remote\n", B, RST, B, RST);
+
+    fprintf(fp, "\n%sExamples%s\n", HEAD, RST);
+    fprintf(fp, "  %s$%s %szyterm /dev/ttyUSB0 -b 115200%s\n",                  DIM, RST, B, RST);
+    fprintf(fp, "  %s$%s %szyterm --match-vid-pid 1a86:7523 --map-out crlf%s\n", DIM, RST, B, RST);
+    fprintf(fp, "  %s$%s %szyterm tcp://lab-pi.local:23000 -l boot.log%s\n\n",   DIM, RST, B, RST);
 }
 
 static unsigned parse_baud(const char *s) {
