@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/iskandarputra/zyterm/actions/workflows/ci.yml/badge.svg)](https://github.com/iskandarputra/zyterm/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.2.0-green.svg)](https://github.com/iskandarputra/zyterm/releases)
+[![Version](https://img.shields.io/badge/version-1.1.1-green.svg)](https://github.com/iskandarputra/zyterm/releases)
 
 > A simple serial terminal for people who work with hardware every day.
 
