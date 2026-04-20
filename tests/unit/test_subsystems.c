@@ -1002,6 +1002,34 @@ static void test_eol(void) {
 }
 
 /* ------------------------------------------------------------------ */
+/* port discovery (--port-glob / --match-vid-pid)                     */
+/* ------------------------------------------------------------------ */
+static void test_port_discover(void) {
+    SECTION("port_discover (sysfs walk)");
+
+    /* "any" filter on a non-existent device → -1 (no USB ancestor). */
+    int r = port_match_vid_pid("/dev/this-port-does-not-exist", 0, 0);
+    ASSERT(r == 1 || r == -1, "match: nonexistent device handled");
+
+    /* port_discover with no filter and a glob that won't match → NULL. */
+    char *p = port_discover("/dev/zyterm-no-such-glob-*", 0, 0);
+    ASSERT(p == NULL, "discover: no-match returns NULL");
+    free(p);
+
+    /* port_discover with no glob and no VID/PID → NULL (nothing to find). */
+    p = port_discover(NULL, 0, 0);
+    ASSERT(p == NULL, "discover: empty hints returns NULL");
+    free(p);
+
+    /* If a USB-serial adapter is plugged in, glob discovery should find one
+     * (we accept either result; this only asserts that the call is safe). */
+    p = port_discover("/dev/ttyUSB*", 0, 0);
+    ASSERT(p == NULL || access(p, F_OK) == 0,
+           "discover: ttyUSB* result (if any) is a real path");
+    free(p);
+}
+
+/* ------------------------------------------------------------------ */
 /* main                                                               */
 /* ------------------------------------------------------------------ */
 int main(void) {
@@ -1019,6 +1047,7 @@ int main(void) {
     test_zephyr_color();
     test_flash();
     test_eol();
+    test_port_discover();
 
     /* zt_ctx-based / Tier 2 */
     test_watch();

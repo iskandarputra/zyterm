@@ -41,4 +41,20 @@ const char *tty_stats_modem_str(unsigned mask, char *buf, size_t cap);
 /* ── serial/autobaud.c ─────────────────────────────────────────────────── */
 int autobaud_probe(zt_ctx *c);
 
+/* ── serial/port_discover.c ────────────────────────────────────────────── */
+/** Probe a TTY's USB ancestor in sysfs. Returns 1 if both @c vid and @c pid
+ *  match (a zero argument means "any"), 0 if no match, -1 if the device has
+ *  no USB ancestor (e.g. a real UART or a PTY). */
+int port_match_vid_pid(const char *device_path, uint16_t vid, uint16_t pid);
+
+/** Find the first device matching @c glob_pat (e.g. `/dev/ttyUSB*`) and,
+ *  if @c vid is non-zero, the given USB vendor:product. Returns a malloc'd
+ *  path the caller must free, or NULL when nothing matches. */
+char *port_discover(const char *glob_pat, uint16_t vid, uint16_t pid);
+
+/** Re-resolve @c c->serial.device using the current discovery hints
+ *  (port_glob / match_vid / match_pid). Returns 1 if the path changed,
+ *  0 if unchanged or no hints set, -1 on no-match. */
+int port_rediscover(zt_ctx *c);
+
 #endif /* ZYTERM_INTERNAL_SERIAL_H_ */

@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`--port-glob` / `--match-vid-pid`** — USB hot-plug-aware port
+  discovery. `--port-glob "/dev/ttyUSB*"` re-resolves the device path
+  on every reconnect attempt, so an FT232 / CH340 that comes back as
+  a different `ttyUSBn` after a replug is found again automatically.
+  `--match-vid-pid 0403:6001` filters discovered ports by USB
+  vendor:product (sysfs walk; no libudev dependency). Either flag
+  alone makes the positional `<device>` argument optional — handy for
+  `zyterm --match-vid-pid 1a86:7523` to "open whatever CH340 is
+  plugged in right now".
 - **`--map-out` / `--map-in`** — line-ending translation between host and
   device. Modes: `none | cr | lf | crlf | cr-crlf | lf-crlf`. Streaming,
   stateful (CRLF coalescing survives chunk boundaries), wired through
@@ -16,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   normalised stream. Persisted by `--profile-save`. Resolves the
   most-reported minicom-parity gap (Windows-firmware devices that
   expect CRLF, RTOS shells that expect bare CR).
-- `planning/` — public roadmap and design documents.
+- `CHANGELOG.md` (this file) and `.github/` issue / PR templates.
 
 ## [1.1.1] — 2025-01
 

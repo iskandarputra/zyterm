@@ -46,6 +46,12 @@ static void usage(const char *a0) {
             "      --flow <n|r|x>      flow: none | rts/cts | xon/xoff (default n)\n"
             "      --reconnect         auto-reopen device on hang-up (default: ON)\n"
             "      --no-reconnect      exit on serial hang-up instead of retrying\n"
+            "      --port-glob <pat>   re-resolve device on each reconnect via glob\n"
+            "                          (e.g. \"/dev/ttyUSB*\"); device argument optional\n"
+            "      --match-vid-pid <V:P>  filter discovered devices by USB id (hex,\n"
+            "                          e.g. 0403:6001 = FT232R). Combine with\n"
+            "                          --port-glob or use alone to scan defaults\n"
+            "                          (/dev/ttyUSB*, /dev/ttyACM*, /dev/serial/by-id/*)\n"
             "\n"
             "logging & capture:\n"
             "  -l, --log <file>        append log with ms-resolution timestamps\n"
@@ -206,6 +212,8 @@ int zyterm_main(int argc, char **argv) {
         OPT_DIFF,
         OPT_MAP_OUT,
         OPT_MAP_IN,
+        OPT_PORT_GLOB,
+        OPT_MATCH_VID_PID,
     };
     static const struct option lo[] = {
         {"baud", required_argument, NULL, 'b'},
@@ -250,6 +258,8 @@ int zyterm_main(int argc, char **argv) {
         {"diff", required_argument, NULL, OPT_DIFF},
         {"map-out", required_argument, NULL, OPT_MAP_OUT},
         {"map-in", required_argument, NULL, OPT_MAP_IN},
+        {"port-glob", required_argument, NULL, OPT_PORT_GLOB},
+        {"match-vid-pid", required_argument, NULL, OPT_MATCH_VID_PID},
         {"help", no_argument, NULL, 'h'},
         {"version", no_argument, NULL, 'V'},
         {0, 0, 0, 0},
@@ -427,6 +437,25 @@ int zyterm_main(int argc, char **argv) {
             if (eol_parse(optarg, &c.proto.map_in) < 0)
                 zt_die("zyterm: --map-in must be none|cr|lf|crlf|cr-crlf|lf-crlf");
             break;
+        case OPT_PORT_GLOB:
+            c.serial.port_glob = optarg;
+            break;
+        case OPT_MATCH_VID_PID: {
+            /* format: VVVV:PPPP, hex (e.g. 0403:6001 = FT232R) */
+            char *colon = strchr(optarg, ':');
+            if (!colon)
+                zt_die("zyterm: --match-vid-pid must be VVVV:PPPP (hex)");
+            char *end = NULL;
+            unsigned long v = strtoul(optarg, &end, 16);
+            if (end != colon || v > 0xFFFFu)
+                zt_die("zyterm: --match-vid-pid: bad vendor id");
+            unsigned long p = strtoul(colon + 1, &end, 16);
+            if (*end != '\0' || p > 0xFFFFu)
+                zt_die("zyterm: --match-vid-pid: bad product id");
+            c.serial.match_vid = (uint16_t) v;
+            c.serial.match_pid = (uint16_t) p;
+            break;
+        }
         case 'V':
             printf("zyterm " ZT_VERSION "\n");
             scrollback_free(&c);
@@ -463,11 +492,21 @@ int zyterm_main(int argc, char **argv) {
     }
 
     if (optind >= argc) {
-        usage(argv[0]);
-        scrollback_free(&c);
-        return 2;
+        /* No positional device — accept it only when discovery hints are
+         * present, in which case we resolve a real path before opening. */
+        if (!c.serial.port_glob && !c.serial.match_vid && !c.serial.match_pid) {
+            usage(argv[0]);
+            scrollback_free(&c);
+            return 2;
+        }
+        char *found = port_discover(c.serial.port_glob,
+                                    c.serial.match_vid, c.serial.match_pid);
+        if (!found)
+            zt_die("zyterm: no device matched --port-glob / --match-vid-pid");
+        c.serial.device = found;
+    } else {
+        c.serial.device = argv[optind];
     }
-    c.serial.device = argv[optind];
 
     if (log_path) {
         c.log.path = log_path;

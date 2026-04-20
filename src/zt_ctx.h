@@ -178,6 +178,15 @@ typedef struct {
         int         flow;      /**< 0=none, 1=rtscts, 2=xonxoff.             */
         bool        reconnect;
 
+        /* Tier 1 — port discovery (USB hot-plug, --port-glob, --match-vid-pid).
+         * When set, reconnect_attempt() will re-resolve the device path on every
+         * retry so a re-enumerated USB-serial adapter (USB0 → USB1 after replug)
+         * is found again. The originally-selected device path is held in
+         * @c device; the discovery hints survive across reconnects. */
+        const char *port_glob; /**< e.g. "/dev/ttyUSB*", NULL = off.         */
+        uint16_t    match_vid; /**< USB vendor id (0 = any / off).           */
+        uint16_t    match_pid; /**< USB product id (0 = any / off).          */
+
         /* Tier 1 — line-state & kernel counters */
         unsigned        kern_frame_err;   /**< TIOCGICOUNT frame.                       */
         unsigned        kern_overrun_err; /**< TIOCGICOUNT overrun.                     */

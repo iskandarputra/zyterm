@@ -32,6 +32,12 @@
 
 /* Best-effort reopen: single attempt (run_interactive retries with poll timeout). */
 int reconnect_attempt(zt_ctx *c) {
+    /* If --port-glob / --match-vid-pid were given, re-resolve the device
+     * path each attempt. A USB-serial adapter that comes back as a
+     * different /dev/ttyUSBn after replug is then transparently picked
+     * up; without these hints the device path is held fixed. */
+    (void) port_rediscover(c);
+
     int fd = try_reopen_serial(c->serial.device, c->serial.baud, c->serial.data_bits,
                                c->serial.parity, c->serial.stop_bits, c->serial.flow);
     if (fd < 0) return -1;
