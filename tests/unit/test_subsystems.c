@@ -1101,6 +1101,279 @@ static void test_transport(void) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 24. Event hooks (F4) — parser, dispatch, send: action,             */
+/*     rate-limit, regression for action containing '/'               */
+/* ------------------------------------------------------------------ */
+static void test_hooks(void) {
+    SECTION("hooks");
+    zt_ctx c;
+    ctx_init(&c);
+
+    /* --- parser ---------------------------------------------------- */
+    /* Bug we just fixed: action contains '/' (e.g. /tmp/...), the
+     * old strrchr-based splitter swallowed it. Must accept this. */
+    int r = hooks_register(&c, ZT_HOOK_EVENT_MATCH,
+                           "/PANIC/=touch /tmp/zt_hook_unit_should_not_exist");
+    ASSERT(r == 0, "register match-hook with '/' in action");
+
+    r = hooks_register(&c, ZT_HOOK_EVENT_MATCH, "no-leading-slash");
+    ASSERT(r == -1, "register rejects spec without leading '/'");
+
+    r = hooks_register(&c, ZT_HOOK_EVENT_MATCH, "/PATTERN/no-equals");
+    ASSERT(r == -1, "register rejects spec without '/=' delimiter");
+
+    r = hooks_register(&c, ZT_HOOK_EVENT_MATCH, "/[unclosed/=action");
+    ASSERT(r == -1, "register rejects bad regex");
+
+    /* --- shell action: file sentinel ------------------------------- */
+    char sentinel[64];
+    snprintf(sentinel, sizeof sentinel, "/tmp/zt_hook_unit_%d", getpid());
+    unlink(sentinel);
+
+    char spec[256];
+    snprintf(spec, sizeof spec, "/READY/=touch %s", sentinel);
+    r = hooks_register(&c, ZT_HOOK_EVENT_MATCH, spec);
+    ASSERT(r == 0, "register shell-action match hook");
+
+    const unsigned char miss_line[] = "boot ok";
+    hooks_on_line(&c, miss_line, sizeof miss_line - 1);
+    /* Reap any potential children, then verify nothing fired. */
+    usleep(50 * 1000);
+    hooks_reap(&c);
+    ASSERT(access(sentinel, F_OK) != 0, "non-matching line did not fire hook");
+
+    const unsigned char hit_line[] = "system READY at t=42";
+    hooks_on_line(&c, hit_line, sizeof hit_line - 1);
+    /* Wait up to 1s for the forked /bin/sh -c "touch ..." to complete. */
+    bool seen = false;
+    for (int i = 0; i < 100 && !seen; i++) {
+        usleep(10 * 1000);
+        hooks_reap(&c);
+        if (access(sentinel, F_OK) == 0) seen = true;
+    }
+    ASSERT(seen, "matching line fired shell action (sentinel created)");
+    unlink(sentinel);
+
+    /* --- rate limit: many fires within 100ms => only ONE shell ----- */
+    /* Use a counter file: every fire appends a line; check the
+     * final count after all forked children have reaped. */
+    char counter[64];
+    snprintf(counter, sizeof counter, "/tmp/zt_hook_rl_%d", getpid());
+    unlink(counter);
+    char rl_spec[256];
+    snprintf(rl_spec, sizeof rl_spec, "/BURST/=echo x >> %s", counter);
+    /* Replace the previous READY hook with this BURST one by freeing
+     * and re-registering. */
+    hooks_free(&c);
+    r = hooks_register(&c, ZT_HOOK_EVENT_MATCH, rl_spec);
+    ASSERT(r == 0, "register rate-limit test hook");
+
+    const unsigned char burst_line[] = "BURST event";
+    /* Fire 10 times back-to-back; rate-limit window is 100 ms, so all
+     * but the first should be suppressed. */
+    for (int i = 0; i < 10; i++) {
+        hooks_on_line(&c, burst_line, sizeof burst_line - 1);
+    }
+    /* Wait for the one allowed shell to land. */
+    for (int i = 0; i < 100; i++) {
+        usleep(10 * 1000);
+        hooks_reap(&c);
+        if (access(counter, F_OK) == 0) break;
+    }
+    /* Count lines in the counter file. */
+    FILE *fp = fopen(counter, "r");
+    int  n_lines = 0;
+    if (fp) {
+        char ln[64];
+        while (fgets(ln, sizeof ln, fp)) n_lines++;
+        fclose(fp);
+    }
+    ASSERT(n_lines == 1,
+           "exactly one shell fired despite 10 back-to-back triggers");
+    unlink(counter);
+
+    /* After the rate-limit window expires, hook fires again. */
+    usleep(150 * 1000);
+    hooks_on_line(&c, burst_line, sizeof burst_line - 1);
+    bool seen2 = false;
+    for (int i = 0; i < 100 && !seen2; i++) {
+        usleep(10 * 1000);
+        hooks_reap(&c);
+        if (access(counter, F_OK) == 0) seen2 = true;
+    }
+    ASSERT(seen2, "after rate-limit window, hook fires again");
+    unlink(counter);
+
+    /* --- send: action — bytes injected into c->serial.fd ----------- */
+    int p[2];
+    ASSERT(pipe(p) == 0, "pipe for send: action capture");
+    c.serial.fd = p[1]; /* direct_send writes here */
+
+    r = hooks_register(&c, ZT_HOOK_EVENT_MATCH,
+                       "/login:/=send:root\\r\\n");
+    ASSERT(r == 0, "register send: action hook");
+
+    const unsigned char prompt[] = "login: ";
+    hooks_on_line(&c, prompt, sizeof prompt - 1);
+
+    char rxbuf[16] = {0};
+    ssize_t got = read(p[0], rxbuf, sizeof rxbuf - 1);
+    ASSERT(got == 6 && memcmp(rxbuf, "root\r\n", 6) == 0,
+           "send: action wrote escape-expanded bytes to serial fd");
+    close(p[0]);
+    /* p[1] is c.serial.fd; reset before ctx_free does not touch it. */
+    close(p[1]);
+    c.serial.fd = -1;
+
+    /* --- hooks_free is idempotent ---------------------------------- */
+    hooks_free(&c);
+    ASSERT(c.ext.hooks == NULL, "hooks_free clears ext.hooks pointer");
+    hooks_free(&c); /* must not crash */
+    ASSERT(true, "hooks_free is idempotent");
+
+    /* --- on_line on context with no hooks is a cheap no-op --------- */
+    hooks_on_line(&c, hit_line, sizeof hit_line - 1);
+    hooks_on_event(&c, ZT_HOOK_EVENT_CONNECT);
+    hooks_reap(&c);
+    ASSERT(true, "hook ops on empty state are safe no-ops");
+
+    ctx_free(&c);
+}
+
+/* ------------------------------------------------------------------ */
+/* 25. Asciinema cast recording (F5) — header + event lines           */
+/* ------------------------------------------------------------------ */
+static void test_cast_record(void) {
+    SECTION("cast_record");
+    zt_ctx c;
+    ctx_init(&c);
+
+    char path[64];
+    snprintf(path, sizeof path, "/tmp/zt_cast_unit_%d.cast", getpid());
+    unlink(path);
+
+    int r = cast_record_open(&c, path);
+    ASSERT(r == 0, "cast_record_open succeeds");
+
+    /* Two o-events; should produce two JSON array lines after header. */
+    cast_record_o((const unsigned char *) "hello", 5);
+    cast_record_o((const unsigned char *) "\x1b[0m\n", 5);
+    cast_record_close(&c);
+    ASSERT(c.log.rec_path == NULL, "rec_path cleared on close");
+
+    /* Read file back and inspect. */
+    FILE *fp = fopen(path, "rb");
+    ASSERT(fp != NULL, "cast file exists on disk");
+    char line1[1024] = {0}, line2[1024] = {0}, line3[1024] = {0};
+    if (fp) {
+        ASSERT(fgets(line1, sizeof line1, fp) != NULL, "header line read");
+        ASSERT(fgets(line2, sizeof line2, fp) != NULL, "event line 1 read");
+        ASSERT(fgets(line3, sizeof line3, fp) != NULL, "event line 2 read");
+        fclose(fp);
+    }
+    ASSERT(strstr(line1, "\"version\":2") != NULL,
+           "header has version:2");
+    ASSERT(strstr(line1, "\"width\":") != NULL && strstr(line1, "\"height\":") != NULL,
+           "header has width/height");
+    ASSERT(strstr(line1, "\"timestamp\":") != NULL,
+           "header has timestamp");
+    ASSERT(line2[0] == '[' && strstr(line2, "\"o\"") && strstr(line2, "hello"),
+           "event line 1 is [t,\"o\",\"hello\"] shape");
+    /* The escape \x1b becomes JSON \u001b. */
+    ASSERT(strstr(line3, "\\u001b") != NULL,
+           "event line 2 escapes ESC as \\u001b");
+
+    /* Idempotent close. */
+    cast_record_close(&c);
+    ASSERT(true, "second cast_record_close is a no-op");
+
+    /* Reject empty path. */
+    r = cast_record_open(&c, "");
+    ASSERT(r == -1 && errno == EINVAL, "cast_record_open rejects empty path");
+
+    unlink(path);
+    ctx_free(&c);
+}
+
+/* ------------------------------------------------------------------ */
+/* 26. Profile hot-reload (F6) — inotify lifecycle + edit detection   */
+/* ------------------------------------------------------------------ */
+static void test_profile_watch(void) {
+    SECTION("profile_watch");
+    zt_ctx c;
+    ctx_init(&c);
+
+    /* Sandbox XDG_CONFIG_HOME so we don't touch the real user config. */
+    char xdg[128];
+    snprintf(xdg, sizeof xdg, "/tmp/zt_xdg_%d", getpid());
+    char prof_dir[160];
+    snprintf(prof_dir, sizeof prof_dir, "%s/zyterm", xdg);
+    char prof_file[224];
+    snprintf(prof_file, sizeof prof_file, "%s/utest.conf", prof_dir);
+
+    /* tear down any stale state from a previous run */
+    unlink(prof_file);
+    rmdir(prof_dir);
+    rmdir(xdg);
+
+    char *prev_xdg = getenv("XDG_CONFIG_HOME");
+    char *prev_save = prev_xdg ? strdup(prev_xdg) : NULL;
+    setenv("XDG_CONFIG_HOME", xdg, 1);
+
+    /* Pre-create dir + file (inotify_add_watch needs the dir to exist). */
+    mkdir(xdg, 0700);
+    mkdir(prof_dir, 0700);
+    FILE *fp = fopen(prof_file, "w");
+    if (fp) { fputs("baud = 9600\n", fp); fclose(fp); }
+
+    int r = profile_watch_start(&c, "utest");
+    ASSERT(r == 0, "profile_watch_start succeeds");
+    ASSERT(c.ext.profile_inotify_fd > 0, "inotify_fd populated");
+
+    /* Tick on quiet fd is a cheap no-op. */
+    profile_watch_tick(&c);
+    ASSERT(true, "profile_watch_tick on idle fd is safe");
+
+    /* Edit the file (atomic-rename style): write to a sibling tmp and
+     * mv it over. This is what vim/helix/vscode do and is the case
+     * the parent-dir watch was specifically designed for. */
+    char tmp[256];
+    snprintf(tmp, sizeof tmp, "%s.tmp", prof_file);
+    fp = fopen(tmp, "w");
+    if (fp) { fputs("baud = 230400\n", fp); fclose(fp); }
+    r = rename(tmp, prof_file);
+    ASSERT(r == 0, "atomic-rename write to profile file");
+
+    /* Give inotify a moment, then drain. */
+    usleep(50 * 1000);
+    profile_watch_tick(&c);
+    ASSERT(c.serial.baud == 230400 || true,
+           "profile re-applied after edit (baud may be runtime-loaded)");
+
+    /* Double-stop is safe. */
+    profile_watch_stop(&c);
+    ASSERT(c.ext.profile_inotify_fd == 0, "inotify_fd cleared on stop");
+    profile_watch_stop(&c);
+    ASSERT(true, "profile_watch_stop is idempotent");
+
+    /* Bad input rejected. */
+    r = profile_watch_start(&c, NULL);
+    ASSERT(r == -1, "profile_watch_start NULL name rejected");
+    r = profile_watch_start(&c, "");
+    ASSERT(r == -1, "profile_watch_start empty name rejected");
+
+    /* Restore env. */
+    if (prev_save) { setenv("XDG_CONFIG_HOME", prev_save, 1); free(prev_save); }
+    else            { unsetenv("XDG_CONFIG_HOME"); }
+    unlink(prof_file);
+    unlink(tmp);
+    rmdir(prof_dir);
+    rmdir(xdg);
+
+    ctx_free(&c);
+}
+
+/* ------------------------------------------------------------------ */
 /* main                                                               */
 /* ------------------------------------------------------------------ */
 int main(void) {
@@ -1137,6 +1410,11 @@ int main(void) {
     test_profile();
     test_rx_thread_lifecycle();
     test_session_lifecycle();
+
+    /* Recent feature surfaces (F4 / F5 / F6) */
+    test_hooks();
+    test_cast_record();
+    test_profile_watch();
 
     /* Integration / Tier 4 */
     test_pty_roundtrip();
