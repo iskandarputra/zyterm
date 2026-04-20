@@ -388,6 +388,10 @@ typedef struct {
         const char *profile_name;
         int         profile_inotify_fd;
         int         profile_inotify_wd;
+
+        /* event hooks (--on-match / --on-connect / --on-disconnect).
+         * Opaque to ctx consumers; managed entirely by ext/hooks.c. */
+        void *hooks;
     } ext;
 
     struct {

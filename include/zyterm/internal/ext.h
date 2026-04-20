@@ -29,7 +29,28 @@ void filter_stop(zt_ctx *c);
 void filter_feed(zt_ctx *c, const unsigned char *buf, size_t n);
 int  filter_poll_fd(const zt_ctx *c); /**< -1 when inactive. */
 void filter_drain(zt_ctx *c);
+/* ── ext/hooks.c ────────────────────────────────────────────────────────── */
+enum {
+    ZT_HOOK_EVENT_MATCH,      /**< Fires when a complete RX line matches a regex.   */
+    ZT_HOOK_EVENT_CONNECT,    /**< Fires once after the device opens successfully.   */
+    ZT_HOOK_EVENT_DISCONNECT, /**< Fires when the serial fd is closed (HUP/teardown).*/
+};
 
+/** Register a hook from a CLI flag. For MATCH the spec is
+ *  "/REGEX/=ACTION"; for CONNECT/DISCONNECT it is just "ACTION".
+ *  ACTION starting with @c send: injects bytes (escapes resolved
+ *  like F-key macros), otherwise it is shelled out via /bin/sh -c.
+ *  Returns 0 on success, -1 on parse error or table full. */
+int  hooks_register(zt_ctx *c, int event, const char *spec);
+/** Match @p line against every MATCH hook (POSIX ERE) and dispatch
+ *  the first hit. Cheap when no hooks registered. */
+void hooks_on_line(zt_ctx *c, const unsigned char *line, size_t len);
+/** Fire all CONNECT or DISCONNECT hooks. */
+void hooks_on_event(zt_ctx *c, int event);
+/** Reap any zombie hook children. Called from the main loop tick. */
+void hooks_reap(zt_ctx *c);
+/** Free all hook resources. */
+void hooks_free(zt_ctx *c);
 /* ── ext/loglevel.c ────────────────────────────────────────────────────── */
 bool loglevel_muted(const zt_ctx *c, const unsigned char *line, size_t len);
 

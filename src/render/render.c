@@ -119,6 +119,7 @@ void flush_line(zt_ctx *c) {
     scrollback_push(c);
 
     int watch_idx = watch_match(c, c->log.line, c->log.line_len);
+    hooks_on_line(c, c->log.line, c->log.line_len);
 
     if (c->tui.sb_offset == 0 && !c->tui.popup_active) {
         if (watch_idx) {

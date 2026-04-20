@@ -237,6 +237,7 @@ int run_interactive(zt_ctx *c) {
         if (c->net.metrics_fd >= 0) metrics_tick(c);
         if (c->net.session_fd >= 0) session_tick(c);
         if (c->ext.profile_inotify_fd > 0) profile_watch_tick(c);
+        if (c->ext.hooks) hooks_reap(c);
         tty_stats_poll(c);
         ob_flush();
     }
@@ -249,6 +250,13 @@ int run_dump(zt_ctx *c, int seconds) {
     now(&c->core.t_start);
     struct timespec deadline = c->core.t_start;
     if (seconds > 0) deadline.tv_sec += seconds;
+
+    /* Tiny accumulator for hooks_on_line: dump mode bypasses
+     * render_rx, so we split RX into lines locally. Reset on '\n'.
+     * Long unterminated tails are flushed at buffer-full to keep the
+     * matcher fed. */
+    unsigned char hline[1024];
+    size_t        hlen = 0;
 
     while (!zt_g_quit) {
         int timeout_ms = -1;
@@ -283,6 +291,17 @@ int run_dump(zt_ctx *c, int seconds) {
                     cast_record_o(rbuf, (size_t)r);
                     (void)zt_write_all(STDOUT_FILENO, rbuf, (size_t)r);
                     c->core.rx_bytes += (uint64_t)r;
+                    if (c->ext.hooks) {
+                        for (ssize_t i = 0; i < r; i++) {
+                            unsigned char b = rbuf[i];
+                            if (b == '\n' || hlen == sizeof hline) {
+                                hooks_on_line(c, hline, hlen);
+                                hlen = 0;
+                            } else if (b != '\r') {
+                                hline[hlen++] = b;
+                            }
+                        }
+                    }
                     if ((size_t)r < sizeof rbuf) break;
                     continue;
                 }
@@ -293,6 +312,7 @@ int run_dump(zt_ctx *c, int seconds) {
             }
         }
     }
+    if (hlen > 0) hooks_on_line(c, hline, hlen);
     struct timespec t;
     now(&t);
     fprintf(stderr, "\nzyterm: captured %llu bytes in %.2fs\n",

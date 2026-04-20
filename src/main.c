@@ -168,6 +168,15 @@ static void usage(const char *a0) {
     help_row (fp, tty, NULL, "--profile-save",  "<name>",      "snapshot current settings to that profile and exit");
     fputc('\n', fp);
 
+    /* Event hooks */
+    fprintf(fp, "%sEVENT HOOKS%s\n", HEAD, RST);
+    help_row (fp, tty, NULL, "--on-match",      "/RE/=CMD",    "shell CMD when an RX line matches POSIX ERE");
+    help_cont(fp, tty,                                         "use 'send:BYTES' to inject TX (\\r \\n \\xNN escapes)");
+    help_row (fp, tty, NULL, "--on-connect",    "<cmd>",       "fire after device opens (also on reconnect)");
+    help_row (fp, tty, NULL, "--on-disconnect", "<cmd>",       "fire when device closes / hangs up");
+    help_cont(fp, tty,                                         "env: ZYTERM_PORT, ZYTERM_BAUD, ZYTERM_LINE, ZYTERM_PATTERN");
+    fputc('\n', fp);
+
     /* Misc */
     fprintf(fp, "%sHELP%s\n", HEAD, RST);
     help_row (fp, tty, "-h", "--help",          "",            "show this help");
@@ -316,6 +325,9 @@ int zyterm_main(int argc, char **argv) {
         OPT_PORT_GLOB,
         OPT_MATCH_VID_PID,
         OPT_REC,
+        OPT_ON_MATCH,
+        OPT_ON_CONNECT,
+        OPT_ON_DISCONNECT,
     };
     static const struct option lo[] = {
         {"baud", required_argument, NULL, 'b'},
@@ -363,6 +375,9 @@ int zyterm_main(int argc, char **argv) {
         {"port-glob", required_argument, NULL, OPT_PORT_GLOB},
         {"match-vid-pid", required_argument, NULL, OPT_MATCH_VID_PID},
         {"rec", required_argument, NULL, OPT_REC},
+        {"on-match", required_argument, NULL, OPT_ON_MATCH},
+        {"on-connect", required_argument, NULL, OPT_ON_CONNECT},
+        {"on-disconnect", required_argument, NULL, OPT_ON_DISCONNECT},
         {"help", no_argument, NULL, 'h'},
         {"version", no_argument, NULL, 'V'},
         {0, 0, 0, 0},
@@ -565,6 +580,15 @@ int zyterm_main(int argc, char **argv) {
         case OPT_REC:
             c.log.rec_path = optarg;
             break;
+        case OPT_ON_MATCH:
+            (void) hooks_register(&c, ZT_HOOK_EVENT_MATCH, optarg);
+            break;
+        case OPT_ON_CONNECT:
+            (void) hooks_register(&c, ZT_HOOK_EVENT_CONNECT, optarg);
+            break;
+        case OPT_ON_DISCONNECT:
+            (void) hooks_register(&c, ZT_HOOK_EVENT_DISCONNECT, optarg);
+            break;
         case 'V':
             printf("zyterm " ZT_VERSION "\n");
             scrollback_free(&c);
@@ -641,6 +665,11 @@ int zyterm_main(int argc, char **argv) {
 
     if (c.ext.profile_name) (void) profile_watch_start(&c, c.ext.profile_name);
 
+    /* Fire CONNECT hooks once after subsystems boot and the serial fd
+     * is open. Reconnect-loop wakes also fire on every successful
+     * re-open via reconnect.c. */
+    hooks_on_event(&c, ZT_HOOK_EVENT_CONNECT);
+
     if (c.log.rec_path) {
         if (cast_record_open(&c, c.log.rec_path) != 0)
             zt_die("zyterm: --rec %s: %s", c.log.rec_path, strerror(errno));
@@ -685,6 +714,8 @@ int zyterm_main(int argc, char **argv) {
     metrics_stop(&c);
     filter_stop(&c);
     profile_watch_stop(&c);
+    hooks_on_event(&c, ZT_HOOK_EVENT_DISCONNECT);
+    hooks_free(&c);
 
     if (c.log.fd >= 0) close(c.log.fd);
     scrollback_free(&c);

@@ -91,6 +91,7 @@ void run_reconnect_loop(zt_ctx *c) {
         close(c->serial.fd);
         c->serial.fd = -1;
     }
+    hooks_on_event(c, ZT_HOOK_EVENT_DISCONNECT);
     /* Dismiss command mode + scrollbar drag; we will own the popup state. */
     c->tui.command_mode = false;
     c->tui.sb_dragging  = false;
@@ -137,6 +138,7 @@ void run_reconnect_loop(zt_ctx *c) {
             apply_layout(c);
             set_flash(c, "\xe2\x9c\x93 reconnected");
             c->tui.ui_dirty = true;
+            hooks_on_event(c, ZT_HOOK_EVENT_CONNECT);
             return;
         }
     }

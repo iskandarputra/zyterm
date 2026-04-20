@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Event hooks** — three new flags fire shell actions in response to
+  session events: `--on-match '/REGEX/=ACTION'` (POSIX ERE, matched
+  per line after reassembly), `--on-connect ACTION`, and
+  `--on-disconnect ACTION`. Each flag can be passed multiple times.
+  Actions run under `/bin/sh -c` with stdin redirected to `/dev/null`,
+  so `>`, `|`, `&&`, environment substitution and shell built-ins all
+  work. An `ACTION` prefixed with `send:` is instead injected back
+  down the TX path (with the usual `\n`/`\r`/`\xHH` escape expansion),
+  enabling match→respond automation like `--on-match '/login:/=send:root\n'`.
+  Child processes are reaped non-blocking (`waitpid(WNOHANG)`) once
+  per main-loop tick; up to 32 simultaneous children tracked. Each
+  hook is individually rate-limited to 100 ms between fires to tame
+  pathological chatter. Four env vars are set in the child:
+  `ZYTERM_PORT`, `ZYTERM_BAUD`, `ZYTERM_LINE` (full matched line),
+  `ZYTERM_MATCH` (the raw pattern). Works in both interactive and
+  `--dump` modes.
 - **Config hot-reload** — `--profile NAME` now auto-watches the
   resolved profile file (`$XDG_CONFIG_HOME/zyterm/NAME.conf` or
   `~/.config/zyterm/NAME.conf`) via Linux **inotify** and re-applies
