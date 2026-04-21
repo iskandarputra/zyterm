@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to (re)build assets for, e.g. v1.1.3'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Package ${{ matrix.arch }} .deb
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential dpkg-dev
+
+      - name: Verify tag matches ZT_VERSION
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          tag_ver="${tag#v}"
+          src_ver="$(grep -oP '#define\s+ZT_VERSION\s+"\K[^"]+' src/zt_ctx.h)"
+          echo "tag=$tag_ver  src=$src_ver"
+          [ "$tag_ver" = "$src_ver" ] || { echo "version mismatch"; exit 1; }
+
+      - name: Build release binary
+        run: make -j"$(nproc)"
+
+      - name: Smoke test
+        run: |
+          ./zyterm --version
+          ./zyterm --help | head -5
+
+      - name: Build .deb
+        run: ./build.sh deb
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zyterm-deb-${{ matrix.arch }}
+          path: releases/*.deb
+
+  release:
+    name: Publish GitHub release
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List assets
+        run: ls -la dist/
+
+      - name: Upload assets to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          # Create the release if it doesn't exist yet (tag-pushed flows
+          # may run before a manual `gh release create`).
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "zyterm ${tag#v}" \
+              --generate-notes
+          fi
+          gh release upload "$tag" dist/*.deb \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
