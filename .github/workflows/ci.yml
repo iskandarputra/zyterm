@@ -9,6 +9,11 @@ jobs:
   build-and-test:
     name: linux / ${{ matrix.cc }} / ${{ matrix.sanitizer }}
     runs-on: ubuntu-latest
+    # Cap each job to 15 minutes. Local clean+build+test is < 90s; a
+    # 15-minute ceiling lets a slow hosted runner finish honestly but
+    # catches the kind of hang (blocked stdin, wedged child, infinite
+    # poll) we explicitly hunt for in tests.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -19,25 +24,33 @@ jobs:
         sanitizer: ["none", "asan-ubsan"]
     env:
       CC: ${{ matrix.cc }}
+      # Belt-and-braces: kill any subprocess that runs > 10 min so we
+      # never burn the full job timeout on a wedged test.
+      ZT_CI_STEP_TIMEOUT: 600
     steps:
       - uses: actions/checkout@v4
+        timeout-minutes: 2
 
       - name: Install build deps with cache
         uses: awalsh128/cache-apt-pkgs-action@latest
+        timeout-minutes: 5
         with:
           packages: build-essential socat clang-format clang cppcheck
           version: 1.0
 
       - name: Check formatting
         if: matrix.sanitizer == 'none' && matrix.cc == 'gcc'
+        timeout-minutes: 2
         run: make format-check
 
       - name: Build (release)
         if: matrix.sanitizer == 'none'
+        timeout-minutes: 5
         run: make
 
       - name: Build (asan+ubsan)
         if: matrix.sanitizer == 'asan-ubsan'
+        timeout-minutes: 5
         run: |
           make clean
           CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
@@ -46,23 +59,27 @@ jobs:
           LDFLAGS="-fsanitize=address,undefined" make
 
       - name: Smoke test
+        timeout-minutes: 2
         run: |
-          ./zyterm --version
-          ./zyterm --help | head -20
+          timeout 30 ./zyterm --version
+          timeout 30 ./zyterm --help | head -20
 
       - name: Unit tests (release)
         if: matrix.sanitizer == 'none'
-        run: make test
+        timeout-minutes: 5
+        run: timeout 240 make test
 
       - name: Unit tests (asan+ubsan)
         if: matrix.sanitizer == 'asan-ubsan'
+        timeout-minutes: 8
         run: |
           CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
                   -Wall -Wextra -pedantic -std=gnu11 -D_GNU_SOURCE \
                   -Iinclude -Isrc" \
-          LDFLAGS="-fsanitize=address,undefined" make test
+          LDFLAGS="-fsanitize=address,undefined" timeout 420 make test
 
       - name: cppcheck
         if: matrix.sanitizer == 'none' && matrix.cc == 'gcc'
+        timeout-minutes: 3
         run: make lint || true
 

@@ -35,8 +35,23 @@
  * redirected names and map them back to the classic GLIBC_2.2.5 symbols.
  * Behaviour is identical for our use-cases (decimal baud-rate + 2-char hex).
  * Has no effect on non-glibc systems (musl, macOS, FreeBSD).
+ *
+ * NOTE: skip this under AddressSanitizer / ThreadSanitizer / MemorySanitizer
+ * — those install libc interceptors keyed on the modern @GLIBC_2.38 symbol,
+ * and our .symver back to GLIBC_2.2.5 bypasses them. The bypass turns a
+ * harmless atoi("230400") into a SEGV inside strtol because the interceptor
+ * never installs the correct argument-marshalling thunk. Sanitizer builds
+ * are dev-only; they don't need old-glibc portability anyway.
  */
-#if defined(__linux__) && defined(__GLIBC__) && defined(__GLIBC_MINOR__)
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__) || \
+    (defined(__has_feature) &&                                       \
+     (__has_feature(address_sanitizer) || __has_feature(thread_sanitizer) || \
+      __has_feature(memory_sanitizer)))
+#define ZT_SANITIZER_ACTIVE 1
+#endif
+
+#if defined(__linux__) && defined(__GLIBC__) && defined(__GLIBC_MINOR__) && \
+    !defined(ZT_SANITIZER_ACTIVE)
 #if (__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 38)
 __asm__(".symver __isoc23_strtol,strtol@GLIBC_2.2.5");
 __asm__(".symver __isoc23_strtoul,strtoul@GLIBC_2.2.5");
