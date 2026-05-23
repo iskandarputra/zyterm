@@ -35,16 +35,15 @@
 #include <unistd.h>
 
 /* Single-recording state. zyterm only ever runs one --rec at a time. */
-static FILE          *s_fp    = NULL;
-static struct timespec s_t0   = {0};
+static FILE           *s_fp = NULL;
+static struct timespec s_t0 = {0};
 
 /* ── helpers ───────────────────────────────────────────────────────────── */
 
 static double now_rel(void) {
     struct timespec t;
     clock_gettime(CLOCK_MONOTONIC, &t);
-    return (double) (t.tv_sec - s_t0.tv_sec)
-         + (double) (t.tv_nsec - s_t0.tv_nsec) / 1e9;
+    return (double)(t.tv_sec - s_t0.tv_sec) + (double)(t.tv_nsec - s_t0.tv_nsec) / 1e9;
 }
 
 /* JSON-string-escape one byte into @c out (which must hold >= 8 bytes:
@@ -52,19 +51,40 @@ static double now_rel(void) {
  * Returns the number of bytes written (NOT counting the NUL). */
 static size_t json_escape_byte(unsigned char b, char *out) {
     switch (b) {
-    case '"':  out[0] = '\\'; out[1] = '"';  return 2;
-    case '\\': out[0] = '\\'; out[1] = '\\'; return 2;
-    case '\b': out[0] = '\\'; out[1] = 'b';  return 2;
-    case '\f': out[0] = '\\'; out[1] = 'f';  return 2;
-    case '\n': out[0] = '\\'; out[1] = 'n';  return 2;
-    case '\r': out[0] = '\\'; out[1] = 'r';  return 2;
-    case '\t': out[0] = '\\'; out[1] = 't';  return 2;
+    case '"':
+        out[0] = '\\';
+        out[1] = '"';
+        return 2;
+    case '\\':
+        out[0] = '\\';
+        out[1] = '\\';
+        return 2;
+    case '\b':
+        out[0] = '\\';
+        out[1] = 'b';
+        return 2;
+    case '\f':
+        out[0] = '\\';
+        out[1] = 'f';
+        return 2;
+    case '\n':
+        out[0] = '\\';
+        out[1] = 'n';
+        return 2;
+    case '\r':
+        out[0] = '\\';
+        out[1] = 'r';
+        return 2;
+    case '\t':
+        out[0] = '\\';
+        out[1] = 't';
+        return 2;
     default:
         if (b < 0x20 || b == 0x7f) {
             int w = snprintf(out, 8, "\\u%04x", b);
-            return (w > 0) ? (size_t) w : 0;
+            return (w > 0) ? (size_t)w : 0;
         }
-        out[0] = (char) b;
+        out[0] = (char)b;
         return 1;
     }
 }
@@ -106,18 +126,17 @@ int cast_record_open(zt_ctx *c, const char *path) {
     int cols, rows;
     terminal_size(&cols, &rows);
 
-    const char *term  = getenv("TERM")  ? getenv("TERM")  : "xterm-256color";
+    const char *term  = getenv("TERM") ? getenv("TERM") : "xterm-256color";
     const char *shell = getenv("SHELL") ? getenv("SHELL") : "/bin/sh";
 
     /* Header line. We escape TERM/SHELL just in case (paranoia for
      * unusual env values). */
     fputs("{\"version\":2,\"width\":", s_fp);
-    fprintf(s_fp, "%d,\"height\":%d,\"timestamp\":%lld,",
-            cols, rows, (long long) time(NULL));
+    fprintf(s_fp, "%d,\"height\":%d,\"timestamp\":%lld,", cols, rows, (long long)time(NULL));
     fputs("\"env\":{\"TERM\":\"", s_fp);
-    json_write_escaped(s_fp, (const unsigned char *) term, strlen(term));
+    json_write_escaped(s_fp, (const unsigned char *)term, strlen(term));
     fputs("\",\"SHELL\":\"", s_fp);
-    json_write_escaped(s_fp, (const unsigned char *) shell, strlen(shell));
+    json_write_escaped(s_fp, (const unsigned char *)shell, strlen(shell));
     fputs("\"},\"title\":\"zyterm " ZT_VERSION "\"}\n", s_fp);
 
     clock_gettime(CLOCK_MONOTONIC, &s_t0);

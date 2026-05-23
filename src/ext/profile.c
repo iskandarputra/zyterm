@@ -132,9 +132,9 @@ int profile_load(zt_ctx *c, const char *name) {
             else
                 c->log.format = ZT_LOG_TEXT;
         } else if (!strcmp(k, "map_out")) {
-            (void) eol_parse(v, &c->proto.map_out);
+            (void)eol_parse(v, &c->proto.map_out);
         } else if (!strcmp(k, "map_in")) {
-            (void) eol_parse(v, &c->proto.map_in);
+            (void)eol_parse(v, &c->proto.map_in);
         }
     }
     fclose(fp);

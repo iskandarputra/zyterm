@@ -23,7 +23,7 @@ int         framing_send(zt_ctx *c, const unsigned char *payload, size_t n);
 const char *framing_name(zt_frame_mode m);
 
 /* ── proto/macros.c ────────────────────────────────────────────────────── */
-int    fkey_index(const unsigned char *buf, size_t n);
+int fkey_index(const unsigned char *buf, size_t n);
 /** Parse F-key prefix; sets *out_consumed to the byte count if matched. */
 int    fkey_index_consume(const unsigned char *buf, size_t n, size_t *out_consumed);
 size_t expand_escapes(const char *src, char *dst, size_t cap);
@@ -64,12 +64,10 @@ int eol_parse(const char *token, zt_eol_map *out);
 const char *eol_name(zt_eol_map m);
 /** Apply the outgoing rewrite. Returns bytes written into @c out (≤ out_cap).
  *  @c out must be at least ZT_EOL_OUT_CAP(n) bytes. */
-size_t eol_translate_out(zt_eol_map mode, zt_eol_state *st,
-                         const unsigned char *in, size_t n,
+size_t eol_translate_out(zt_eol_map mode, zt_eol_state *st, const unsigned char *in, size_t n,
                          unsigned char *out, size_t out_cap);
 /** Apply the incoming rewrite. Returns bytes written into @c out. */
-size_t eol_translate_in(zt_eol_map mode, zt_eol_state *st,
-                        const unsigned char *in, size_t n,
+size_t eol_translate_in(zt_eol_map mode, zt_eol_state *st, const unsigned char *in, size_t n,
                         unsigned char *out, size_t out_cap);
 
 #endif /* ZYTERM_INTERNAL_PROTO_H_ */

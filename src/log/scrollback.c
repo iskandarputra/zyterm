@@ -249,16 +249,15 @@ void redraw_scrollback(zt_ctx *c) {
              * overlay aligns with what emit_colored_line() actually drew
              * and hidden timestamps don't leak into the reverse-video
              * span. */
-            size_t      ts_off   = 0;
-            if (!c->proto.show_ts && line_len >= 15 &&
-                line[0] == '[' && line[3] == ':' && line[6] == ':' &&
-                line[9] == '.' && line[13] == ']' && line[14] == ' ')
+            size_t ts_off = 0;
+            if (!c->proto.show_ts && line_len >= 15 && line[0] == '[' && line[3] == ':' &&
+                line[6] == ':' && line[9] == '.' && line[13] == ']' && line[14] == ' ')
                 ts_off = 15;
-            const char *vis      = line + ts_off;
-            size_t      vis_len  = line_len - ts_off;
-            int total_cols = utf8_cols(vis, vis_len);
-            int sc         = (line_from_bottom == sel_fl) ? sel_fc : 1;
-            int ec         = (line_from_bottom == sel_ll) ? sel_lc : total_cols;
+            const char *vis        = line + ts_off;
+            size_t      vis_len    = line_len - ts_off;
+            int         total_cols = utf8_cols(vis, vis_len);
+            int         sc         = (line_from_bottom == sel_fl) ? sel_fc : 1;
+            int         ec         = (line_from_bottom == sel_ll) ? sel_lc : total_cols;
             if (sc < 1) sc = 1;
             if (ec > total_cols) ec = total_cols;
             if (ec >= sc && total_cols > 0) {
@@ -460,15 +459,14 @@ void selection_copy(zt_ctx *c) {
         /* Skip hidden timestamp prefix so column mapping matches the
          * visible layout (same logic as emit_colored_line / overlay). */
         size_t ts_off = 0;
-        if (!c->proto.show_ts && s_len >= 15 &&
-            s[0] == '[' && s[3] == ':' && s[6] == ':' &&
+        if (!c->proto.show_ts && s_len >= 15 && s[0] == '[' && s[3] == ':' && s[6] == ':' &&
             s[9] == '.' && s[13] == ']' && s[14] == ' ')
             ts_off = 15;
         const char *vis     = s + ts_off;
         size_t      vis_len = s_len - ts_off;
-        int    total = utf8_cols(vis, vis_len);
-        int    sc    = (line == sel_fl) ? sel_fc : 1;
-        int    ec    = (line == sel_ll) ? sel_lc : total;
+        int         total   = utf8_cols(vis, vis_len);
+        int         sc      = (line == sel_fl) ? sel_fc : 1;
+        int         ec      = (line == sel_ll) ? sel_lc : total;
         if (sc < 1) sc = 1;
         if (ec > total) ec = total;
 

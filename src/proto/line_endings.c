@@ -22,39 +22,56 @@
 
 /* ── helpers ───────────────────────────────────────────────────────────── */
 
-#define EMIT(b)                                                                \
-    do {                                                                       \
-        if (w >= out_cap) return w;                                            \
-        out[w++] = (unsigned char) (b);                                        \
+#define EMIT(b)                                                                                \
+    do {                                                                                       \
+        if (w >= out_cap) return w;                                                            \
+        out[w++] = (unsigned char)(b);                                                         \
     } while (0)
 
 const char *eol_name(zt_eol_map m) {
     switch (m) {
-    case ZT_EOL_NONE:    return "none";
-    case ZT_EOL_CR:      return "cr";
-    case ZT_EOL_LF:      return "lf";
-    case ZT_EOL_CRLF:    return "crlf";
+    case ZT_EOL_NONE: return "none";
+    case ZT_EOL_CR: return "cr";
+    case ZT_EOL_LF: return "lf";
+    case ZT_EOL_CRLF: return "crlf";
     case ZT_EOL_CR_CRLF: return "cr-crlf";
     case ZT_EOL_LF_CRLF: return "lf-crlf";
-    default:             return "?";
+    default: return "?";
     }
 }
 
 int eol_parse(const char *token, zt_eol_map *out) {
     if (!token || !out) return -1;
-    if (!strcmp(token, "none"))    { *out = ZT_EOL_NONE;    return 0; }
-    if (!strcmp(token, "cr"))      { *out = ZT_EOL_CR;      return 0; }
-    if (!strcmp(token, "lf"))      { *out = ZT_EOL_LF;      return 0; }
-    if (!strcmp(token, "crlf"))    { *out = ZT_EOL_CRLF;    return 0; }
-    if (!strcmp(token, "cr-crlf")) { *out = ZT_EOL_CR_CRLF; return 0; }
-    if (!strcmp(token, "lf-crlf")) { *out = ZT_EOL_LF_CRLF; return 0; }
+    if (!strcmp(token, "none")) {
+        *out = ZT_EOL_NONE;
+        return 0;
+    }
+    if (!strcmp(token, "cr")) {
+        *out = ZT_EOL_CR;
+        return 0;
+    }
+    if (!strcmp(token, "lf")) {
+        *out = ZT_EOL_LF;
+        return 0;
+    }
+    if (!strcmp(token, "crlf")) {
+        *out = ZT_EOL_CRLF;
+        return 0;
+    }
+    if (!strcmp(token, "cr-crlf")) {
+        *out = ZT_EOL_CR_CRLF;
+        return 0;
+    }
+    if (!strcmp(token, "lf-crlf")) {
+        *out = ZT_EOL_LF_CRLF;
+        return 0;
+    }
     return -1;
 }
 
 /* ── outgoing (host → device) ─────────────────────────────────────────── */
 
-size_t eol_translate_out(zt_eol_map mode, zt_eol_state *st,
-                         const unsigned char *in, size_t n,
+size_t eol_translate_out(zt_eol_map mode, zt_eol_state *st, const unsigned char *in, size_t n,
                          unsigned char *out, size_t out_cap) {
     if (mode == ZT_EOL_NONE || !in || !out) {
         size_t k = (n < out_cap) ? n : out_cap;
@@ -86,14 +103,16 @@ size_t eol_translate_out(zt_eol_map mode, zt_eol_state *st,
         case ZT_EOL_CRLF:
             /* LF → CRLF; lone CR → CRLF; CRLF stays CRLF. */
             if (b == '\r') {
-                EMIT('\r'); EMIT('\n');
+                EMIT('\r');
+                EMIT('\n');
                 saw_cr = 1;
             } else if (b == '\n') {
                 if (saw_cr) {
                     /* This LF was the second half of a user-typed CRLF;
                      * we already emitted CRLF for the CR. Skip. */
                 } else {
-                    EMIT('\r'); EMIT('\n');
+                    EMIT('\r');
+                    EMIT('\n');
                 }
                 saw_cr = 0;
             } else {
@@ -104,19 +123,25 @@ size_t eol_translate_out(zt_eol_map mode, zt_eol_state *st,
 
         case ZT_EOL_CR_CRLF:
             /* CR → CRLF; LF passthrough. */
-            if (b == '\r') { EMIT('\r'); EMIT('\n'); }
-            else           { EMIT(b); }
+            if (b == '\r') {
+                EMIT('\r');
+                EMIT('\n');
+            } else {
+                EMIT(b);
+            }
             break;
 
         case ZT_EOL_LF_CRLF:
             /* LF → CRLF; CR passthrough. */
-            if (b == '\n') { EMIT('\r'); EMIT('\n'); }
-            else           { EMIT(b); }
+            if (b == '\n') {
+                EMIT('\r');
+                EMIT('\n');
+            } else {
+                EMIT(b);
+            }
             break;
 
-        default:
-            EMIT(b);
-            break;
+        default: EMIT(b); break;
         }
     }
 
@@ -126,8 +151,7 @@ size_t eol_translate_out(zt_eol_map mode, zt_eol_state *st,
 
 /* ── incoming (device → host) ─────────────────────────────────────────── */
 
-size_t eol_translate_in(zt_eol_map mode, zt_eol_state *st,
-                        const unsigned char *in, size_t n,
+size_t eol_translate_in(zt_eol_map mode, zt_eol_state *st, const unsigned char *in, size_t n,
                         unsigned char *out, size_t out_cap) {
     if (mode == ZT_EOL_NONE || !in || !out) {
         size_t k = (n < out_cap) ? n : out_cap;
@@ -156,9 +180,16 @@ size_t eol_translate_in(zt_eol_map mode, zt_eol_state *st,
         case ZT_EOL_LF_CRLF:
             /* CRLF → LF. Lone CR or lone LF passthrough as-is. */
             if (saw_cr) {
-                if (b == '\n')      { EMIT('\n'); saw_cr = 0; }
-                else if (b == '\r') { EMIT('\r'); /* keep saw_cr = 1 */ }
-                else                { EMIT('\r'); EMIT(b); saw_cr = 0; }
+                if (b == '\n') {
+                    EMIT('\n');
+                    saw_cr = 0;
+                } else if (b == '\r') {
+                    EMIT('\r'); /* keep saw_cr = 1 */
+                } else {
+                    EMIT('\r');
+                    EMIT(b);
+                    saw_cr = 0;
+                }
             } else if (b == '\r') {
                 saw_cr = 1;
             } else {
@@ -169,9 +200,16 @@ size_t eol_translate_in(zt_eol_map mode, zt_eol_state *st,
         case ZT_EOL_CR_CRLF:
             /* CRLF → CR; lone CR / LF passthrough. */
             if (saw_cr) {
-                if (b == '\n')      { EMIT('\r'); saw_cr = 0; }
-                else if (b == '\r') { EMIT('\r'); /* keep saw_cr = 1 */ }
-                else                { EMIT('\r'); EMIT(b); saw_cr = 0; }
+                if (b == '\n') {
+                    EMIT('\r');
+                    saw_cr = 0;
+                } else if (b == '\r') {
+                    EMIT('\r'); /* keep saw_cr = 1 */
+                } else {
+                    EMIT('\r');
+                    EMIT(b);
+                    saw_cr = 0;
+                }
             } else if (b == '\r') {
                 saw_cr = 1;
             } else {
@@ -179,9 +217,7 @@ size_t eol_translate_in(zt_eol_map mode, zt_eol_state *st,
             }
             break;
 
-        default:
-            EMIT(b);
-            break;
+        default: EMIT(b); break;
         }
     }
 

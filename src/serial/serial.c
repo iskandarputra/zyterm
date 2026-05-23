@@ -120,7 +120,11 @@ int setup_serial(const char *path, unsigned baud, int data_bits, char parity, in
         bool telnet = false;
         int  fd     = transport_open(path, &telnet);
         if (fd < 0) zt_die("zyterm: connect %s: %s", path, strerror(errno));
-        (void) baud; (void) data_bits; (void) parity; (void) stop_bits; (void) flow;
+        (void)baud;
+        (void)data_bits;
+        (void)parity;
+        (void)stop_bits;
+        (void)flow;
         return fd;
     }
 
@@ -185,7 +189,11 @@ int try_reopen_serial(const char *path, unsigned baud, int data_bits, char parit
         bool telnet = false;
         int  fd     = transport_open(path, &telnet);
         if (fd < 0) return -1;
-        (void) baud; (void) data_bits; (void) parity; (void) stop_bits; (void) flow;
+        (void)baud;
+        (void)data_bits;
+        (void)parity;
+        (void)stop_bits;
+        (void)flow;
         return fd;
     }
 

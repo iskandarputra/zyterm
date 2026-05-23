@@ -41,7 +41,7 @@ enum {
  *  ACTION starting with @c send: injects bytes (escapes resolved
  *  like F-key macros), otherwise it is shelled out via /bin/sh -c.
  *  Returns 0 on success, -1 on parse error or table full. */
-int  hooks_register(zt_ctx *c, int event, const char *spec);
+int hooks_register(zt_ctx *c, int event, const char *spec);
 /** Match @p line against every MATCH hook (POSIX ERE) and dispatch
  *  the first hit. Cheap when no hooks registered. */
 void hooks_on_line(zt_ctx *c, const unsigned char *line, size_t len);
@@ -62,8 +62,8 @@ void multi_render(zt_ctx *c);
 void multi_embed_reset(void);
 
 /* ── ext/profile.c ─────────────────────────────────────────────────────── */
-int  profile_load(zt_ctx *c, const char *name);
-int  profile_save(zt_ctx *c, const char *name);
+int profile_load(zt_ctx *c, const char *name);
+int profile_save(zt_ctx *c, const char *name);
 /** Resolve a profile name to its on-disk path
  *  ("$XDG_CONFIG_HOME/zyterm/<name>.conf" or
  *  "$HOME/.config/zyterm/<name>.conf"). Out-buffer must be >= PATH_MAX. */
@@ -73,7 +73,7 @@ void zt_profile_path(const char *name, char *out, size_t cap);
 /** Begin watching @p name's profile file (Linux inotify). Subsequent
  *  edits trigger a re-load of runtime-safe keys. Returns 0 on success,
  *  -1 if inotify is unavailable or the path can't be derived. */
-int  profile_watch_start(zt_ctx *c, const char *name);
+int profile_watch_start(zt_ctx *c, const char *name);
 /** Drain any pending inotify events; debounces and applies a re-load
  *  when the watched profile changes. Cheap no-op when inactive. */
 void profile_watch_tick(zt_ctx *c);

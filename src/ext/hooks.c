@@ -48,18 +48,18 @@
 #include <time.h>
 #include <unistd.h>
 
-#define ZT_HOOK_MAX             16
-#define ZT_HOOK_RATE_LIMIT_MS   100
-#define ZT_HOOK_PIDS_MAX        32
+#define ZT_HOOK_MAX           16
+#define ZT_HOOK_RATE_LIMIT_MS 100
+#define ZT_HOOK_PIDS_MAX      32
 
 typedef struct {
-    int             event;          /* ZT_HOOK_EVENT_* */
+    int             event; /* ZT_HOOK_EVENT_* */
     bool            in_use;
-    bool            send;           /* true if action begins with "send:" */
+    bool            send; /* true if action begins with "send:" */
     bool            has_regex;
     regex_t         regex;
-    char           *pattern_src;    /* original regex text, for logs / env */
-    char           *action;         /* the part after "send:" (if any) */
+    char           *pattern_src; /* original regex text, for logs / env */
+    char           *action;      /* the part after "send:" (if any) */
     struct timespec t_last_fire;
 } hook_t;
 
@@ -76,12 +76,12 @@ extern void direct_send(zt_ctx *c, const unsigned char *buf, size_t n);
 
 static hooks_state *get_state(zt_ctx *c) {
     if (!c->ext.hooks) c->ext.hooks = calloc(1, sizeof(hooks_state));
-    return (hooks_state *) c->ext.hooks;
+    return (hooks_state *)c->ext.hooks;
 }
 
 static long ms_since(const struct timespec *prev, const struct timespec *now_ts) {
-    return (now_ts->tv_sec - prev->tv_sec) * 1000L
-         + (now_ts->tv_nsec - prev->tv_nsec) / 1000000L;
+    return (now_ts->tv_sec - prev->tv_sec) * 1000L +
+           (now_ts->tv_nsec - prev->tv_nsec) / 1000000L;
 }
 
 static void track_pid(hooks_state *st, pid_t pid) {
@@ -89,8 +89,8 @@ static void track_pid(hooks_state *st, pid_t pid) {
     /* If full, the child becomes a zombie until exit — cosmetic only. */
 }
 
-static void run_shell_action(zt_ctx *c, const hook_t *h,
-                             const unsigned char *line, size_t line_len) {
+static void run_shell_action(zt_ctx *c, const hook_t *h, const unsigned char *line,
+                             size_t line_len) {
     pid_t pid = fork();
     if (pid < 0) {
         log_notice(c, "hook: fork failed: %s", strerror(errno));
@@ -104,7 +104,7 @@ static void run_shell_action(zt_ctx *c, const hook_t *h,
         setenv("ZYTERM_BAUD", baud_s, 1);
         if (line && line_len > 0) {
             /* NUL-terminate by truncating to a stack buf (1 KiB cap) */
-            char buf[1024];
+            char   buf[1024];
             size_t n = line_len < sizeof buf - 1 ? line_len : sizeof buf - 1;
             memcpy(buf, line, n);
             buf[n] = '\0';
@@ -116,8 +116,11 @@ static void run_shell_action(zt_ctx *c, const hook_t *h,
          * input meant for zyterm. stdout/stderr stay attached so any
          * shell output appears in the user's terminal. */
         int devnull = open("/dev/null", O_RDONLY | O_CLOEXEC);
-        if (devnull >= 0) { dup2(devnull, STDIN_FILENO); close(devnull); }
-        execl("/bin/sh", "sh", "-c", h->action, (char *) NULL);
+        if (devnull >= 0) {
+            dup2(devnull, STDIN_FILENO);
+            close(devnull);
+        }
+        execl("/bin/sh", "sh", "-c", h->action, (char *)NULL);
         _exit(127);
     }
     track_pid(get_state(c), pid);
@@ -126,21 +129,22 @@ static void run_shell_action(zt_ctx *c, const hook_t *h,
 static void run_send_action(zt_ctx *c, const hook_t *h) {
     char   buf[1024];
     size_t n = expand_escapes(h->action, buf, sizeof buf);
-    if (n > 0) direct_send(c, (const unsigned char *) buf, n);
+    if (n > 0) direct_send(c, (const unsigned char *)buf, n);
 }
 
-static void fire_hook(zt_ctx *c, hook_t *h,
-                      const unsigned char *line, size_t line_len) {
+static void fire_hook(zt_ctx *c, hook_t *h, const unsigned char *line, size_t line_len) {
     struct timespec now_ts;
     clock_gettime(CLOCK_MONOTONIC, &now_ts);
-    if (h->t_last_fire.tv_sec != 0
-        && ms_since(&h->t_last_fire, &now_ts) < ZT_HOOK_RATE_LIMIT_MS) {
+    if (h->t_last_fire.tv_sec != 0 &&
+        ms_since(&h->t_last_fire, &now_ts) < ZT_HOOK_RATE_LIMIT_MS) {
         return; /* rate-limited */
     }
     h->t_last_fire = now_ts;
 
-    if (h->send) run_send_action(c, h);
-    else         run_shell_action(c, h, line, line_len);
+    if (h->send)
+        run_send_action(c, h);
+    else
+        run_shell_action(c, h, line, line_len);
 }
 
 /* ── parse "/regex/=action" or just "action" ───────────────────────────── */
@@ -148,11 +152,17 @@ static void fire_hook(zt_ctx *c, hook_t *h,
 static int parse_match_spec(const char *spec, char **regex_out, char **action_out) {
     if (spec[0] != '/') return -1;
     /* find "/=" delimiter, honouring backslash escapes (\/ inside pattern) */
-    const char *p = spec + 1;
+    const char *p   = spec + 1;
     const char *end = NULL;
     while (*p) {
-        if (*p == '\\' && p[1]) { p += 2; continue; }
-        if (*p == '/' && p[1] == '=') { end = p; break; }
+        if (*p == '\\' && p[1]) {
+            p += 2;
+            continue;
+        }
+        if (*p == '/' && p[1] == '=') {
+            end = p;
+            break;
+        }
         p++;
     }
     if (!end) return -1;
@@ -161,7 +171,8 @@ static int parse_match_spec(const char *spec, char **regex_out, char **action_ou
     *regex_out  = strndup(spec + 1, rlen);
     *action_out = strdup(end + 2);
     if (!*regex_out || !*action_out) {
-        free(*regex_out); free(*action_out);
+        free(*regex_out);
+        free(*action_out);
         return -1;
     }
     return 0;
@@ -178,7 +189,7 @@ int hooks_register(zt_ctx *c, int event, const char *spec) {
     }
     hook_t *h = &st->hooks[st->count];
     memset(h, 0, sizeof *h);
-    h->event = event;
+    h->event     = event;
 
     char *action = NULL;
     if (event == ZT_HOOK_EVENT_MATCH) {
@@ -188,7 +199,8 @@ int hooks_register(zt_ctx *c, int event, const char *spec) {
         }
         if (regcomp(&h->regex, h->pattern_src, REG_EXTENDED | REG_NEWLINE) != 0) {
             log_notice(c, "hook: bad regex: %s", h->pattern_src);
-            free(h->pattern_src); free(action);
+            free(h->pattern_src);
+            free(action);
             return -1;
         }
         h->has_regex = true;
@@ -211,11 +223,11 @@ int hooks_register(zt_ctx *c, int event, const char *spec) {
 
 void hooks_on_line(zt_ctx *c, const unsigned char *line, size_t len) {
     if (!c || !c->ext.hooks || !line || len == 0) return;
-    hooks_state *st = (hooks_state *) c->ext.hooks;
+    hooks_state *st = (hooks_state *)c->ext.hooks;
 
     /* regexec needs a NUL-terminated string; cap at 4 KiB which
      * covers any realistic single line of serial output. */
-    char buf[4096];
+    char   buf[4096];
     size_t n = len < sizeof buf - 1 ? len : sizeof buf - 1;
     memcpy(buf, line, n);
     buf[n] = '\0';
@@ -230,7 +242,7 @@ void hooks_on_line(zt_ctx *c, const unsigned char *line, size_t len) {
 
 void hooks_on_event(zt_ctx *c, int event) {
     if (!c || !c->ext.hooks) return;
-    hooks_state *st = (hooks_state *) c->ext.hooks;
+    hooks_state *st = (hooks_state *)c->ext.hooks;
     for (int i = 0; i < st->count; i++) {
         hook_t *h = &st->hooks[i];
         if (h->in_use && h->event == event) fire_hook(c, h, NULL, 0);
@@ -239,11 +251,14 @@ void hooks_on_event(zt_ctx *c, int event) {
 
 void hooks_reap(zt_ctx *c) {
     if (!c || !c->ext.hooks) return;
-    hooks_state *st = (hooks_state *) c->ext.hooks;
+    hooks_state *st = (hooks_state *)c->ext.hooks;
     for (int i = 0; i < st->pids_count;) {
         int   status = 0;
         pid_t r      = waitpid(st->pids[i], &status, WNOHANG);
-        if (r == 0) { i++; continue; } /* still running */
+        if (r == 0) {
+            i++;
+            continue;
+        } /* still running */
         /* exited or error — drop slot via swap-pop */
         st->pids[i] = st->pids[--st->pids_count];
     }
@@ -251,7 +266,7 @@ void hooks_reap(zt_ctx *c) {
 
 void hooks_free(zt_ctx *c) {
     if (!c || !c->ext.hooks) return;
-    hooks_state *st = (hooks_state *) c->ext.hooks;
+    hooks_state *st = (hooks_state *)c->ext.hooks;
     for (int i = 0; i < st->count; i++) {
         hook_t *h = &st->hooks[i];
         if (h->has_regex) regfree(&h->regex);
@@ -261,7 +276,7 @@ void hooks_free(zt_ctx *c) {
     /* Reap any still-running shelled-out children once, non-blocking. */
     for (int i = 0; i < st->pids_count; i++) {
         int s;
-        (void) waitpid(st->pids[i], &s, WNOHANG);
+        (void)waitpid(st->pids[i], &s, WNOHANG);
     }
     free(st);
     c->ext.hooks = NULL;

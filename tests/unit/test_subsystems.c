@@ -69,6 +69,16 @@ static void ctx_free(zt_ctx *c) {
     scrollback_free(c);
     history_free(c);
     free(c->log.sb_lines);
+    /* Mirror the cleanup main.c does at shutdown so LeakSanitizer is
+     * happy when tests exercise subsystems that strdup into the ctx
+     * (bookmarks, --detach session name). */
+    for (int i = 0; i < c->log.bookmark_count; i++) {
+        free(c->log.bookmark_notes[i]);
+        c->log.bookmark_notes[i] = NULL;
+    }
+    c->log.bookmark_count = 0;
+    free(c->net.session_name);
+    c->net.session_name = NULL;
 }
 
 /* ------------------------------------------------------------------ */

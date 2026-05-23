@@ -113,8 +113,7 @@ static void feed_cobs(zt_ctx *c, const unsigned char *buf, size_t n) {
                      * push wr past rd and clobber bytes we haven't yet
                      * consumed. */
                     if (wr > rd + j) break;
-                    if (wr < sizeof c->proto.buf)
-                        c->proto.buf[wr++] = c->proto.buf[rd + j];
+                    if (wr < sizeof c->proto.buf) c->proto.buf[wr++] = c->proto.buf[rd + j];
                 }
                 rd += copy;
                 if (code < 0xFF && rd < pending) {
@@ -200,8 +199,8 @@ static void feed_len16(zt_ctx *c, const unsigned char *buf, size_t n) {
         if (c->proto.len16_have < 2) {
             c->proto.len16_lenb[c->proto.len16_have++] = buf[i];
             if (c->proto.len16_have == 2) {
-                c->proto.len16_need = (size_t)c->proto.len16_lenb[0] |
-                                       ((size_t)c->proto.len16_lenb[1] << 8);
+                c->proto.len16_need =
+                    (size_t)c->proto.len16_lenb[0] | ((size_t)c->proto.len16_lenb[1] << 8);
                 if (c->proto.len16_need > sizeof c->proto.buf) {
                     c->proto.len16_have = 0;
                     c->proto.len16_need = 0;

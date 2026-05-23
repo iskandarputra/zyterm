@@ -49,13 +49,15 @@ void handle_cmd_key(zt_ctx *c, unsigned char k) {
      * what was on screen before the unplug, copy text, etc. */
     if (c->tui.disconnected) {
         switch (k) {
-        case 'a':                       /* would direct_send(0x01) */
-        case 'A':                       /* autobaud probe needs a device */
-        case 'b': case 'B':             /* tcsendbreak */
+        case 'a': /* would direct_send(0x01) */
+        case 'A': /* autobaud probe needs a device */
+        case 'b':
+        case 'B': /* tcsendbreak */
             set_flash(c, "no device \xe2\x80\x94 Ctrl+A r to retry, Ctrl+A x to quit");
             c->tui.popup_active = false;
             return;
-        case 'r': case 'R':
+        case 'r':
+        case 'R':
             /* Just nudge the wait loop — DON'T call reconnect_attempt /
              * run_reconnect_loop here. We're already inside the wait
              * loop and the next tick (≤ ZT_RECONNECT_MS) will call
@@ -65,7 +67,7 @@ void handle_cmd_key(zt_ctx *c, unsigned char k) {
             set_flash(c, "retrying \xe2\x80\xa6");
             c->tui.popup_active = false;
             return;
-        default: break;                 /* fall through to normal handler */
+        default: break; /* fall through to normal handler */
         }
     }
     c->tui.popup_active = false;
@@ -531,7 +533,7 @@ void handle_escape_seq(zt_ctx *c, const unsigned char *buf, size_t n) {
             /* macro_fire is a no-op if the slot is empty; either way
              * we've handled the F-key portion. */
             if (consumed < n) {
-                const unsigned char *rest = buf + consumed;
+                const unsigned char *rest  = buf + consumed;
                 size_t               restn = n - consumed;
                 if (restn > 1 && rest[0] == 0x1B)
                     handle_escape_seq(c, rest, restn);

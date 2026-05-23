@@ -147,7 +147,7 @@ void ob_set_record_callback(void (*cb)(const unsigned char *, size_t)) {
     s_ob_record_cb = cb;
 }
 
-void                 ob_write(const void *p, size_t n) {
+void ob_write(const void *p, size_t n) {
     if (!p || n == 0) return;
     if (s_ob_len + n > OB_CAP) {
         /* Flush what we have, then write the rest directly. */
@@ -273,8 +273,7 @@ void sig_winch(int s) {
  * corrupted state).
  */
 static void sig_crash(int s) {
-    bool embed_recover =
-        zt_g_embedded && zt_g_embed_jmp_armed && (s == SIGABRT || s == SIGFPE);
+    bool embed_recover = zt_g_embedded && zt_g_embed_jmp_armed && (s == SIGABRT || s == SIGFPE);
     /* zt_trace is not async-signal-safe; only call it on the embed
      * recovery path, where we are about to siglongjmp anyway. */
     if (embed_recover) zt_trace("sig_crash: signal=%d (embedded, will siglongjmp)", s);

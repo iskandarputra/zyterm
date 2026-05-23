@@ -38,7 +38,7 @@
  * Returns false on allocation failure (nothing to send). */
 static bool tx_preprocess(zt_ctx *c, const unsigned char **buf, size_t *n,
                           unsigned char **out_heap) {
-    *out_heap = NULL;
+    *out_heap     = NULL;
     bool need_eol = (c->proto.map_out != ZT_EOL_NONE);
     bool need_tn  = c->serial.telnet;
     if (!need_eol && !need_tn) return true;
@@ -48,15 +48,18 @@ static bool tx_preprocess(zt_ctx *c, const unsigned char **buf, size_t *n,
         size_t cap = ZT_EOL_OUT_CAP(*n);
         stage1     = malloc(cap);
         if (!stage1) return false;
-        *n   = eol_translate_out(c->proto.map_out, &c->proto.eol_state_out,
-                                 *buf, *n, stage1, cap);
+        *n =
+            eol_translate_out(c->proto.map_out, &c->proto.eol_state_out, *buf, *n, stage1, cap);
         *buf = stage1;
     }
 
     if (need_tn) {
         size_t         cap2   = (*n) * 2;
         unsigned char *stage2 = malloc(cap2 ? cap2 : 1);
-        if (!stage2) { free(stage1); return false; }
+        if (!stage2) {
+            free(stage1);
+            return false;
+        }
         *n   = telnet_tx_escape(*buf, *n, stage2, cap2);
         *buf = stage2;
         free(stage1);
@@ -65,7 +68,11 @@ static bool tx_preprocess(zt_ctx *c, const unsigned char **buf, size_t *n,
         *out_heap = stage1;
     }
 
-    if (!*n) { free(*out_heap); *out_heap = NULL; return false; }
+    if (!*n) {
+        free(*out_heap);
+        *out_heap = NULL;
+        return false;
+    }
     return true;
 }
 

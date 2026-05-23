@@ -48,27 +48,26 @@
 
 bool transport_is_url(const char *device) {
     if (!device) return false;
-    return strncmp(device, "tcp://",      6) == 0
-        || strncmp(device, "telnet://",   9) == 0
-        || strncmp(device, "rfc2217://", 10) == 0;
+    return strncmp(device, "tcp://", 6) == 0 || strncmp(device, "telnet://", 9) == 0 ||
+           strncmp(device, "rfc2217://", 10) == 0;
 }
 
 /** Split a URL into scheme / host / port. Caller-owned char buffers. */
-static int parse_url(const char *url, char *scheme, size_t scs,
-                     char *host, size_t hcs, char *port, size_t pcs) {
+static int parse_url(const char *url, char *scheme, size_t scs, char *host, size_t hcs,
+                     char *port, size_t pcs) {
     const char *colon = strstr(url, "://");
     if (!colon) return -1;
-    size_t schl = (size_t) (colon - url);
+    size_t schl = (size_t)(colon - url);
     if (schl + 1 > scs) return -1;
     memcpy(scheme, url, schl);
-    scheme[schl] = '\0';
+    scheme[schl]     = '\0';
 
     const char *rest = colon + 3;
     /* Bracketed IPv6 literal: [fe80::1]:23 */
     if (*rest == '[') {
         const char *end = strchr(rest, ']');
         if (!end || end[1] != ':') return -1;
-        size_t hl = (size_t) (end - rest - 1);
+        size_t hl = (size_t)(end - rest - 1);
         if (hl + 1 > hcs) return -1;
         memcpy(host, rest + 1, hl);
         host[hl] = '\0';
@@ -77,7 +76,7 @@ static int parse_url(const char *url, char *scheme, size_t scs,
     }
     const char *p = strrchr(rest, ':');
     if (!p) return -1;
-    size_t hl = (size_t) (p - rest);
+    size_t hl = (size_t)(p - rest);
     if (hl == 0 || hl + 1 > hcs) return -1;
     memcpy(host, rest, hl);
     host[hl] = '\0';
@@ -104,15 +103,17 @@ int transport_open(const char *url, bool *out_telnet) {
     struct addrinfo hints = {0}, *res = NULL;
     hints.ai_family   = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
-    int rc = getaddrinfo(host, port, &hints, &res);
-    if (rc != 0)
-        zt_die("zyterm: %s://%s:%s: %s", scheme, host, port, gai_strerror(rc));
+    int rc            = getaddrinfo(host, port, &hints, &res);
+    if (rc != 0) zt_die("zyterm: %s://%s:%s: %s", scheme, host, port, gai_strerror(rc));
 
-    int fd = -1;
+    int fd         = -1;
     int last_errno = 0;
     for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
         fd = socket(ai->ai_family, ai->ai_socktype | SOCK_CLOEXEC, ai->ai_protocol);
-        if (fd < 0) { last_errno = errno; continue; }
+        if (fd < 0) {
+            last_errno = errno;
+            continue;
+        }
         if (connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) break;
         last_errno = errno;
         close(fd);
@@ -130,11 +131,11 @@ int transport_open(const char *url, bool *out_telnet) {
      *   - SO_KEEPALIVE: detect dead peers (lab-pi yanked from the wall)
      *   - O_NONBLOCK: matches what zyterm expects from setup_serial(). */
     int yes = 1;
-    (void) setsockopt(fd, IPPROTO_TCP, TCP_NODELAY,  &yes, sizeof yes);
-    (void) setsockopt(fd, SOL_SOCKET,  SO_KEEPALIVE, &yes, sizeof yes);
+    (void)setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof yes);
+    (void)setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &yes, sizeof yes);
 
     int fl = fcntl(fd, F_GETFL, 0);
-    if (fl >= 0) (void) fcntl(fd, F_SETFL, fl | O_NONBLOCK);
+    if (fl >= 0) (void)fcntl(fd, F_SETFL, fl | O_NONBLOCK);
 
     return fd;
 }
@@ -143,11 +144,11 @@ int transport_open(const char *url, bool *out_telnet) {
 
 /* Parser states for telnet_rx_filter. */
 enum {
-    TS_DATA = 0,    /* normal data flow                                  */
-    TS_IAC,         /* saw 0xFF, awaiting next byte                      */
-    TS_OPT,         /* saw IAC + WILL/WONT/DO/DONT, awaiting option byte */
-    TS_SB,          /* inside sub-negotiation, scanning for IAC SE       */
-    TS_SB_IAC,      /* inside SB and just saw IAC                        */
+    TS_DATA = 0, /* normal data flow                                  */
+    TS_IAC,      /* saw 0xFF, awaiting next byte                      */
+    TS_OPT,      /* saw IAC + WILL/WONT/DO/DONT, awaiting option byte */
+    TS_SB,       /* inside sub-negotiation, scanning for IAC SE       */
+    TS_SB_IAC,   /* inside SB and just saw IAC                        */
 };
 
 /* Telnet command bytes we care about. */
@@ -166,14 +167,23 @@ size_t telnet_rx_filter(uint8_t *state, unsigned char *buf, size_t n) {
         unsigned char b = buf[i];
         switch (st) {
         case TS_DATA:
-            if (b == IAC) { st = TS_IAC; }
-            else          { buf[w++] = b; }
+            if (b == IAC) {
+                st = TS_IAC;
+            } else {
+                buf[w++] = b;
+            }
             break;
         case TS_IAC:
-            if      (b == IAC)                            { buf[w++] = IAC; st = TS_DATA; }
-            else if (b == WILL || b == WONT || b == DO || b == DONT) { st = TS_OPT; }
-            else if (b == SB)                             { st = TS_SB; }
-            else                                          { st = TS_DATA; /* drop 2-byte cmd */ }
+            if (b == IAC) {
+                buf[w++] = IAC;
+                st       = TS_DATA;
+            } else if (b == WILL || b == WONT || b == DO || b == DONT) {
+                st = TS_OPT;
+            } else if (b == SB) {
+                st = TS_SB;
+            } else {
+                st = TS_DATA; /* drop 2-byte cmd */
+            }
             break;
         case TS_OPT:
             /* Drop the option byte. We are deliberately silent — most
@@ -187,9 +197,13 @@ size_t telnet_rx_filter(uint8_t *state, unsigned char *buf, size_t n) {
             /* else: drop sub-negotiation payload. */
             break;
         case TS_SB_IAC:
-            if (b == SE)  { st = TS_DATA; }
-            else if (b == IAC) { st = TS_SB; /* escaped 0xFF inside SB; drop */ }
-            else          { st = TS_SB; }
+            if (b == SE) {
+                st = TS_DATA;
+            } else if (b == IAC) {
+                st = TS_SB; /* escaped 0xFF inside SB; drop */
+            } else {
+                st = TS_SB;
+            }
             break;
         }
     }
@@ -197,14 +211,16 @@ size_t telnet_rx_filter(uint8_t *state, unsigned char *buf, size_t n) {
     return w;
 }
 
-size_t telnet_tx_escape(const unsigned char *in, size_t n,
-                        unsigned char *out, size_t out_cap) {
+size_t telnet_tx_escape(const unsigned char *in, size_t n, unsigned char *out, size_t out_cap) {
     size_t w = 0;
     for (size_t i = 0; i < n; i++) {
         if (w >= out_cap) break;
         out[w++] = in[i];
         if (in[i] == IAC) {
-            if (w >= out_cap) { w--; break; } /* don't split the pair */
+            if (w >= out_cap) {
+                w--;
+                break;
+            } /* don't split the pair */
             out[w++] = IAC;
         }
     }

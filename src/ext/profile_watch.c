@@ -57,8 +57,8 @@ static struct timespec s_last_event    = {0};
 
 static bool within_debounce(const struct timespec *now_ts) {
     if (s_last_event.tv_sec == 0 && s_last_event.tv_nsec == 0) return false;
-    long ms = (now_ts->tv_sec - s_last_event.tv_sec) * 1000L
-            + (now_ts->tv_nsec - s_last_event.tv_nsec) / 1000000L;
+    long ms = (now_ts->tv_sec - s_last_event.tv_sec) * 1000L +
+              (now_ts->tv_nsec - s_last_event.tv_nsec) / 1000000L;
     return ms < ZT_PROFILE_DEBOUNCE_MS;
 }
 
@@ -84,12 +84,11 @@ int profile_watch_start(zt_ctx *c, const char *name) {
     int fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
     if (fd < 0) return -1;
 
-    int wd = inotify_add_watch(fd, dir,
-                               IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE);
+    int wd = inotify_add_watch(fd, dir, IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE);
     if (wd < 0) {
         int saved = errno;
         close(fd);
-        errno     = saved;
+        errno = saved;
         return -1;
     }
 
@@ -107,15 +106,15 @@ void profile_watch_tick(zt_ctx *c) {
      * large enough for at least one event (sizeof + NAME_MAX + 1)
      * per kernel docs; a single 4 KiB page comfortably holds the
      * editor-save burst we typically see. */
-    char buf[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
+    char    buf[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
     ssize_t n = read(c->ext.profile_inotify_fd, buf, sizeof buf);
     if (n <= 0) return; /* EAGAIN / no events */
 
     bool        match = false;
     const char *end   = buf + n;
     for (char *p = buf; p + sizeof(struct inotify_event) <= end;) {
-        const struct inotify_event *ev = (const struct inotify_event *) p;
-        size_t step = sizeof(struct inotify_event) + ev->len;
+        const struct inotify_event *ev   = (const struct inotify_event *)p;
+        size_t                      step = sizeof(struct inotify_event) + ev->len;
         /* Defensive bounds check: inotify guarantees events don't cross
          * read() boundaries on a non-blocking fd of sufficient buffer,
          * but a runaway ev->len (e.g. on a corrupted/extended kernel)
@@ -127,8 +126,7 @@ void profile_watch_tick(zt_ctx *c) {
             /* Bound the strcmp at ev->len so we can't run past the event
              * record if the NUL is missing. */
             size_t name_max = ev->len;
-            if (strnlen(ev->name, name_max) < name_max &&
-                strcmp(ev->name, s_basename) == 0) {
+            if (strnlen(ev->name, name_max) < name_max && strcmp(ev->name, s_basename) == 0) {
                 match = true;
             }
         }

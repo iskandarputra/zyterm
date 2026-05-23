@@ -42,7 +42,7 @@ int reconnect_attempt(zt_ctx *c) {
      * path each attempt. A USB-serial adapter that comes back as a
      * different /dev/ttyUSBn after replug is then transparently picked
      * up; without these hints the device path is held fixed. */
-    (void) port_rediscover(c);
+    (void)port_rediscover(c);
 
     int fd = try_reopen_serial(c->serial.device, c->serial.baud, c->serial.data_bits,
                                c->serial.parity, c->serial.stop_bits, c->serial.flow);
@@ -157,7 +157,10 @@ void run_reconnect_loop(zt_ctx *c) {
                     if ((size_t)r < sizeof rbuf) break;
                     continue;
                 }
-                if (r == 0) { zt_g_quit = 1; break; }
+                if (r == 0) {
+                    zt_g_quit = 1;
+                    break;
+                }
                 if (errno == EINTR) continue;
                 break;
             }

@@ -193,8 +193,8 @@ int xmodem_receive(zt_ctx *c, const char *path) {
              * matches the de-facto convention of `rx`/lrzsz and other
              * XMODEM receivers, at the cost of having to NAK a missing
              * block one round-trip later (rare). */
-            int           blknum   = 1;
-            size_t        total    = 0;
+            int           blknum = 1;
+            size_t        total  = 0;
             unsigned char pending[XM_BLK];
             bool          have_pending = false;
             while (1) {
@@ -240,8 +240,7 @@ int xmodem_receive(zt_ctx *c, const char *path) {
                         size_t flush_n = XM_BLK;
                         while (flush_n > 0 && pending[flush_n - 1] == XM_PAD)
                             flush_n--;
-                        if (flush_n > 0 &&
-                            xm_write_block(fp, pending, flush_n) != 0) {
+                        if (flush_n > 0 && xm_write_block(fp, pending, flush_n) != 0) {
                             set_flash(c, "xmodem: write failed: %s", strerror(errno));
                             fclose(fp);
                             return -1;
@@ -434,16 +433,22 @@ static int zmodem_spawn_relay(zt_ctx *c, const char *cmd_name, const char *arg, 
          * its own (or hung forever on a wedged device). */
         if (p[0].revents & POLLIN) {
             ssize_t n = read(from_child[0], buf, sizeof buf);
-            if (n > 0) (void)write_all(c->serial.fd, buf, (size_t)n);
-            else if (n == 0) done = true;
-            else if (errno != EINTR && errno != EAGAIN) done = true;
+            if (n > 0)
+                (void)write_all(c->serial.fd, buf, (size_t)n);
+            else if (n == 0)
+                done = true;
+            else if (errno != EINTR && errno != EAGAIN)
+                done = true;
         }
         if (p[0].revents & (POLLHUP | POLLERR | POLLNVAL)) done = true;
         if (p[1].revents & POLLIN) {
             ssize_t n = read(c->serial.fd, buf, sizeof buf);
-            if (n > 0) (void)write_all(to_child[1], buf, (size_t)n);
-            else if (n == 0) done = true;
-            else if (errno != EINTR && errno != EAGAIN) done = true;
+            if (n > 0)
+                (void)write_all(to_child[1], buf, (size_t)n);
+            else if (n == 0)
+                done = true;
+            else if (errno != EINTR && errno != EAGAIN)
+                done = true;
         }
         if (p[1].revents & (POLLHUP | POLLERR | POLLNVAL)) done = true;
     }

@@ -313,13 +313,14 @@ void rx_ingest(zt_ctx *c, const unsigned char *buf, size_t n) {
     unsigned char *telnet_heap = NULL;
     if (c->serial.telnet) {
         unsigned char  tscratch[4096];
-        unsigned char *tb = (n <= sizeof tscratch)
-                              ? tscratch
-                              : (telnet_heap = malloc(n));
+        unsigned char *tb = (n <= sizeof tscratch) ? tscratch : (telnet_heap = malloc(n));
         if (!tb) return;
         memcpy(tb, buf, n);
         n = telnet_rx_filter(&c->serial.telnet_rx_st, tb, n);
-        if (!n) { free(telnet_heap); return; }
+        if (!n) {
+            free(telnet_heap);
+            return;
+        }
         buf = tb;
     }
 
@@ -330,13 +331,18 @@ void rx_ingest(zt_ctx *c, const unsigned char *buf, size_t n) {
     unsigned char *heap = NULL;
     if (c->proto.map_in != ZT_EOL_NONE) {
         size_t         cap = ZT_EOL_OUT_CAP(n);
-        unsigned char *xb  = (cap <= sizeof scratch) ? scratch
-                                                     : (heap = malloc(cap));
-        if (!xb) { free(telnet_heap); return; }
-        n = eol_translate_in(c->proto.map_in, &c->proto.eol_state_in,
-                             buf, n, xb, cap);
+        unsigned char *xb  = (cap <= sizeof scratch) ? scratch : (heap = malloc(cap));
+        if (!xb) {
+            free(telnet_heap);
+            return;
+        }
+        n   = eol_translate_in(c->proto.map_in, &c->proto.eol_state_in, buf, n, xb, cap);
         buf = xb;
-        if (!n) { free(heap); free(telnet_heap); return; }
+        if (!n) {
+            free(heap);
+            free(telnet_heap);
+            return;
+        }
     }
 
     if (c->log.format == ZT_LOG_JSON) log_json_rx(c, buf, n);

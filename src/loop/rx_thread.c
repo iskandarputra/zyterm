@@ -46,8 +46,8 @@ typedef struct {
 #if ZT_HAVE_PTHREAD
     pthread_t thread;
 #endif
-    atomic_size_t  head;     /**< producer */
-    atomic_size_t  tail;     /**< consumer */
+    atomic_size_t  head; /**< producer */
+    atomic_size_t  tail; /**< consumer */
     unsigned char *buf;
     size_t         cap;
     _Atomic int    running;  /**< release on stop, acquire in loop */
@@ -158,7 +158,7 @@ int rx_thread_start(zt_ctx *c) {
         c->serial.spsc_wake_pipe[0] = -1;
         close(c->serial.spsc_wake_pipe[1]);
         c->serial.spsc_wake_pipe[1] = -1;
-        int dupfd = atomic_load_explicit(&r->local_fd, memory_order_relaxed);
+        int dupfd                   = atomic_load_explicit(&r->local_fd, memory_order_relaxed);
         if (dupfd >= 0) close(dupfd);
         free(r->buf);
         free(r);
@@ -213,7 +213,7 @@ size_t rx_thread_drain(zt_ctx *c, unsigned char *dst, size_t cap) {
     size_t       head  = atomic_load_explicit(&r->head, memory_order_acquire);
     size_t       avail = head - tail;
     if (avail == 0) return 0;
-    size_t rd    = avail < cap ? avail : cap;
+    size_t rd = avail < cap ? avail : cap;
     /* Copy in up to two contiguous spans so we don't loop byte-by-byte
      * across the wrap. */
     size_t off   = tail & (r->cap - 1);
@@ -254,6 +254,5 @@ void rx_thread_pause(zt_ctx *c) {
 }
 
 void rx_thread_unpause(zt_ctx *c) {
-    if (c && c->serial.spsc_enabled && !rx_thread_is_running(c))
-        (void)rx_thread_start(c);
+    if (c && c->serial.spsc_enabled && !rx_thread_is_running(c)) (void)rx_thread_start(c);
 }

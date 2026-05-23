@@ -50,13 +50,13 @@ static const char *clipboard_pipe(const char *buf, size_t n) {
         int         env; /* 0 = any, 1 = WAYLAND_DISPLAY, 2 = DISPLAY */
     } helpers[] = {
         {"wl-copy", {"wl-copy", NULL, NULL, NULL}, 1},
-        {"xclip",   {"xclip", "-selection", "clipboard", NULL}, 2},
-        {"xsel",    {"xsel", "--clipboard", "--input", NULL}, 2},
-        {"pbcopy",  {"pbcopy", NULL, NULL, NULL}, 0},
+        {"xclip", {"xclip", "-selection", "clipboard", NULL}, 2},
+        {"xsel", {"xsel", "--clipboard", "--input", NULL}, 2},
+        {"pbcopy", {"pbcopy", NULL, NULL, NULL}, 0},
     };
     for (size_t h = 0; h < sizeof helpers / sizeof helpers[0]; h++) {
         if (helpers[h].env == 1 && (!wl_disp || !*wl_disp)) continue;
-        if (helpers[h].env == 2 && (!x_disp  || !*x_disp))  continue;
+        if (helpers[h].env == 2 && (!x_disp || !*x_disp)) continue;
         int fds[2];
         if (pipe(fds) < 0) continue;
         pid_t pid = fork();
@@ -219,8 +219,7 @@ void osc52_copy(zt_ctx *c, const char *buf, size_t n) {
 
     /* ── Tier 4: file fallback ───────────────────────────────────────── */
     const char *fpath = NULL;
-    if (!sys_ok)
-        fpath = clipboard_file(buf, n);
+    if (!sys_ok) fpath = clipboard_file(buf, n);
 
     /* ── Status flash ────────────────────────────────────────────────── */
     if (sys_ok) {

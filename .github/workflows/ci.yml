@@ -7,32 +7,29 @@ on:
 
 jobs:
   build-and-test:
-    name: ${{ matrix.os }} / ${{ matrix.cc }} / ${{ matrix.sanitizer }}
-    runs-on: ${{ matrix.os }}
+    name: linux / ${{ matrix.cc }} / ${{ matrix.sanitizer }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
+        # Linux-only by design: zyterm targets Linux serial surfaces
+        # (termios2 custom baud, inotify, epoll, /sys/class/tty
+        # VID/PID discovery) and we don't ship macOS binaries.
         cc: [gcc, clang]
         sanitizer: ["none", "asan-ubsan"]
-        include:
-          - os: macos-latest
-            cc: clang
-            sanitizer: "none"
     env:
       CC: ${{ matrix.cc }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install build deps with cache (Linux)
-        if: runner.os == 'Linux'
+      - name: Install build deps with cache
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
           packages: build-essential socat clang-format clang cppcheck
           version: 1.0
 
       - name: Check formatting
-        if: runner.os == 'Linux' && matrix.sanitizer == 'none' && matrix.cc == 'gcc'
+        if: matrix.sanitizer == 'none' && matrix.cc == 'gcc'
         run: make format-check
 
       - name: Build (release)
@@ -65,7 +62,7 @@ jobs:
                   -Iinclude -Isrc" \
           LDFLAGS="-fsanitize=address,undefined" make test
 
-      - name: cppcheck (Linux only)
-        if: runner.os == 'Linux' && matrix.sanitizer == 'none' && matrix.cc == 'gcc'
+      - name: cppcheck
+        if: matrix.sanitizer == 'none' && matrix.cc == 'gcc'
         run: make lint || true
 

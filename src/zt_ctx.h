@@ -191,9 +191,9 @@ typedef struct {
          * When @c is_socket is true, the fd is a connected stream socket and
          * tty-only ioctls (TIOCGICOUNT, TIOCMGET, tcsendbreak, custom baud)
          * silently no-op. @c telnet enables IAC escaping/stripping. */
-        bool         is_socket;
-        bool         telnet;       /**< TX 0xFF→0xFF 0xFF; strip RX IAC seq.    */
-        uint8_t      telnet_rx_st; /**< Telnet RX parser state (see transport.c).*/
+        bool    is_socket;
+        bool    telnet;       /**< TX 0xFF→0xFF 0xFF; strip RX IAC seq.    */
+        uint8_t telnet_rx_st; /**< Telnet RX parser state (see transport.c).*/
 
         /* Tier 1 — line-state & kernel counters */
         unsigned        kern_frame_err;   /**< TIOCGICOUNT frame.                       */
@@ -234,10 +234,10 @@ typedef struct {
         bool            disconnected; /**< Reconnect popup is owning the screen —
                                             handle_cmd_key gates side-effecting
                                             keys behind this. */
-        bool            keybind_visible; /**< Ctrl+A k/? help popup on screen;
-                                              ANY next key dismisses it via the
-                                              transient-overlay check at the top
-                                              of handle_stdin_chunk. */
+        bool keybind_visible;         /**< Ctrl+A k/? help popup on screen;
+                                           ANY next key dismisses it via the
+                                           transient-overlay check at the top
+                                           of handle_stdin_chunk. */
 
         /* Tier 4 — settings menu (minicom-style) */
         bool settings_mode; /**< Settings dialog is on-screen.            */

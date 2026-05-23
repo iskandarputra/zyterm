@@ -149,8 +149,8 @@ static void       b64enc(const unsigned char *in, size_t n, char *out) {
 
 typedef enum { HC_NEW, HC_SSE, HC_WS } hc_type;
 typedef struct {
-    int             fd;
-    hc_type         type;
+    int     fd;
+    hc_type type;
     /* HC_NEW only: accumulating request bytes until "\r\n\r\n". */
     char            req_buf[HC_REQ_CAP];
     size_t          req_len;
@@ -836,10 +836,10 @@ static int accept_one(zt_ctx *c, int lfd) {
 /* Promote an HC_NEW slot to HC_SSE or HC_WS for ongoing streaming, or
  * leave the connection unstored (caller closes). */
 static void classify_request(zt_ctx *c, int i) {
-    hc_t       *h     = &g_conn[i];
-    int         cfd   = h->fd;
-    const char *req   = h->req_buf;
-    size_t      rn    = h->req_len;
+    hc_t       *h   = &g_conn[i];
+    int         cfd = h->fd;
+    const char *req = h->req_buf;
+    size_t      rn  = h->req_len;
 
     if (rn >= 8 && strncmp(req, "OPTIONS ", 8) == 0) {
         send_preflight(c, cfd);
@@ -860,14 +860,24 @@ static void classify_request(zt_ctx *c, int i) {
     }
     if (strstr(req, "GET /ws")) {
         const char *k = strstr(req, "Sec-WebSocket-Key:");
-        if (!k) { hc_close(i); return; }
+        if (!k) {
+            hc_close(i);
+            return;
+        }
         k += 18;
-        while (*k == ' ' || *k == '\t') k++;
+        while (*k == ' ' || *k == '\t')
+            k++;
         const char *eol = strstr(k, "\r\n");
-        if (!eol) { hc_close(i); return; }
+        if (!eol) {
+            hc_close(i);
+            return;
+        }
         char   key[128];
         size_t kl = (size_t)(eol - k);
-        if (kl >= sizeof key) { hc_close(i); return; }
+        if (kl >= sizeof key) {
+            hc_close(i);
+            return;
+        }
         memcpy(key, k, kl);
         key[kl] = '\0';
         handle_ws_upgrade(cfd, key);
@@ -918,10 +928,12 @@ static void classify_request(zt_ctx *c, int i) {
             hc_close(i);
         } else if (!c->net.http_webroot &&
                    (!strcmp(path, "/") || !strcmp(path, "/index.html"))) {
-            send_text_c(c, cfd, "200 OK", "text/html; charset=utf-8", kIndex, sizeof kIndex - 1);
+            send_text_c(c, cfd, "200 OK", "text/html; charset=utf-8", kIndex,
+                        sizeof kIndex - 1);
             hc_close(i);
         } else {
-            send_text_c(c, cfd, "404 Not Found", "text/plain; charset=utf-8", "not found\n", 10);
+            send_text_c(c, cfd, "404 Not Found", "text/plain; charset=utf-8", "not found\n",
+                        10);
             hc_close(i);
         }
         return;
@@ -943,19 +955,20 @@ static void hc_pump_new(zt_ctx *c, int i) {
             hc_close(i);
             return;
         }
-        ssize_t r = read(h->fd, h->req_buf + h->req_len,
-                         sizeof h->req_buf - 1 - h->req_len);
+        ssize_t r = read(h->fd, h->req_buf + h->req_len, sizeof h->req_buf - 1 - h->req_len);
         if (r > 0) {
             h->req_len += (size_t)r;
             h->req_buf[h->req_len] = '\0';
-            if (h->req_len >= 4 &&
-                memmem(h->req_buf, h->req_len, "\r\n\r\n", 4) != NULL) {
+            if (h->req_len >= 4 && memmem(h->req_buf, h->req_len, "\r\n\r\n", 4) != NULL) {
                 classify_request(c, i);
                 return;
             }
             continue;
         }
-        if (r == 0) { hc_close(i); return; } /* peer closed */
+        if (r == 0) {
+            hc_close(i);
+            return;
+        } /* peer closed */
         if (errno == EINTR) continue;
         if (errno == EAGAIN || errno == EWOULDBLOCK) break;
         hc_close(i);
@@ -975,8 +988,7 @@ void http_tick(zt_ctx *c) {
     while (accept_one(c, c->net.http_fd) == 0) {}
     /* Pump any slots still mid-request. */
     for (int i = 0; i < HC_MAX; i++) {
-        if (g_conn[i].fd >= 0 && g_conn[i].type == HC_NEW)
-            hc_pump_new(c, i);
+        if (g_conn[i].fd >= 0 && g_conn[i].type == HC_NEW) hc_pump_new(c, i);
     }
 }
 

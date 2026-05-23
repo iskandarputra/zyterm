@@ -40,11 +40,11 @@
 static uint16_t read_sysfs_hex(const char *path) {
     int fd = open(path, O_RDONLY | O_CLOEXEC);
     if (fd < 0) return 0;
-    char buf[16] = {0};
-    ssize_t n = read(fd, buf, sizeof buf - 1);
+    char    buf[16] = {0};
+    ssize_t n       = read(fd, buf, sizeof buf - 1);
     close(fd);
     if (n <= 0) return 0;
-    return (uint16_t) strtoul(buf, NULL, 16);
+    return (uint16_t)strtoul(buf, NULL, 16);
 }
 
 /** Resolve `/sys/class/tty/<name>/device` to a canonical path and walk
@@ -54,11 +54,11 @@ static uint16_t read_sysfs_hex(const char *path) {
 static int find_usb_ancestor(const char *device_path, char *out, size_t out_cap) {
     /* /dev/ttyUSB0 → /sys/class/tty/ttyUSB0/device → readlink to absolute */
     const char *base = strrchr(device_path, '/');
-    base = base ? base + 1 : device_path;
+    base             = base ? base + 1 : device_path;
 
     char link[PATH_MAX];
     int  k = snprintf(link, sizeof link, "/sys/class/tty/%s/device", base);
-    if (k < 0 || (size_t) k >= sizeof link) return -1;
+    if (k < 0 || (size_t)k >= sizeof link) return -1;
 
     char real[PATH_MAX];
     if (!realpath(link, real)) return -1;
@@ -66,10 +66,10 @@ static int find_usb_ancestor(const char *device_path, char *out, size_t out_cap)
     /* Walk upward — at most 8 levels — looking for idVendor/idProduct. */
     for (int hops = 0; hops < 8; hops++) {
         char probe[PATH_MAX];
-        if ((size_t) snprintf(probe, sizeof probe, "%s/idVendor", real) >= sizeof probe)
+        if ((size_t)snprintf(probe, sizeof probe, "%s/idVendor", real) >= sizeof probe)
             return -1;
         if (access(probe, R_OK) == 0) {
-            if ((size_t) snprintf(out, out_cap, "%s", real) >= out_cap) return -1;
+            if ((size_t)snprintf(out, out_cap, "%s", real) >= out_cap) return -1;
             return 0;
         }
         char *slash = strrchr(real, '/');
@@ -87,9 +87,9 @@ int port_match_vid_pid(const char *device_path, uint16_t vid, uint16_t pid) {
     if (find_usb_ancestor(device_path, usb_dir, sizeof usb_dir) < 0) return -1;
 
     char vpath[PATH_MAX], ppath[PATH_MAX];
-    if ((size_t) snprintf(vpath, sizeof vpath, "%s/idVendor", usb_dir) >= sizeof vpath)
+    if ((size_t)snprintf(vpath, sizeof vpath, "%s/idVendor", usb_dir) >= sizeof vpath)
         return -1;
-    if ((size_t) snprintf(ppath, sizeof ppath, "%s/idProduct", usb_dir) >= sizeof ppath)
+    if ((size_t)snprintf(ppath, sizeof ppath, "%s/idProduct", usb_dir) >= sizeof ppath)
         return -1;
 
     uint16_t got_vid = read_sysfs_hex(vpath);
@@ -111,14 +111,14 @@ char *port_discover(const char *glob_pat, uint16_t vid, uint16_t pid) {
         NULL,
     };
     const char *patterns[2] = {NULL, NULL};
-    int         npat = 0;
+    int         npat        = 0;
     if (glob_pat && *glob_pat) {
         patterns[npat++] = glob_pat;
     } else if (vid || pid) {
         /* No glob, but we have VID/PID — sweep all conventional paths. */
         for (int i = 0; DEFAULTS[i]; i++) {
-            glob_t  gb = {0};
-            int     gr = glob(DEFAULTS[i], 0, NULL, &gb);
+            glob_t gb = {0};
+            int    gr = glob(DEFAULTS[i], 0, NULL, &gb);
             if (gr == 0) {
                 for (size_t j = 0; j < gb.gl_pathc; j++) {
                     if (port_match_vid_pid(gb.gl_pathv[j], vid, pid) == 1) {
@@ -161,15 +161,14 @@ int port_rediscover(zt_ctx *c) {
     if (!c->serial.port_glob && !c->serial.match_vid && !c->serial.match_pid)
         return 0; /* no discovery hints → caller keeps current path */
 
-    char *found = port_discover(c->serial.port_glob,
-                                c->serial.match_vid, c->serial.match_pid);
+    char *found = port_discover(c->serial.port_glob, c->serial.match_vid, c->serial.match_pid);
     if (!found) return -1;
 
     if (c->serial.device && !strcmp(c->serial.device, found)) {
         free(found);
         return 0;
     }
-    free((void *) c->serial.device);
+    free((void *)c->serial.device);
     c->serial.device = found;
     return 1;
 }

@@ -41,218 +41,239 @@
 /* Print one option row with deterministic alignment in plain mode. ANSI
  * sequences in @flag / @val are visually zero-width so we measure with
  * @flag_visible_len passed in (caller knows the plain text). */
-static void help_row(FILE *fp, bool tty, const char *short_opt,
-                     const char *long_opt, const char *val_plain,
-                     const char *desc) {
+static void help_row(FILE *fp, bool tty, const char *short_opt, const char *long_opt,
+                     const char *val_plain, const char *desc) {
     /* ANSI palette (mirrors usage()). */
-    const char *RST  = tty ? "\033[0m"    : "";
+    const char *RST  = tty ? "\033[0m" : "";
     const char *FLAG = tty ? "\033[1;32m" : "";
-    const char *VAL  = tty ? "\033[33m"   : "";
+    const char *VAL  = tty ? "\033[33m" : "";
     const char *MUT  = tty ? "\033[2;37m" : "";
 
     /* Build the visible-width prefix:
      *   "  " + (short_opt ? "-X, " : "    ") + long_opt + " " + val
      */
-    int vis = 2 + 4 + (int) strlen(long_opt);
-    if (val_plain && *val_plain) vis += 1 + (int) strlen(val_plain);
+    int vis = 2 + 4 + (int)strlen(long_opt);
+    if (val_plain && *val_plain) vis += 1 + (int)strlen(val_plain);
 
     fputs("  ", fp);
-    if (short_opt) fprintf(fp, "%s%s%s, ", FLAG, short_opt, RST);
-    else           fputs("    ", fp);
+    if (short_opt)
+        fprintf(fp, "%s%s%s, ", FLAG, short_opt, RST);
+    else
+        fputs("    ", fp);
     fprintf(fp, "%s%s%s", FLAG, long_opt, RST);
     if (val_plain && *val_plain) fprintf(fp, " %s%s%s", VAL, val_plain, RST);
 
     int pad = HELP_DESC_COL - vis;
     if (pad < 1) pad = 1;
-    for (int i = 0; i < pad; i++) fputc(' ', fp);
+    for (int i = 0; i < pad; i++)
+        fputc(' ', fp);
 
     fprintf(fp, "%s%s%s\n", MUT, desc, RST);
 }
 
 /* Continuation line under a row — indented to the description column. */
 static void help_cont(FILE *fp, bool tty, const char *desc) {
-    const char *RST = tty ? "\033[0m"    : "";
+    const char *RST = tty ? "\033[0m" : "";
     const char *MUT = tty ? "\033[2;37m" : "";
-    for (int i = 0; i < HELP_DESC_COL; i++) fputc(' ', fp);
+    for (int i = 0; i < HELP_DESC_COL; i++)
+        fputc(' ', fp);
     fprintf(fp, "%s%s%s\n", MUT, desc, RST);
 }
 
 static void usage(const char *a0) {
-    bool tty = isatty(STDERR_FILENO) && !getenv("NO_COLOR");
-    const char *T = getenv("TERM");
+    bool        tty = isatty(STDERR_FILENO) && !getenv("NO_COLOR");
+    const char *T   = getenv("TERM");
     if (T && !strcmp(T, "dumb")) tty = false;
 
-    const char *RST  = tty ? "\033[0m"    : "";
-    const char *DIM  = tty ? "\033[2m"    : "";
-    const char *B    = tty ? "\033[1m"    : "";
+    const char *RST  = tty ? "\033[0m" : "";
+    const char *DIM  = tty ? "\033[2m" : "";
+    const char *B    = tty ? "\033[1m" : "";
     const char *HEAD = tty ? "\033[1;36m" : "";
-    const char *VAL  = tty ? "\033[33m"   : "";
-    const char *URL  = tty ? "\033[35m"   : "";
+    const char *VAL  = tty ? "\033[33m" : "";
+    const char *URL  = tty ? "\033[35m" : "";
     const char *MUT  = tty ? "\033[2;37m" : "";
     const char *ACC  = tty ? "\033[1;35m" : "";
     const char *FLAG = tty ? "\033[1;32m" : "";
 
-    FILE *fp = stderr;
+    FILE       *fp   = stderr;
 
     /* Banner */
     fprintf(fp,
             "\n  %s▍%s %szyterm%s %s%s%s  %s· high-performance serial terminal%s\n"
             "  %s▍%s %swww.iskandarputra.com%s · %sMIT%s\n\n",
-            ACC, RST, B, RST, DIM, ZT_VERSION, RST, MUT, RST,
-            ACC, RST, URL, RST, DIM, RST);
+            ACC, RST, B, RST, DIM, ZT_VERSION, RST, MUT, RST, ACC, RST, URL, RST, DIM, RST);
 
     /* Usage */
     fprintf(fp, "%sUSAGE%s\n", HEAD, RST);
-    fprintf(fp, "  %s%s%s [%sOPTIONS%s] %s<DEVICE>%s\n",
-            B, a0, RST, FLAG, RST, VAL, RST);
-    fprintf(fp, "  %s%s%s --replay %s<LOGFILE>%s\n\n",
-            B, a0, RST, VAL, RST);
+    fprintf(fp, "  %s%s%s [%sOPTIONS%s] %s<DEVICE>%s\n", B, a0, RST, FLAG, RST, VAL, RST);
+    fprintf(fp, "  %s%s%s --replay %s<LOGFILE>%s\n\n", B, a0, RST, VAL, RST);
 
     /* Device */
     fprintf(fp, "%sDEVICE%s\n", HEAD, RST);
-    fprintf(fp, "  %s/dev/ttyUSB0%s         %sserial node (or any character device)%s\n",
+    fprintf(fp, "  %s/dev/ttyUSB0%s         %sserial node (or any character device)%s\n", VAL,
+            RST, MUT, RST);
+    fprintf(fp, "  %stcp://%s%shost:port%s       %sraw TCP (e.g. ser2net in raw mode)%s\n", URL,
+            RST, VAL, RST, MUT, RST);
+    fprintf(fp, "  %stelnet://%s%shost:port%s    %sTCP + Telnet IAC escaping%s\n", URL, RST,
             VAL, RST, MUT, RST);
-    fprintf(fp, "  %stcp://%s%shost:port%s       %sraw TCP (e.g. ser2net in raw mode)%s\n",
-            URL, RST, VAL, RST, MUT, RST);
-    fprintf(fp, "  %stelnet://%s%shost:port%s    %sTCP + Telnet IAC escaping%s\n",
-            URL, RST, VAL, RST, MUT, RST);
-    fprintf(fp, "  %srfc2217://%s%shost:port%s   %sNYI — use ser2net raw + tcp://%s\n\n",
-            URL, RST, VAL, RST, MUT, RST);
+    fprintf(fp, "  %srfc2217://%s%shost:port%s   %sNYI — use ser2net raw + tcp://%s\n\n", URL,
+            RST, VAL, RST, MUT, RST);
 
     /* Connection */
     fprintf(fp, "%sCONNECTION%s\n", HEAD, RST);
-    help_row (fp, tty, "-b", "--baud",          "<rate>",      "baud rate (default 115200; arbitrary via termios2)");
-    help_row (fp, tty, NULL, "--data",          "<5|6|7|8>",   "data bits (default 8)");
-    help_row (fp, tty, NULL, "--parity",        "<n|e|o>",     "parity: none | even | odd (default n)");
-    help_row (fp, tty, NULL, "--stop",          "<1|2>",       "stop bits (default 1)");
-    help_row (fp, tty, NULL, "--flow",          "<n|r|x>",     "none | rts/cts | xon/xoff (default n)");
-    help_row (fp, tty, NULL, "--reconnect",     "",            "auto-reopen on hang-up (default ON)");
-    help_row (fp, tty, NULL, "--no-reconnect",  "",            "exit on serial hang-up");
-    help_row (fp, tty, NULL, "--port-glob",     "<pat>",       "re-resolve device on each reconnect");
-    help_cont(fp, tty,                                         "e.g. \"/dev/ttyUSB*\"; <DEVICE> becomes optional");
-    help_row (fp, tty, NULL, "--match-vid-pid", "<V:P>",       "filter discovered ports by USB id (hex)");
-    help_cont(fp, tty,                                         "e.g. 0403:6001 (FT232R), 1a86:7523 (CH340)");
+    help_row(fp, tty, "-b", "--baud", "<rate>",
+             "baud rate (default 115200; arbitrary via termios2)");
+    help_row(fp, tty, NULL, "--data", "<5|6|7|8>", "data bits (default 8)");
+    help_row(fp, tty, NULL, "--parity", "<n|e|o>", "parity: none | even | odd (default n)");
+    help_row(fp, tty, NULL, "--stop", "<1|2>", "stop bits (default 1)");
+    help_row(fp, tty, NULL, "--flow", "<n|r|x>", "none | rts/cts | xon/xoff (default n)");
+    help_row(fp, tty, NULL, "--reconnect", "", "auto-reopen on hang-up (default ON)");
+    help_row(fp, tty, NULL, "--no-reconnect", "", "exit on serial hang-up");
+    help_row(fp, tty, NULL, "--port-glob", "<pat>", "re-resolve device on each reconnect");
+    help_cont(fp, tty, "e.g. \"/dev/ttyUSB*\"; <DEVICE> becomes optional");
+    help_row(fp, tty, NULL, "--match-vid-pid", "<V:P>",
+             "filter discovered ports by USB id (hex)");
+    help_cont(fp, tty, "e.g. 0403:6001 (FT232R), 1a86:7523 (CH340)");
     fputc('\n', fp);
 
     /* Logging */
     fprintf(fp, "%sLOGGING & CAPTURE%s\n", HEAD, RST);
-    help_row (fp, tty, "-l", "--log",           "<file>",      "append log with ms timestamps");
-    help_cont(fp, tty,                                         "Ctrl+A l toggles auto-named zyterm-YYYYMMDD-NNN.txt");
-    help_row (fp, tty, NULL, "--log-max-kb",    "<N>",         "rotate to <file>.1 when it exceeds N KB");
-    help_row (fp, tty, NULL, "--log-format",    "<text|json|raw>", "log encoding (default text)");
-    help_row (fp, tty, NULL, "--tx-ts",         "",            "also log TX with \"-> \" prefix");
-    help_row (fp, tty, NULL, "--mute-dbg",      "",            "drop <dbg> level lines from log + scrollback");
-    help_row (fp, tty, NULL, "--mute-inf",      "",            "drop <inf> level lines from log + scrollback");
-    help_row (fp, tty, NULL, "--dump",          "<sec>",       "headless capture for N seconds (0 = forever)");
-    help_row (fp, tty, NULL, "--replay",        "<file>",      "replay a capture through the UI");
-    help_row (fp, tty, NULL, "--replay-speed",  "<x>",         "speed multiplier (default 1.0, 0 = max)");
-    help_row (fp, tty, NULL, "--rec",           "<file>",      "record session as asciinema cast v2");
-    help_cont(fp, tty,                                         "play back with: asciinema play <file>");
+    help_row(fp, tty, "-l", "--log", "<file>", "append log with ms timestamps");
+    help_cont(fp, tty, "Ctrl+A l toggles auto-named zyterm-YYYYMMDD-NNN.txt");
+    help_row(fp, tty, NULL, "--log-max-kb", "<N>", "rotate to <file>.1 when it exceeds N KB");
+    help_row(fp, tty, NULL, "--log-format", "<text|json|raw>", "log encoding (default text)");
+    help_row(fp, tty, NULL, "--tx-ts", "", "also log TX with \"-> \" prefix");
+    help_row(fp, tty, NULL, "--mute-dbg", "", "drop <dbg> level lines from log + scrollback");
+    help_row(fp, tty, NULL, "--mute-inf", "", "drop <inf> level lines from log + scrollback");
+    help_row(fp, tty, NULL, "--dump", "<sec>", "headless capture for N seconds (0 = forever)");
+    help_row(fp, tty, NULL, "--replay", "<file>", "replay a capture through the UI");
+    help_row(fp, tty, NULL, "--replay-speed", "<x>", "speed multiplier (default 1.0, 0 = max)");
+    help_row(fp, tty, NULL, "--rec", "<file>", "record session as asciinema cast v2");
+    help_cont(fp, tty, "play back with: asciinema play <file>");
     fputc('\n', fp);
 
     /* Framing & CRC */
     fprintf(fp, "%sFRAMING & CRC%s\n", HEAD, RST);
-    help_row (fp, tty, NULL, "--frame",         "<mode>",      "incoming frame decoder (default raw)");
-    help_cont(fp, tty,                                         "mode: raw | cobs | slip | hdlc | lenpfx");
-    help_cont(fp, tty,                                         "lenpfx = 16-bit little-endian length prefix");
-    help_row (fp, tty, NULL, "--crc",           "<mode>",      "trailing CRC stripped + verified per frame");
-    help_cont(fp, tty,                                         "mode: none | ccitt (16) | ibm (16) | crc32");
+    help_row(fp, tty, NULL, "--frame", "<mode>", "incoming frame decoder (default raw)");
+    help_cont(fp, tty, "mode: raw | cobs | slip | hdlc | lenpfx");
+    help_cont(fp, tty, "lenpfx = 16-bit little-endian length prefix");
+    help_row(fp, tty, NULL, "--crc", "<mode>", "trailing CRC stripped + verified per frame");
+    help_cont(fp, tty, "mode: none | ccitt (16) | ibm (16) | crc32");
     fputc('\n', fp);
 
     /* Advanced I/O */
     fprintf(fp, "%sADVANCED I/O%s\n", HEAD, RST);
-    help_row (fp, tty, NULL, "--threaded",      "",            "drain serial on a worker thread → SPSC ring");
-    help_cont(fp, tty,                                         "reduces UART-latency jitter at >= 1 Mbaud");
-    help_row (fp, tty, NULL, "--autobaud",      "",            "probe common rates after open, pick best");
-    help_cont(fp, tty,                                         "ignores -b; can be re-run interactively via Ctrl+A A");
+    help_row(fp, tty, NULL, "--threaded", "", "drain serial on a worker thread → SPSC ring");
+    help_cont(fp, tty, "reduces UART-latency jitter at >= 1 Mbaud");
+    help_row(fp, tty, NULL, "--autobaud", "", "probe common rates after open, pick best");
+    help_cont(fp, tty, "ignores -b; can be re-run interactively via Ctrl+A A");
     fputc('\n', fp);
 
     /* HTTP / streaming */
     fprintf(fp, "%sHTTP & STREAMING%s\n", HEAD, RST);
-    help_row (fp, tty, NULL, "--http",          "<port>",      "start HTTP server (built-in HTML at /)");
-    help_cont(fp, tty,                                         "GET /stream = SSE, GET /ws = WebSocket,");
-    help_cont(fp, tty,                                         "GET /api/state, POST /api/send, GET /metrics");
-    help_row (fp, tty, NULL, "--webroot",       "<dir>",       "serve static files from <dir> (.. blocked)");
-    help_row (fp, tty, NULL, "--http-cors",     "",            "add Access-Control-Allow-Origin: * headers");
-    help_row (fp, tty, NULL, "--metrics",       "<path>",      "AF_UNIX socket emitting Prometheus text");
+    help_row(fp, tty, NULL, "--http", "<port>", "start HTTP server (built-in HTML at /)");
+    help_cont(fp, tty, "GET /stream = SSE, GET /ws = WebSocket,");
+    help_cont(fp, tty, "GET /api/state, POST /api/send, GET /metrics");
+    help_row(fp, tty, NULL, "--webroot", "<dir>", "serve static files from <dir> (.. blocked)");
+    help_row(fp, tty, NULL, "--http-cors", "", "add Access-Control-Allow-Origin: * headers");
+    help_row(fp, tty, NULL, "--metrics", "<path>", "AF_UNIX socket emitting Prometheus text");
     fputc('\n', fp);
 
     /* Sessions / integration */
     fprintf(fp, "%sSESSIONS & INTEGRATION%s\n", HEAD, RST);
-    help_row (fp, tty, NULL, "--detach",        "<name>",      "expose session on an AF_UNIX socket for attach");
-    help_row (fp, tty, NULL, "--attach",        "<name>",      "attach to a detached session (read-write tty)");
-    help_row (fp, tty, NULL, "--filter",        "<cmd>",       "pipe RX through `sh -c <cmd>` before display");
-    help_cont(fp, tty,                                         "e.g. --filter 'grep -v noise'");
-    help_row (fp, tty, NULL, "--diff",          "<a> <b>",     "diff two capture files and exit");
+    help_row(fp, tty, NULL, "--detach", "<name>",
+             "expose session on an AF_UNIX socket for attach");
+    help_row(fp, tty, NULL, "--attach", "<name>",
+             "attach to a detached session (read-write tty)");
+    help_row(fp, tty, NULL, "--filter", "<cmd>",
+             "pipe RX through `sh -c <cmd>` before display");
+    help_cont(fp, tty, "e.g. --filter 'grep -v noise'");
+    help_row(fp, tty, NULL, "--diff", "<a> <b>", "diff two capture files and exit");
     fputc('\n', fp);
 
     /* Clipboard */
     fprintf(fp, "%sCLIPBOARD%s\n", HEAD, RST);
-    help_row (fp, tty, NULL, "--osc52",         "",            "push selection to system clipboard (default ON)");
-    help_row (fp, tty, NULL, "--no-osc52",      "",            "disable OSC 52 (if your terminal misrenders it)");
+    help_row(fp, tty, NULL, "--osc52", "", "push selection to system clipboard (default ON)");
+    help_row(fp, tty, NULL, "--no-osc52", "",
+             "disable OSC 52 (if your terminal misrenders it)");
     fputc('\n', fp);
 
     /* Display & input */
     fprintf(fp, "%sDISPLAY & INPUT%s\n", HEAD, RST);
-    help_row (fp, tty, "-x", "--hex",           "",            "render RX as hex dump");
-    help_row (fp, tty, "-e", "--echo",          "",            "start with local echo on");
-    help_row (fp, tty, NULL, "--no-color",      "",            "disable RX log-level colouring");
-    help_row (fp, tty, NULL, "--ts",            "",            "start with timestamp display on");
-    help_row (fp, tty, NULL, "--watch",         "<pattern>",   "highlight matching lines (repeatable, up to 8)");
-    help_row (fp, tty, NULL, "--watch-beep",    "",            "BEL on watch match");
-    help_row (fp, tty, NULL, "--macro",         "F<n>=<str>",  "bind macro to F1..F12 (\\r \\n \\t \\xNN; repeatable)");
-    help_row (fp, tty, NULL, "--map-out",       "<mode>",      "rewrite outgoing line endings");
-    help_row (fp, tty, NULL, "--map-in",        "<mode>",      "rewrite incoming line endings");
-    help_cont(fp, tty,                                         "mode: none | cr | lf | crlf | cr-crlf | lf-crlf");
+    help_row(fp, tty, "-x", "--hex", "", "render RX as hex dump");
+    help_row(fp, tty, "-e", "--echo", "", "start with local echo on");
+    help_row(fp, tty, NULL, "--no-color", "", "disable RX log-level colouring");
+    help_row(fp, tty, NULL, "--ts", "", "start with timestamp display on");
+    help_row(fp, tty, NULL, "--watch", "<pattern>",
+             "highlight matching lines (repeatable, up to 8)");
+    help_row(fp, tty, NULL, "--watch-beep", "", "BEL on watch match");
+    help_row(fp, tty, NULL, "--macro", "F<n>=<str>",
+             "bind macro to F1..F12 (\\r \\n \\t \\xNN; repeatable)");
+    help_row(fp, tty, NULL, "--map-out", "<mode>", "rewrite outgoing line endings");
+    help_row(fp, tty, NULL, "--map-in", "<mode>", "rewrite incoming line endings");
+    help_cont(fp, tty, "mode: none | cr | lf | crlf | cr-crlf | lf-crlf");
     fputc('\n', fp);
 
     /* Profiles */
     fprintf(fp, "%sPROFILES%s\n", HEAD, RST);
-    help_row (fp, tty, NULL, "--profile",       "<name>",      "load ~/.config/zyterm/<name>.conf at startup");
-    help_cont(fp, tty,                                         "auto-reloads on edit (Linux inotify)");
-    help_row (fp, tty, NULL, "--profile-save",  "<name>",      "snapshot current settings to that profile and exit");
+    help_row(fp, tty, NULL, "--profile", "<name>",
+             "load ~/.config/zyterm/<name>.conf at startup");
+    help_cont(fp, tty, "auto-reloads on edit (Linux inotify)");
+    help_row(fp, tty, NULL, "--profile-save", "<name>",
+             "snapshot current settings to that profile and exit");
     fputc('\n', fp);
 
     /* Event hooks */
     fprintf(fp, "%sEVENT HOOKS%s\n", HEAD, RST);
-    help_row (fp, tty, NULL, "--on-match",      "/RE/=CMD",    "shell CMD when an RX line matches POSIX ERE");
-    help_cont(fp, tty,                                         "use 'send:BYTES' to inject TX (\\r \\n \\xNN escapes)");
-    help_row (fp, tty, NULL, "--on-connect",    "<cmd>",       "fire after device opens (also on reconnect)");
-    help_row (fp, tty, NULL, "--on-disconnect", "<cmd>",       "fire when device closes / hangs up");
-    help_cont(fp, tty,                                         "env: ZYTERM_PORT, ZYTERM_BAUD, ZYTERM_LINE, ZYTERM_PATTERN");
+    help_row(fp, tty, NULL, "--on-match", "/RE/=CMD",
+             "shell CMD when an RX line matches POSIX ERE");
+    help_cont(fp, tty, "use 'send:BYTES' to inject TX (\\r \\n \\xNN escapes)");
+    help_row(fp, tty, NULL, "--on-connect", "<cmd>",
+             "fire after device opens (also on reconnect)");
+    help_row(fp, tty, NULL, "--on-disconnect", "<cmd>", "fire when device closes / hangs up");
+    help_cont(fp, tty, "env: ZYTERM_PORT, ZYTERM_BAUD, ZYTERM_LINE, ZYTERM_PATTERN");
     fputc('\n', fp);
 
     /* Misc */
     fprintf(fp, "%sHELP%s\n", HEAD, RST);
-    help_row (fp, tty, "-h", "--help",          "",            "show this help");
-    help_row (fp, tty, "-V", "--version",       "",            "print version and exit");
+    help_row(fp, tty, "-h", "--help", "", "show this help");
+    help_row(fp, tty, "-V", "--version", "", "print version and exit");
     fputc('\n', fp);
 
     /* Interactive */
     fprintf(fp, "%sINTERACTIVE%s\n", HEAD, RST);
-    fprintf(fp, "  %sCtrl+A%s        command menu  %s(press ? for full list \xc2\xb7 q/x quit \xc2\xb7 "
-                "p pause \xc2\xb7 l log \xc2\xb7 / search \xc2\xb7 o settings \xc2\xb7 r reconnect)%s\n",
-            B, RST, MUT, RST);
+    fprintf(
+        fp,
+        "  %sCtrl+A%s        command menu  %s(press ? for full list \xc2\xb7 q/x quit \xc2\xb7 "
+        "p pause \xc2\xb7 l log \xc2\xb7 / search \xc2\xb7 o settings \xc2\xb7 r "
+        "reconnect)%s\n",
+        B, RST, MUT, RST);
     fprintf(fp, "  %sF1..F12%s       fire bound macros\n", B, RST);
-    fprintf(fp, "  %sPgUp%s/%sPgDn%s     scroll back / forward through scrollback\n", B, RST, B, RST);
-    fprintf(fp, "  %sn%s / %sN%s         %s(in scroll mode after Ctrl+A /)%s next / prev match\n",
+    fprintf(fp, "  %sPgUp%s/%sPgDn%s     scroll back / forward through scrollback\n", B, RST, B,
+            RST);
+    fprintf(fp,
+            "  %sn%s / %sN%s         %s(in scroll mode after Ctrl+A /)%s next / prev match\n",
             B, RST, B, RST, MUT, RST);
     fprintf(fp, "  %sUp%s/%sDown%s       line history       %sLeft%s/%sRight%s  cursor move\n",
             B, RST, B, RST, B, RST, B, RST);
     fprintf(fp, "  %sTab%s           remote completion (sync-and-flush)\n", B, RST);
-    fprintf(fp, "  %sCtrl+U%s        clear line         %sCtrl+W%s  delete word\n", B, RST, B, RST);
-    fprintf(fp, "  %sCtrl+L%s        clear screen       %sCtrl+C%s  send ETX to remote\n", B, RST, B, RST);
+    fprintf(fp, "  %sCtrl+U%s        clear line         %sCtrl+W%s  delete word\n", B, RST, B,
+            RST);
+    fprintf(fp, "  %sCtrl+L%s        clear screen       %sCtrl+C%s  send ETX to remote\n", B,
+            RST, B, RST);
 
     fprintf(fp, "\n%sExamples%s\n", HEAD, RST);
-    fprintf(fp, "  %s$%s %szyterm /dev/ttyUSB0 -b 115200%s\n",                  DIM, RST, B, RST);
-    fprintf(fp, "  %s$%s %szyterm --match-vid-pid 1a86:7523 --map-out crlf%s\n", DIM, RST, B, RST);
-    fprintf(fp, "  %s$%s %szyterm tcp://lab-pi.local:23000 -l boot.log%s\n",     DIM, RST, B, RST);
-    fprintf(fp, "  %s$%s %szyterm --autobaud --frame slip --crc ccitt /dev/ttyUSB0%s\n",
-            DIM, RST, B, RST);
-    fprintf(fp, "  %s$%s %szyterm --http 8080 --webroot ./web /dev/ttyACM0%s\n",
-            DIM, RST, B, RST);
-    fprintf(fp, "  %s$%s %szyterm --detach mydev /dev/ttyUSB0%s  "
-                "%s# then: zyterm --attach mydev%s\n\n",
+    fprintf(fp, "  %s$%s %szyterm /dev/ttyUSB0 -b 115200%s\n", DIM, RST, B, RST);
+    fprintf(fp, "  %s$%s %szyterm --match-vid-pid 1a86:7523 --map-out crlf%s\n", DIM, RST, B,
+            RST);
+    fprintf(fp, "  %s$%s %szyterm tcp://lab-pi.local:23000 -l boot.log%s\n", DIM, RST, B, RST);
+    fprintf(fp, "  %s$%s %szyterm --autobaud --frame slip --crc ccitt /dev/ttyUSB0%s\n", DIM,
+            RST, B, RST);
+    fprintf(fp, "  %s$%s %szyterm --http 8080 --webroot ./web /dev/ttyACM0%s\n", DIM, RST, B,
+            RST);
+    fprintf(fp,
+            "  %s$%s %szyterm --detach mydev /dev/ttyUSB0%s  "
+            "%s# then: zyterm --attach mydev%s\n\n",
             DIM, RST, B, RST, DIM, RST);
 }
 
@@ -435,9 +456,9 @@ int zyterm_main(int argc, char **argv) {
         {0, 0, 0, 0},
     };
 
-    const char *log_path         = NULL;
+    const char *log_path          = NULL;
     const char *profile_save_name = NULL;
-    int         dump_secs        = -1;
+    int         dump_secs         = -1;
     int         opt;
     while ((opt = getopt_long(argc, argv, "b:l:xehV", lo, NULL)) != -1) {
         switch (opt) {
@@ -611,36 +632,25 @@ int zyterm_main(int argc, char **argv) {
             if (eol_parse(optarg, &c.proto.map_in) < 0)
                 zt_die("zyterm: --map-in must be none|cr|lf|crlf|cr-crlf|lf-crlf");
             break;
-        case OPT_PORT_GLOB:
-            c.serial.port_glob = optarg;
-            break;
+        case OPT_PORT_GLOB: c.serial.port_glob = optarg; break;
         case OPT_MATCH_VID_PID: {
             /* format: VVVV:PPPP, hex (e.g. 0403:6001 = FT232R) */
             char *colon = strchr(optarg, ':');
-            if (!colon)
-                zt_die("zyterm: --match-vid-pid must be VVVV:PPPP (hex)");
-            char *end = NULL;
-            unsigned long v = strtoul(optarg, &end, 16);
-            if (end != colon || v > 0xFFFFu)
-                zt_die("zyterm: --match-vid-pid: bad vendor id");
+            if (!colon) zt_die("zyterm: --match-vid-pid must be VVVV:PPPP (hex)");
+            char         *end = NULL;
+            unsigned long v   = strtoul(optarg, &end, 16);
+            if (end != colon || v > 0xFFFFu) zt_die("zyterm: --match-vid-pid: bad vendor id");
             unsigned long p = strtoul(colon + 1, &end, 16);
-            if (*end != '\0' || p > 0xFFFFu)
-                zt_die("zyterm: --match-vid-pid: bad product id");
-            c.serial.match_vid = (uint16_t) v;
-            c.serial.match_pid = (uint16_t) p;
+            if (*end != '\0' || p > 0xFFFFu) zt_die("zyterm: --match-vid-pid: bad product id");
+            c.serial.match_vid = (uint16_t)v;
+            c.serial.match_pid = (uint16_t)p;
             break;
         }
-        case OPT_REC:
-            c.log.rec_path = optarg;
-            break;
-        case OPT_ON_MATCH:
-            (void) hooks_register(&c, ZT_HOOK_EVENT_MATCH, optarg);
-            break;
-        case OPT_ON_CONNECT:
-            (void) hooks_register(&c, ZT_HOOK_EVENT_CONNECT, optarg);
-            break;
+        case OPT_REC: c.log.rec_path = optarg; break;
+        case OPT_ON_MATCH: (void)hooks_register(&c, ZT_HOOK_EVENT_MATCH, optarg); break;
+        case OPT_ON_CONNECT: (void)hooks_register(&c, ZT_HOOK_EVENT_CONNECT, optarg); break;
         case OPT_ON_DISCONNECT:
-            (void) hooks_register(&c, ZT_HOOK_EVENT_DISCONNECT, optarg);
+            (void)hooks_register(&c, ZT_HOOK_EVENT_DISCONNECT, optarg);
             break;
         case 'V':
             printf("zyterm " ZT_VERSION "\n");
@@ -664,8 +674,8 @@ int zyterm_main(int argc, char **argv) {
         if (optind < argc) c.serial.device = argv[optind];
         int rc = profile_save(&c, profile_save_name);
         if (rc != 0)
-            fprintf(stderr, "zyterm: --profile-save %s: %s\n",
-                    profile_save_name, strerror(errno));
+            fprintf(stderr, "zyterm: --profile-save %s: %s\n", profile_save_name,
+                    strerror(errno));
         else
             fprintf(stderr, "zyterm: saved profile '%s'\n", profile_save_name);
         scrollback_free(&c);
@@ -700,10 +710,8 @@ int zyterm_main(int argc, char **argv) {
             scrollback_free(&c);
             return 2;
         }
-        char *found = port_discover(c.serial.port_glob,
-                                    c.serial.match_vid, c.serial.match_pid);
-        if (!found)
-            zt_die("zyterm: no device matched --port-glob / --match-vid-pid");
+        char *found = port_discover(c.serial.port_glob, c.serial.match_vid, c.serial.match_pid);
+        if (!found) zt_die("zyterm: no device matched --port-glob / --match-vid-pid");
         c.serial.device = found;
     } else {
         c.serial.device = argv[optind];
@@ -719,8 +727,7 @@ int zyterm_main(int argc, char **argv) {
 
     install_signals();
     c.serial.is_socket = transport_is_url(c.serial.device);
-    c.serial.telnet    = c.serial.is_socket
-                         && strncmp(c.serial.device, "telnet://", 9) == 0;
+    c.serial.telnet    = c.serial.is_socket && strncmp(c.serial.device, "telnet://", 9) == 0;
     /* --autobaud sets serial.baud = 0 as a sentinel for "discover the
      * rate by probing". setup_serial() doesn't understand that value;
      * open at a sane default first, then let autobaud_probe() close +
@@ -733,8 +740,7 @@ int zyterm_main(int argc, char **argv) {
     if (autobaud_pending) {
         log_notice(&c, "autobaud: probing common rates \xe2\x80\xa6");
         if (autobaud_probe(&c) != 0)
-            zt_warn("autobaud: no printable traffic detected; staying at %u",
-                    c.serial.baud);
+            zt_warn("autobaud: no printable traffic detected; staying at %u", c.serial.baud);
     }
 
     /* ── start subsystems that were configured via CLI flags ── */
@@ -744,7 +750,7 @@ int zyterm_main(int argc, char **argv) {
     if (c.net.session_name) session_detach(&c, c.net.session_name);
     if (c.serial.spsc_enabled) rx_thread_start(&c);
 
-    if (c.ext.profile_name) (void) profile_watch_start(&c, c.ext.profile_name);
+    if (c.ext.profile_name) (void)profile_watch_start(&c, c.ext.profile_name);
 
     /* Fire CONNECT hooks once after subsystems boot and the serial fd
      * is open. Reconnect-loop wakes also fire on every successful

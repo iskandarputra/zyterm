@@ -114,14 +114,14 @@ int run_interactive(zt_ctx *c) {
          * serial.fd in the set with events=0 so the kernel still reports
          * POLLHUP/POLLERR for hot-unplug detection without firing POLLIN
          * (which would race the worker). */
-        bool threaded = c->serial.spsc_enabled && rx_thread_is_running(c);
+        bool threaded   = c->serial.spsc_enabled && rx_thread_is_running(c);
         pfds[0].fd      = c->serial.fd;
         pfds[0].events  = threaded ? 0 : POLLIN;
         pfds[0].revents = 0;
         pfds[1].fd      = STDIN_FILENO;
         pfds[1].events  = POLLIN;
         pfds[1].revents = 0;
-        nfds_t npfds = 2;
+        nfds_t npfds    = 2;
         if (threaded && c->serial.spsc_wake_pipe[0] >= 0) {
             pfds[2].fd      = c->serial.spsc_wake_pipe[0];
             pfds[2].events  = POLLIN;
@@ -129,7 +129,7 @@ int run_interactive(zt_ctx *c) {
             npfds           = 3;
         }
 
-        int pr          = poll(pfds, npfds, ZT_HUD_REFRESH_MS);
+        int pr = poll(pfds, npfds, ZT_HUD_REFRESH_MS);
         if (pr < 0) {
             if (errno == EINTR) continue;
             zt_warn("zyterm: poll: %s", strerror(errno));
@@ -420,7 +420,10 @@ int run_replay(zt_ctx *c) {
                     if ((size_t)r < sizeof rbuf) break;
                     continue;
                 }
-                if (r == 0) { zt_g_quit = 1; break; }
+                if (r == 0) {
+                    zt_g_quit = 1;
+                    break;
+                }
                 if (errno == EINTR) continue;
                 break;
             }
@@ -467,7 +470,10 @@ int run_replay(zt_ctx *c) {
                     if ((size_t)r < sizeof rbuf) break;
                     continue;
                 }
-                if (r == 0) { zt_g_quit = 1; break; }
+                if (r == 0) {
+                    zt_g_quit = 1;
+                    break;
+                }
                 if (errno == EINTR) continue;
                 break;
             }

@@ -73,7 +73,6 @@ size_t telnet_rx_filter(uint8_t *state, unsigned char *buf, size_t n);
 
 /** Escape outgoing 0xFF bytes by doubling them. Writes at most 2*n
  *  bytes into @c out. Returns bytes written. */
-size_t telnet_tx_escape(const unsigned char *in, size_t n,
-                        unsigned char *out, size_t out_cap);
+size_t telnet_tx_escape(const unsigned char *in, size_t n, unsigned char *out, size_t out_cap);
 
 #endif /* ZYTERM_INTERNAL_SERIAL_H_ */
