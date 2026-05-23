@@ -42,19 +42,33 @@
  * harmless atoi("230400") into a SEGV inside strtol because the interceptor
  * never installs the correct argument-marshalling thunk. Sanitizer builds
  * are dev-only; they don't need old-glibc portability anyway.
+ *
+ * Detection: GCC defines __SANITIZE_ADDRESS__ / __SANITIZE_THREAD__ when
+ * the matching sanitizer is on. Clang uses __has_feature(...) — but we
+ * must guard that with a nested #if so GCC (which does not define
+ * __has_feature) never tries to evaluate `__has_feature(X)` directly
+ * inside an #if expression (GCC would substitute 0 for the unknown
+ * identifier and then complain about `0(X)` syntax).
  */
-#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__) || \
-    (defined(__has_feature) &&                                       \
-     (__has_feature(address_sanitizer) || __has_feature(thread_sanitizer) || \
-      __has_feature(memory_sanitizer)))
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
 #define ZT_SANITIZER_ACTIVE 1
 #endif
+#if !defined(ZT_SANITIZER_ACTIVE) && defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define ZT_SANITIZER_ACTIVE 1
+#elif __has_feature(thread_sanitizer)
+#define ZT_SANITIZER_ACTIVE 1
+#elif __has_feature(memory_sanitizer)
+#define ZT_SANITIZER_ACTIVE 1
+#endif
+#endif
 
-#if defined(__linux__) && defined(__GLIBC__) && defined(__GLIBC_MINOR__) && \
-    !defined(ZT_SANITIZER_ACTIVE)
+#if defined(__linux__) && defined(__GLIBC__) && defined(__GLIBC_MINOR__)
+#if !defined(ZT_SANITIZER_ACTIVE)
 #if (__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 38)
 __asm__(".symver __isoc23_strtol,strtol@GLIBC_2.2.5");
 __asm__(".symver __isoc23_strtoul,strtoul@GLIBC_2.2.5");
+#endif
 #endif
 #endif
 
