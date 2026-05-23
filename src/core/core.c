@@ -261,13 +261,23 @@ void sig_winch(int s) {
  * Uses only async-signal-safe functions: tcsetattr, write, _exit.
  * SA_RESETHAND ensures the handler fires at most once — re-raising the
  * signal afterwards lets the OS generate a core dump normally.
+ *
+ * Embed recovery (siglongjmp back to the host shell) is restricted to
+ * SIGABRT / SIGFPE — signals where the process heap and runtime state
+ * are still likely to be coherent. Memory faults (SIGSEGV, SIGBUS)
+ * imply corruption; longjmping out of them and resuming arbitrary host
+ * code is undefined behaviour per C and a near-certain double-fault
+ * via the next malloc/free. For those we restore the terminal and
+ * re-raise so the OS generates a core dump (host process dies cleanly
+ * with a known exit status, which is strictly safer than continuing on
+ * corrupted state).
  */
 static void sig_crash(int s) {
-    /* zt_trace not async-signal-safe; we only call it on the embedded
-     * fast-path where we are about to siglongjmp anyway. The standalone
-     * path stays purely async-signal-safe. */
-    if (zt_g_embedded && zt_g_embed_jmp_armed)
-        zt_trace("sig_crash: signal=%d (embedded, will siglongjmp)", s);
+    bool embed_recover =
+        zt_g_embedded && zt_g_embed_jmp_armed && (s == SIGABRT || s == SIGFPE);
+    /* zt_trace is not async-signal-safe; only call it on the embed
+     * recovery path, where we are about to siglongjmp anyway. */
+    if (embed_recover) zt_trace("sig_crash: signal=%d (embedded, will siglongjmp)", s);
     if (zt_g_stdin_saved) tcsetattr(STDIN_FILENO, TCSANOW, &zt_g_orig_stdin);
     /* Async-signal-safe emergency cleanup. Same reset ordering as
      * restore_terminal() — reset scroll region on alt-screen first,
@@ -279,10 +289,7 @@ static void sig_crash(int s) {
                                          "\033[?7h\033[?25h\033[?12h\033[0 q"
                                          "\033>\033(B\033[m";
     ssize_t wr __attribute__((unused)) = write(STDOUT_FILENO, cleanup, sizeof cleanup - 1);
-    /* Embedded-in-zy: jump back to the host instead of dying — the host
-     * will surface the crash as a non-zero builtin status and stay alive.
-     * siglongjmp from a signal handler is async-signal-safe (POSIX). */
-    if (zt_g_embedded && zt_g_embed_jmp_armed) {
+    if (embed_recover) {
         zt_g_embed_jmp_armed = false;
         siglongjmp(zt_g_embed_jmp, 128 + s);
     }

@@ -24,6 +24,8 @@ const char *framing_name(zt_frame_mode m);
 
 /* ── proto/macros.c ────────────────────────────────────────────────────── */
 int    fkey_index(const unsigned char *buf, size_t n);
+/** Parse F-key prefix; sets *out_consumed to the byte count if matched. */
+int    fkey_index_consume(const unsigned char *buf, size_t n, size_t *out_consumed);
 size_t expand_escapes(const char *src, char *dst, size_t cap);
 void   macro_fire(zt_ctx *c, int fkey_idx);
 

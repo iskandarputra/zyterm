@@ -28,6 +28,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -144,6 +145,15 @@ int xmodem_send(zt_ctx *c, const char *path) {
     return 0;
 }
 
+/* Robust block fwrite: returns 0 on success, -1 on short write. fwrite's
+ * short returns happen on full disks, broken pipes, or fclose'd streams;
+ * silently ignoring them produces files that look complete but are
+ * truncated. */
+static int xm_write_block(FILE *fp, const unsigned char *data, size_t n) {
+    if (fwrite(data, 1, n, fp) != n) return -1;
+    return 0;
+}
+
 int xmodem_receive(zt_ctx *c, const char *path) {
     if (!c || c->serial.fd < 0 || !path) return -1;
     FILE *fp = fopen(path, "wb");
@@ -171,9 +181,22 @@ int xmodem_receive(zt_ctx *c, const char *path) {
                 }
                 blk[j] = (unsigned char)b;
             }
-            /* process first block + subsequent loop */
-            int    blknum = 1;
-            size_t total  = 0;
+            /* process first block + subsequent loop.
+             *
+             * Padding handling: XMODEM has no length field, so the last
+             * block is padded with 0x1A (XM_PAD / CP/M SUB). Naive
+             * receivers write the pad bytes verbatim, leaving a file
+             * that's always a multiple of 128 bytes long with trailing
+             * SUB garbage. We instead buffer one block ahead — writing
+             * block N only when block N+1 (or EOT) has been seen — and
+             * on EOT trim trailing 0x1A from the final block. This
+             * matches the de-facto convention of `rx`/lrzsz and other
+             * XMODEM receivers, at the cost of having to NAK a missing
+             * block one round-trip later (rare). */
+            int           blknum   = 1;
+            size_t        total    = 0;
+            unsigned char pending[XM_BLK];
+            bool          have_pending = false;
             while (1) {
                 int bn_rcv = blk[1];
                 int bn_inv = blk[2];
@@ -188,13 +211,23 @@ int xmodem_receive(zt_ctx *c, const char *path) {
                     unsigned char nak = XM_NAK;
                     (void)write_all(c->serial.fd, &nak, 1);
                 } else if (bn_rcv == (blknum & 0xFF)) {
-                    fwrite(blk + 3, 1, XM_BLK, fp);
-                    total += XM_BLK;
+                    if (have_pending) {
+                        if (xm_write_block(fp, pending, XM_BLK) != 0) {
+                            set_flash(c, "xmodem: write failed: %s", strerror(errno));
+                            fclose(fp);
+                            return -1;
+                        }
+                        total += XM_BLK;
+                    }
+                    memcpy(pending, blk + 3, XM_BLK);
+                    have_pending = true;
                     blknum++;
                     unsigned char ack = XM_ACK;
                     (void)write_all(c->serial.fd, &ack, 1);
                     set_flash(c, "xmodem: got %zu bytes", total);
                 } else {
+                    /* Duplicate or out-of-order block; ACK and discard
+                     * (sender retransmits identical content on NAK). */
                     unsigned char ack = XM_ACK;
                     (void)write_all(c->serial.fd, &ack, 1);
                 }
@@ -202,7 +235,23 @@ int xmodem_receive(zt_ctx *c, const char *path) {
                 if (h == XM_EOT) {
                     unsigned char ack = XM_ACK;
                     (void)write_all(c->serial.fd, &ack, 1);
-                    fclose(fp);
+                    /* Flush the final block, stripping trailing 0x1A pad. */
+                    if (have_pending) {
+                        size_t flush_n = XM_BLK;
+                        while (flush_n > 0 && pending[flush_n - 1] == XM_PAD)
+                            flush_n--;
+                        if (flush_n > 0 &&
+                            xm_write_block(fp, pending, flush_n) != 0) {
+                            set_flash(c, "xmodem: write failed: %s", strerror(errno));
+                            fclose(fp);
+                            return -1;
+                        }
+                        total += flush_n;
+                    }
+                    if (fclose(fp) != 0) {
+                        set_flash(c, "xmodem: close failed: %s", strerror(errno));
+                        return -1;
+                    }
                     log_notice(c, "xmodem: received %zu bytes to %s", total, path);
                     return 0;
                 } else if (h == XM_SOH) {
@@ -368,7 +417,8 @@ static int zmodem_spawn_relay(zt_ctx *c, const char *cmd_name, const char *arg, 
     p[1].events = POLLIN;
     unsigned char buf[4096];
     int           status = 0;
-    while (1) {
+    bool          done   = false;
+    while (!done) {
         int r = poll(p, 2, 5000);
         if (r < 0) {
             if (errno == EINTR) continue;
@@ -378,21 +428,44 @@ static int zmodem_spawn_relay(zt_ctx *c, const char *cmd_name, const char *arg, 
             if (waitpid(pid, &status, WNOHANG) == pid) break;
             continue;
         }
+        /* Either side closing/erroring out is a fatal end of the relay
+         * — previously a serial-side EOF / POLLHUP went unobserved and
+         * spun the loop forever until the child eventually exited on
+         * its own (or hung forever on a wedged device). */
         if (p[0].revents & POLLIN) {
             ssize_t n = read(from_child[0], buf, sizeof buf);
-            if (n > 0)
-                (void)write_all(c->serial.fd, buf, (size_t)n);
-            else if (n == 0)
-                break;
+            if (n > 0) (void)write_all(c->serial.fd, buf, (size_t)n);
+            else if (n == 0) done = true;
+            else if (errno != EINTR && errno != EAGAIN) done = true;
         }
+        if (p[0].revents & (POLLHUP | POLLERR | POLLNVAL)) done = true;
         if (p[1].revents & POLLIN) {
             ssize_t n = read(c->serial.fd, buf, sizeof buf);
             if (n > 0) (void)write_all(to_child[1], buf, (size_t)n);
+            else if (n == 0) done = true;
+            else if (errno != EINTR && errno != EAGAIN) done = true;
         }
+        if (p[1].revents & (POLLHUP | POLLERR | POLLNVAL)) done = true;
     }
     close(to_child[1]);
     close(from_child[0]);
+    /* Bounded wait for the child to exit on its own, then SIGTERM, then
+     * SIGKILL — a wedged rz/sz must not hang zyterm forever (the old
+     * code did an unbounded waitpid here). */
+    for (int i = 0; i < 30; i++) { /* ~3 s total */
+        pid_t w = waitpid(pid, &status, WNOHANG);
+        if (w == pid) goto reaped;
+        usleep(100000);
+    }
+    kill(pid, SIGTERM);
+    for (int i = 0; i < 10; i++) { /* ~1 s */
+        pid_t w = waitpid(pid, &status, WNOHANG);
+        if (w == pid) goto reaped;
+        usleep(100000);
+    }
+    kill(pid, SIGKILL);
     waitpid(pid, &status, 0);
+reaped:
     (void)arg;
     return WIFEXITED(status) && WEXITSTATUS(status) == 0 ? 0 : -1;
 }

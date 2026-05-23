@@ -139,12 +139,57 @@ static void usage(const char *a0) {
     help_row (fp, tty, "-l", "--log",           "<file>",      "append log with ms timestamps");
     help_cont(fp, tty,                                         "Ctrl+A l toggles auto-named zyterm-YYYYMMDD-NNN.txt");
     help_row (fp, tty, NULL, "--log-max-kb",    "<N>",         "rotate to <file>.1 when it exceeds N KB");
+    help_row (fp, tty, NULL, "--log-format",    "<text|json|raw>", "log encoding (default text)");
     help_row (fp, tty, NULL, "--tx-ts",         "",            "also log TX with \"-> \" prefix");
+    help_row (fp, tty, NULL, "--mute-dbg",      "",            "drop <dbg> level lines from log + scrollback");
+    help_row (fp, tty, NULL, "--mute-inf",      "",            "drop <inf> level lines from log + scrollback");
     help_row (fp, tty, NULL, "--dump",          "<sec>",       "headless capture for N seconds (0 = forever)");
     help_row (fp, tty, NULL, "--replay",        "<file>",      "replay a capture through the UI");
     help_row (fp, tty, NULL, "--replay-speed",  "<x>",         "speed multiplier (default 1.0, 0 = max)");
     help_row (fp, tty, NULL, "--rec",           "<file>",      "record session as asciinema cast v2");
     help_cont(fp, tty,                                         "play back with: asciinema play <file>");
+    fputc('\n', fp);
+
+    /* Framing & CRC */
+    fprintf(fp, "%sFRAMING & CRC%s\n", HEAD, RST);
+    help_row (fp, tty, NULL, "--frame",         "<mode>",      "incoming frame decoder (default raw)");
+    help_cont(fp, tty,                                         "mode: raw | cobs | slip | hdlc | lenpfx");
+    help_cont(fp, tty,                                         "lenpfx = 16-bit little-endian length prefix");
+    help_row (fp, tty, NULL, "--crc",           "<mode>",      "trailing CRC stripped + verified per frame");
+    help_cont(fp, tty,                                         "mode: none | ccitt (16) | ibm (16) | crc32");
+    fputc('\n', fp);
+
+    /* Advanced I/O */
+    fprintf(fp, "%sADVANCED I/O%s\n", HEAD, RST);
+    help_row (fp, tty, NULL, "--threaded",      "",            "drain serial on a worker thread → SPSC ring");
+    help_cont(fp, tty,                                         "reduces UART-latency jitter at >= 1 Mbaud");
+    help_row (fp, tty, NULL, "--autobaud",      "",            "probe common rates after open, pick best");
+    help_cont(fp, tty,                                         "ignores -b; can be re-run interactively via Ctrl+A A");
+    fputc('\n', fp);
+
+    /* HTTP / streaming */
+    fprintf(fp, "%sHTTP & STREAMING%s\n", HEAD, RST);
+    help_row (fp, tty, NULL, "--http",          "<port>",      "start HTTP server (built-in HTML at /)");
+    help_cont(fp, tty,                                         "GET /stream = SSE, GET /ws = WebSocket,");
+    help_cont(fp, tty,                                         "GET /api/state, POST /api/send, GET /metrics");
+    help_row (fp, tty, NULL, "--webroot",       "<dir>",       "serve static files from <dir> (.. blocked)");
+    help_row (fp, tty, NULL, "--http-cors",     "",            "add Access-Control-Allow-Origin: * headers");
+    help_row (fp, tty, NULL, "--metrics",       "<path>",      "AF_UNIX socket emitting Prometheus text");
+    fputc('\n', fp);
+
+    /* Sessions / integration */
+    fprintf(fp, "%sSESSIONS & INTEGRATION%s\n", HEAD, RST);
+    help_row (fp, tty, NULL, "--detach",        "<name>",      "expose session on an AF_UNIX socket for attach");
+    help_row (fp, tty, NULL, "--attach",        "<name>",      "attach to a detached session (read-write tty)");
+    help_row (fp, tty, NULL, "--filter",        "<cmd>",       "pipe RX through `sh -c <cmd>` before display");
+    help_cont(fp, tty,                                         "e.g. --filter 'grep -v noise'");
+    help_row (fp, tty, NULL, "--diff",          "<a> <b>",     "diff two capture files and exit");
+    fputc('\n', fp);
+
+    /* Clipboard */
+    fprintf(fp, "%sCLIPBOARD%s\n", HEAD, RST);
+    help_row (fp, tty, NULL, "--osc52",         "",            "push selection to system clipboard (default ON)");
+    help_row (fp, tty, NULL, "--no-osc52",      "",            "disable OSC 52 (if your terminal misrenders it)");
     fputc('\n', fp);
 
     /* Display & input */
@@ -185,7 +230,9 @@ static void usage(const char *a0) {
 
     /* Interactive */
     fprintf(fp, "%sINTERACTIVE%s\n", HEAD, RST);
-    fprintf(fp, "  %sCtrl+A%s        command menu  %s(q x p e c h t b s f r / a ?)%s\n", B, RST, MUT, RST);
+    fprintf(fp, "  %sCtrl+A%s        command menu  %s(press ? for full list \xc2\xb7 q/x quit \xc2\xb7 "
+                "p pause \xc2\xb7 l log \xc2\xb7 / search \xc2\xb7 o settings \xc2\xb7 r reconnect)%s\n",
+            B, RST, MUT, RST);
     fprintf(fp, "  %sF1..F12%s       fire bound macros\n", B, RST);
     fprintf(fp, "  %sPgUp%s/%sPgDn%s     scroll back / forward through scrollback\n", B, RST, B, RST);
     fprintf(fp, "  %sn%s / %sN%s         %s(in scroll mode after Ctrl+A /)%s next / prev match\n",
@@ -199,7 +246,14 @@ static void usage(const char *a0) {
     fprintf(fp, "\n%sExamples%s\n", HEAD, RST);
     fprintf(fp, "  %s$%s %szyterm /dev/ttyUSB0 -b 115200%s\n",                  DIM, RST, B, RST);
     fprintf(fp, "  %s$%s %szyterm --match-vid-pid 1a86:7523 --map-out crlf%s\n", DIM, RST, B, RST);
-    fprintf(fp, "  %s$%s %szyterm tcp://lab-pi.local:23000 -l boot.log%s\n\n",   DIM, RST, B, RST);
+    fprintf(fp, "  %s$%s %szyterm tcp://lab-pi.local:23000 -l boot.log%s\n",     DIM, RST, B, RST);
+    fprintf(fp, "  %s$%s %szyterm --autobaud --frame slip --crc ccitt /dev/ttyUSB0%s\n",
+            DIM, RST, B, RST);
+    fprintf(fp, "  %s$%s %szyterm --http 8080 --webroot ./web /dev/ttyACM0%s\n",
+            DIM, RST, B, RST);
+    fprintf(fp, "  %s$%s %szyterm --detach mydev /dev/ttyUSB0%s  "
+                "%s# then: zyterm --attach mydev%s\n\n",
+            DIM, RST, B, RST, DIM, RST);
 }
 
 static unsigned parse_baud(const char *s) {
@@ -317,7 +371,6 @@ int zyterm_main(int argc, char **argv) {
         OPT_MUTE_DBG,
         OPT_MUTE_INF,
         OPT_THREADED,
-        OPT_EPOLL,
         OPT_AUTOBAUD,
         OPT_DIFF,
         OPT_MAP_OUT,
@@ -367,7 +420,6 @@ int zyterm_main(int argc, char **argv) {
         {"mute-dbg", no_argument, NULL, OPT_MUTE_DBG},
         {"mute-inf", no_argument, NULL, OPT_MUTE_INF},
         {"threaded", no_argument, NULL, OPT_THREADED},
-        {"epoll", no_argument, NULL, OPT_EPOLL},
         {"autobaud", no_argument, NULL, OPT_AUTOBAUD},
         {"diff", required_argument, NULL, OPT_DIFF},
         {"map-out", required_argument, NULL, OPT_MAP_OUT},
@@ -383,8 +435,9 @@ int zyterm_main(int argc, char **argv) {
         {0, 0, 0, 0},
     };
 
-    const char *log_path  = NULL;
-    int         dump_secs = -1;
+    const char *log_path         = NULL;
+    const char *profile_save_name = NULL;
+    int         dump_secs        = -1;
     int         opt;
     while ((opt = getopt_long(argc, argv, "b:l:xehV", lo, NULL)) != -1) {
         switch (opt) {
@@ -529,16 +582,16 @@ int zyterm_main(int argc, char **argv) {
             c.ext.profile_name = optarg;
             break;
         case OPT_PROFILE_SAVE:
-            free(c.net.session_name);
-            c.net.session_name = strdup(optarg);
-            /* save at shutdown; we stash the name in session_name */
+            /* Snapshot every CLI-supplied setting AFTER the parse loop
+             * finishes (so flags coming after --profile-save are also
+             * captured) and exit before opening the serial device. */
+            profile_save_name = optarg;
             break;
         case OPT_OSC52: c.proto.osc52_enabled = true; break;
         case OPT_NO_OSC52: c.proto.osc52_enabled = false; break;
         case OPT_MUTE_DBG: c.log.mute_dbg = true; break;
         case OPT_MUTE_INF: c.log.mute_inf = true; break;
         case OPT_THREADED: c.serial.spsc_enabled = true; break;
-        case OPT_EPOLL: /* fastio_init deferred until c is populated */ break;
         case OPT_AUTOBAUD:
             c.serial.baud = 0; /* sentinel: probe after open fails */
             break;
@@ -604,6 +657,21 @@ int zyterm_main(int argc, char **argv) {
         }
     }
 
+    /* --profile-save NAME: snapshot all CLI-supplied settings and exit
+     * before touching the serial device. <DEVICE> is optional here —
+     * if given it's saved as part of the profile. */
+    if (profile_save_name) {
+        if (optind < argc) c.serial.device = argv[optind];
+        int rc = profile_save(&c, profile_save_name);
+        if (rc != 0)
+            fprintf(stderr, "zyterm: --profile-save %s: %s\n",
+                    profile_save_name, strerror(errno));
+        else
+            fprintf(stderr, "zyterm: saved profile '%s'\n", profile_save_name);
+        scrollback_free(&c);
+        return rc == 0 ? 0 : 1;
+    }
+
     /* replay mode: no device needed */
     if (c.core.replay_path) {
         c.serial.device = c.core.replay_path;
@@ -653,8 +721,21 @@ int zyterm_main(int argc, char **argv) {
     c.serial.is_socket = transport_is_url(c.serial.device);
     c.serial.telnet    = c.serial.is_socket
                          && strncmp(c.serial.device, "telnet://", 9) == 0;
+    /* --autobaud sets serial.baud = 0 as a sentinel for "discover the
+     * rate by probing". setup_serial() doesn't understand that value;
+     * open at a sane default first, then let autobaud_probe() close +
+     * reopen across a fixed list of common rates and pick the one with
+     * the highest printable-ASCII ratio. */
+    bool autobaud_pending = (c.serial.baud == 0);
+    if (autobaud_pending) c.serial.baud = 115200;
     c.serial.fd = setup_serial(c.serial.device, c.serial.baud, c.serial.data_bits,
                                c.serial.parity, c.serial.stop_bits, c.serial.flow);
+    if (autobaud_pending) {
+        log_notice(&c, "autobaud: probing common rates \xe2\x80\xa6");
+        if (autobaud_probe(&c) != 0)
+            zt_warn("autobaud: no printable traffic detected; staying at %u",
+                    c.serial.baud);
+    }
 
     /* ── start subsystems that were configured via CLI flags ── */
     if (c.net.http_port > 0) http_start(&c, c.net.http_port);

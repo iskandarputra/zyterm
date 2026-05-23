@@ -231,6 +231,13 @@ typedef struct {
         struct timespec flash_until;
 
         bool            popup_active; /**< Command popup or dialog on-screen.       */
+        bool            disconnected; /**< Reconnect popup is owning the screen —
+                                            handle_cmd_key gates side-effecting
+                                            keys behind this. */
+        bool            keybind_visible; /**< Ctrl+A k/? help popup on screen;
+                                              ANY next key dismisses it via the
+                                              transient-overlay check at the top
+                                              of handle_stdin_chunk. */
 
         /* Tier 4 — settings menu (minicom-style) */
         bool settings_mode; /**< Settings dialog is on-screen.            */
@@ -344,6 +351,18 @@ typedef struct {
         bool          escape; /**< SLIP/HDLC escape state.                  */
         uint32_t      rx_count;
         uint32_t      crc_err;
+
+        /* Per-decoder accumulator state. Previously these lived in
+         * file-static variables inside framing.c, which meant
+         * (a) framing_reset() couldn't clear them on mode change, and
+         * (b) the multi-pane code shared the same static storage across
+         * panes, blending frames between devices. Hosting them in
+         * @c proto keeps each session self-contained and cleanly
+         * reset-able. */
+        size_t        cobs_pending;  /**< Raw bytes buffered before 0x00 delimiter. */
+        unsigned char len16_lenb[2]; /**< Two-byte little-endian length header.    */
+        int           len16_have;    /**< 0/1/2 bytes of length header consumed.   */
+        size_t        len16_need;    /**< Decoded payload length to collect.       */
 
         zt_crc_mode   crc_mode;
         bool          crc_append; /**< Auto-append CRC to TX frames.            */

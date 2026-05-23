@@ -134,14 +134,39 @@ static void       b64enc(const unsigned char *in, size_t n, char *out) {
     out[o] = '\0';
 }
 
-/* ---- Connection table ---- */
+/* ---- Connection table ----
+ *
+ * HC_NEW slots are accepted but still parsing the HTTP request line +
+ * headers. The earlier implementation read the request synchronously
+ * inside accept_and_classify() with a 20 × usleep(10ms) busy-wait,
+ * which let a slowloris client freeze the entire UI / serial loop for
+ * up to 200 ms per connection. Now each connection carries its own
+ * @c req_buf and @c accepted_at; @c http_tick() pumps reads
+ * non-blocking and times out idle requests after @c HC_HEADER_TIMEOUT
+ * seconds without blocking the main loop. */
+#define HC_HEADER_TIMEOUT_S 5.0
+#define HC_REQ_CAP          4096
+
 typedef enum { HC_NEW, HC_SSE, HC_WS } hc_type;
 typedef struct {
-    int     fd;
-    hc_type type;
+    int             fd;
+    hc_type         type;
+    /* HC_NEW only: accumulating request bytes until "\r\n\r\n". */
+    char            req_buf[HC_REQ_CAP];
+    size_t          req_len;
+    struct timespec accepted_at;
 } hc_t;
 #define HC_MAX 16
 static hc_t g_conn[HC_MAX];
+
+/* Clamp snprintf's return value to "bytes actually present in @p cap".
+ * snprintf returns the would-be length on truncation (>= cap), which
+ * when used directly as a write count makes the kernel read past the
+ * stack buffer and emit attacker-influenced bytes to the network. */
+static inline size_t snprintf_len(int n, size_t cap) {
+    if (n < 0 || cap == 0) return 0;
+    return ((size_t)n >= cap) ? (cap - 1) : (size_t)n;
+}
 
 static void hc_close(int i) {
     if (g_conn[i].fd >= 0) {
@@ -592,7 +617,7 @@ static void send_json(zt_ctx *c, int fd, const char *json) {
                        "Content-Length: %zu\r\nConnection: close\r\nCache-Control: no-cache\r\n"
                        "%s\r\n",
                       strlen(json), cors_block(c));
-    (void)zt_write_all(fd, hdr, (size_t)h);
+    (void)zt_write_all(fd, hdr, snprintf_len(h, sizeof hdr));
     (void)zt_write_all(fd, json, strlen(json));
 }
 
@@ -603,7 +628,7 @@ static void send_preflight(zt_ctx *c, int fd) {
                       "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n"
                        "%s\r\n",
                       cors_block(c));
-    (void)zt_write_all(fd, hdr, (size_t)h);
+    (void)zt_write_all(fd, hdr, snprintf_len(h, sizeof hdr));
 }
 
 /** Escape a C string for JSON output into @p out (up to @p cap-1 bytes). */
@@ -744,7 +769,7 @@ static int serve_webroot(zt_ctx *c, int fd, const char *root, const char *urlpat
                        "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %lld\r\n"
                         "Connection: close\r\n%s\r\n",
                        mime_for(full), (long long)st.st_size, cors_block(c));
-    (void)zt_write_all(fd, hdr, (size_t)hn);
+    (void)zt_write_all(fd, hdr, snprintf_len(hn, sizeof hdr));
 
     char    buf[8192];
     ssize_t r;
@@ -763,7 +788,7 @@ static void send_text_c(zt_ctx *c, int fd, const char *status, const char *ctype
                       "HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\n"
                        "Connection: close\r\nCache-Control: no-cache\r\n%s\r\n",
                       status, ctype, n, cors_block(c));
-    (void)zt_write_all(fd, hdr, (size_t)h);
+    (void)zt_write_all(fd, hdr, snprintf_len(h, sizeof hdr));
     (void)zt_write_all(fd, body, n);
 }
 
@@ -773,7 +798,7 @@ static void handle_ws_upgrade(int fd, const char *key) {
     int               cn = snprintf(concat, sizeof concat, "%s%s", key, kGUID);
     SHA1_CTX          ctx;
     sha1_init(&ctx);
-    sha1_update(&ctx, (const unsigned char *)concat, (size_t)cn);
+    sha1_update(&ctx, (const unsigned char *)concat, snprintf_len(cn, sizeof concat));
     unsigned char digest[20];
     sha1_final(&ctx, digest);
     char accept[64];
@@ -784,37 +809,42 @@ static void handle_ws_upgrade(int fd, const char *key) {
                         "Upgrade: websocket\r\nConnection: Upgrade\r\n"
                         "Sec-WebSocket-Accept: %s\r\n\r\n",
                        accept);
-    (void)zt_write_all(fd, resp, (size_t)rn);
+    (void)zt_write_all(fd, resp, snprintf_len(rn, sizeof resp));
 }
 
-static int accept_and_classify(zt_ctx *c, int lfd) {
+/* Stash a freshly-accepted fd into an HC_NEW slot. The actual request
+ * read + classify happens in hc_pump_new() on subsequent http_tick()
+ * passes — never inside a blocking loop. */
+static int accept_one(zt_ctx *c, int lfd) {
+    (void)c;
     int cfd = accept4(lfd, NULL, NULL, SOCK_CLOEXEC | SOCK_NONBLOCK);
     if (cfd < 0) return -1;
-    /* Read the request in one go (blocking-ish: give it up to 200ms). */
-    char    req[4096];
-    ssize_t rn = 0;
-    for (int tries = 0; tries < 20; tries++) {
-        ssize_t r = read(cfd, req + rn, sizeof req - 1 - (size_t)rn);
-        if (r > 0)
-            rn += r;
-        else if (r < 0 && errno == EAGAIN) {
-            usleep(10000);
-            continue;
-        } else
-            break;
-        if (rn >= 4 && memcmp(req + rn - 4, "\r\n\r\n", 4) == 0) break;
+    for (int i = 0; i < HC_MAX; i++) {
+        if (g_conn[i].fd < 0) {
+            g_conn[i].fd      = cfd;
+            g_conn[i].type    = HC_NEW;
+            g_conn[i].req_len = 0;
+            now(&g_conn[i].accepted_at);
+            return 0;
+        }
     }
-    req[rn > 0 ? rn : 0] = '\0';
-    if (rn <= 0) {
-        close(cfd);
-        return 0;
-    }
+    /* No free slot: drop politely so the kernel TCP backlog can drain. */
+    close(cfd);
+    return 0;
+}
 
-    /* ---- CORS preflight ---- */
-    if (strncmp(req, "OPTIONS ", 8) == 0) {
+/* Promote an HC_NEW slot to HC_SSE or HC_WS for ongoing streaming, or
+ * leave the connection unstored (caller closes). */
+static void classify_request(zt_ctx *c, int i) {
+    hc_t       *h     = &g_conn[i];
+    int         cfd   = h->fd;
+    const char *req   = h->req_buf;
+    size_t      rn    = h->req_len;
+
+    if (rn >= 8 && strncmp(req, "OPTIONS ", 8) == 0) {
         send_preflight(c, cfd);
-        close(cfd);
-        return 0;
+        hc_close(i);
+        return;
     }
 
     if (strstr(req, "GET /stream") || strstr(req, "GET /api/stream")) {
@@ -824,47 +854,27 @@ static int accept_and_classify(zt_ctx *c, int lfd) {
                             "Cache-Control: no-cache\r\nConnection: keep-alive\r\n"
                             "%s\r\n: zyterm\n\n",
                            cors_block(c));
-        (void)zt_write_all(cfd, hdrbuf, (size_t)hn);
-        for (int i = 0; i < HC_MAX; i++) {
-            if (g_conn[i].fd < 0) {
-                g_conn[i].fd   = cfd;
-                g_conn[i].type = HC_SSE;
-                return 0;
-            }
-        }
-        close(cfd);
-    } else if (strstr(req, "GET /ws")) {
-        char *k = strstr(req, "Sec-WebSocket-Key:");
-        if (!k) {
-            close(cfd);
-            return 0;
-        }
+        (void)zt_write_all(cfd, hdrbuf, snprintf_len(hn, sizeof hdrbuf));
+        h->type = HC_SSE;
+        return;
+    }
+    if (strstr(req, "GET /ws")) {
+        const char *k = strstr(req, "Sec-WebSocket-Key:");
+        if (!k) { hc_close(i); return; }
         k += 18;
-        while (*k == ' ' || *k == '\t')
-            k++;
-        char *eol = strstr(k, "\r\n");
-        if (!eol) {
-            close(cfd);
-            return 0;
-        }
+        while (*k == ' ' || *k == '\t') k++;
+        const char *eol = strstr(k, "\r\n");
+        if (!eol) { hc_close(i); return; }
         char   key[128];
         size_t kl = (size_t)(eol - k);
-        if (kl >= sizeof key) {
-            close(cfd);
-            return 0;
-        }
+        if (kl >= sizeof key) { hc_close(i); return; }
         memcpy(key, k, kl);
         key[kl] = '\0';
         handle_ws_upgrade(cfd, key);
-        for (int i = 0; i < HC_MAX; i++) {
-            if (g_conn[i].fd < 0) {
-                g_conn[i].fd   = cfd;
-                g_conn[i].type = HC_WS;
-                return 0;
-            }
-        }
-        close(cfd);
-    } else if (strstr(req, "GET /metrics")) {
+        h->type = HC_WS;
+        return;
+    }
+    if (strstr(req, "GET /metrics")) {
         char snap[2048];
         int  n = snprintf(
             snap, sizeof snap,
@@ -872,27 +882,31 @@ static int accept_and_classify(zt_ctx *c, int lfd) {
              "zyterm_rx_lines %llu\nzyterm_frame_crc_err %llu\n",
             (unsigned long long)c->core.rx_bytes, (unsigned long long)c->core.tx_bytes,
             (unsigned long long)c->core.rx_lines, (unsigned long long)c->proto.crc_err);
-        send_text_c(c, cfd, "200 OK", "text/plain; version=0.0.4", snap, (size_t)n);
-        close(cfd);
-    } else if (strstr(req, "GET /api/state") || strstr(req, "GET /api/info")) {
+        send_text_c(c, cfd, "200 OK", "text/plain; version=0.0.4", snap,
+                    snprintf_len(n, sizeof snap));
+        hc_close(i);
+        return;
+    }
+    if (strstr(req, "GET /api/state") || strstr(req, "GET /api/info")) {
         char json[1024];
         build_state_json(c, json, sizeof json);
         send_json(c, cfd, json);
-        close(cfd);
-    } else if (strncmp(req, "POST /api/send", 14) == 0 || strncmp(req, "POST /tx", 8) == 0) {
-        char *body = strstr(req, "\r\n\r\n");
+        hc_close(i);
+        return;
+    }
+    if ((rn >= 14 && strncmp(req, "POST /api/send", 14) == 0) ||
+        (rn >= 8 && strncmp(req, "POST /tx", 8) == 0)) {
+        const char *body = strstr(req, "\r\n\r\n");
         if (body && c->serial.fd >= 0) {
             body += 4;
-            size_t blen = (size_t)(rn - (body - req));
+            size_t blen = rn - (size_t)(body - req);
             direct_send(c, (const unsigned char *)body, blen);
         }
         send_text_c(c, cfd, "204 No Content", "text/plain", "", 0);
-        close(cfd);
-    } else if (strncmp(req, "GET ", 4) == 0) {
-        /* Resolve the URL path, then try:
-         *   1. webroot static file (if --webroot set)
-         *   2. built-in HTML page at "/" only
-         *   3. 404 */
+        hc_close(i);
+        return;
+    }
+    if (rn >= 4 && strncmp(req, "GET ", 4) == 0) {
         const char *url = req + 4;
         const char *sp  = strchr(url, ' ');
         char        path[512];
@@ -900,32 +914,70 @@ static int accept_and_classify(zt_ctx *c, int lfd) {
         if (pn >= sizeof path) pn = sizeof path - 1;
         memcpy(path, url, pn);
         path[pn] = '\0';
-
         if (c->net.http_webroot && serve_webroot(c, cfd, c->net.http_webroot, path)) {
-            close(cfd);
+            hc_close(i);
         } else if (!c->net.http_webroot &&
                    (!strcmp(path, "/") || !strcmp(path, "/index.html"))) {
-            send_text_c(c, cfd, "200 OK", "text/html; charset=utf-8", kIndex,
-                        sizeof kIndex - 1);
-            close(cfd);
+            send_text_c(c, cfd, "200 OK", "text/html; charset=utf-8", kIndex, sizeof kIndex - 1);
+            hc_close(i);
         } else {
-            send_text_c(c, cfd, "404 Not Found", "text/plain; charset=utf-8", "not found\n",
-                        10);
-            close(cfd);
+            send_text_c(c, cfd, "404 Not Found", "text/plain; charset=utf-8", "not found\n", 10);
+            hc_close(i);
         }
-    } else {
-        send_text_c(c, cfd, "405 Method Not Allowed", "text/plain", "", 0);
-        close(cfd);
+        return;
     }
-    return 0;
+    send_text_c(c, cfd, "405 Method Not Allowed", "text/plain", "", 0);
+    hc_close(i);
+}
+
+/* Non-blocking header-read pump for an HC_NEW slot. Reads what's
+ * available; on "\r\n\r\n" classifies and either upgrades the slot or
+ * closes it. Idle slots past HC_HEADER_TIMEOUT_S are dropped — that's
+ * the slowloris defence. */
+static void hc_pump_new(zt_ctx *c, int i) {
+    hc_t *h = &g_conn[i];
+    for (;;) {
+        if (h->req_len + 1 >= sizeof h->req_buf) {
+            /* Headers oversized — refuse. */
+            send_text_c(c, h->fd, "431 Request Header Fields Too Large", "text/plain", "", 0);
+            hc_close(i);
+            return;
+        }
+        ssize_t r = read(h->fd, h->req_buf + h->req_len,
+                         sizeof h->req_buf - 1 - h->req_len);
+        if (r > 0) {
+            h->req_len += (size_t)r;
+            h->req_buf[h->req_len] = '\0';
+            if (h->req_len >= 4 &&
+                memmem(h->req_buf, h->req_len, "\r\n\r\n", 4) != NULL) {
+                classify_request(c, i);
+                return;
+            }
+            continue;
+        }
+        if (r == 0) { hc_close(i); return; } /* peer closed */
+        if (errno == EINTR) continue;
+        if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+        hc_close(i);
+        return;
+    }
+    /* Drain timeout: don't let a stalled client tie up the slot. */
+    struct timespec t;
+    now(&t);
+    if (ts_diff_sec(&t, &h->accepted_at) > HC_HEADER_TIMEOUT_S) {
+        hc_close(i);
+    }
 }
 
 void http_tick(zt_ctx *c) {
     if (!c || c->net.http_fd < 0) return;
-    /* accept_and_classify already calls accept() internally;
-       loop until it returns -1 (EAGAIN / no more pending). */
-    while (accept_and_classify(c, c->net.http_fd) == 0)
-        ;
+    /* Drain new accepts (non-blocking). */
+    while (accept_one(c, c->net.http_fd) == 0) {}
+    /* Pump any slots still mid-request. */
+    for (int i = 0; i < HC_MAX; i++) {
+        if (g_conn[i].fd >= 0 && g_conn[i].type == HC_NEW)
+            hc_pump_new(c, i);
+    }
 }
 
 static void ws_frame_text(int fd, const unsigned char *buf, size_t n) {
@@ -955,18 +1007,19 @@ void http_broadcast(zt_ctx *c, const unsigned char *buf, size_t n) {
     char   b64[8192];
     size_t chunk = n > 4096 ? 4096 : n;
     b64enc(buf, chunk, b64);
-    char ev[9000];
-    int  en = snprintf(ev, sizeof ev, "data: %s\n\n", b64);
+    char   ev[9000];
+    int    en_raw = snprintf(ev, sizeof ev, "data: %s\n\n", b64);
+    size_t en     = snprintf_len(en_raw, sizeof ev);
     for (int i = 0; i < HC_MAX; i++) {
         if (g_conn[i].fd < 0) continue;
         if (g_conn[i].type == HC_SSE) {
-            ssize_t w = write(g_conn[i].fd, ev, (size_t)en);
+            ssize_t w = write(g_conn[i].fd, ev, en);
             /* EAGAIN: kernel buffer full — drop this event rather than block.
              * Any other error, or a short write (can't queue remainder here)
              * means the peer is gone or stalled — close the connection. */
             if (w < 0) {
                 if (errno != EAGAIN && errno != EWOULDBLOCK) hc_close(i);
-            } else if (w != en)
+            } else if ((size_t)w != en)
                 hc_close(i);
         } else if (g_conn[i].type == HC_WS) {
             ws_frame_text(g_conn[i].fd, buf, chunk);
@@ -979,15 +1032,16 @@ void http_broadcast_tx(zt_ctx *c, const unsigned char *buf, size_t n) {
     char   b64[8192];
     size_t chunk = n > 4096 ? 4096 : n;
     b64enc(buf, chunk, b64);
-    char ev[9000];
-    int  en = snprintf(ev, sizeof ev, "event: tx\ndata: %s\n\n", b64);
+    char   ev[9000];
+    int    en_raw = snprintf(ev, sizeof ev, "event: tx\ndata: %s\n\n", b64);
+    size_t en     = snprintf_len(en_raw, sizeof ev);
     for (int i = 0; i < HC_MAX; i++) {
         if (g_conn[i].fd < 0) continue;
         if (g_conn[i].type == HC_SSE) {
-            ssize_t w = write(g_conn[i].fd, ev, (size_t)en);
+            ssize_t w = write(g_conn[i].fd, ev, en);
             if (w < 0) {
                 if (errno != EAGAIN && errno != EWOULDBLOCK) hc_close(i);
-            } else if (w != en)
+            } else if ((size_t)w != en)
                 hc_close(i);
         }
     }
@@ -1002,15 +1056,16 @@ void http_notify_input(zt_ctx *c) {
         b64enc(c->tui.input_buf + c->tui.sent_len, unsent, b64);
     else
         b64[0] = '\0';
-    char ev[ZT_INPUT_CAP * 2 + 64];
-    int  en = snprintf(ev, sizeof ev, "event: input\ndata: %s\n\n", b64);
+    char   ev[ZT_INPUT_CAP * 2 + 64];
+    int    en_raw = snprintf(ev, sizeof ev, "event: input\ndata: %s\n\n", b64);
+    size_t en     = snprintf_len(en_raw, sizeof ev);
     for (int i = 0; i < HC_MAX; i++) {
         if (g_conn[i].fd < 0) continue;
         if (g_conn[i].type == HC_SSE) {
-            ssize_t w = write(g_conn[i].fd, ev, (size_t)en);
+            ssize_t w = write(g_conn[i].fd, ev, en);
             if (w < 0) {
                 if (errno != EAGAIN && errno != EWOULDBLOCK) hc_close(i);
-            } else if (w != en)
+            } else if ((size_t)w != en)
                 hc_close(i);
         }
     }

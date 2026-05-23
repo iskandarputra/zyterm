@@ -45,8 +45,13 @@ const char *framing_name(zt_frame_mode m) {
 
 void framing_reset(zt_ctx *c) {
     if (!c) return;
-    c->proto.len    = 0;
-    c->proto.escape = false;
+    c->proto.len           = 0;
+    c->proto.escape        = false;
+    c->proto.cobs_pending  = 0;
+    c->proto.len16_have    = 0;
+    c->proto.len16_need    = 0;
+    c->proto.len16_lenb[0] = 0;
+    c->proto.len16_lenb[1] = 0;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -86,13 +91,14 @@ static void frame_dispatch(zt_ctx *c) {
 /* ------------------------------------------------------------------------- */
 
 static void feed_cobs(zt_ctx *c, const unsigned char *buf, size_t n) {
-    /* COBS frames are terminated by 0x00. We accumulate until we see a 0,
-     * then decode the accumulated block in place. */
-    static size_t pending = 0;
+    /* COBS frames are terminated by 0x00. We accumulate raw bytes in
+     * c->proto.buf, then on the delimiter decode in place. Accumulator
+     * size lives in c->proto.cobs_pending — moved out of a file-static
+     * so framing_reset() and multi-pane sessions are properly isolated. */
     for (size_t i = 0; i < n; i++) {
         unsigned char b = buf[i];
         if (b == 0x00) {
-            /* decode c->proto.buf[0..pending) into c->proto.buf in place */
+            size_t pending = c->proto.cobs_pending;
             size_t rd = 0, wr = 0;
             while (rd < pending) {
                 unsigned char code = c->proto.buf[rd++];
@@ -102,18 +108,25 @@ static void feed_cobs(zt_ctx *c, const unsigned char *buf, size_t n) {
                     copy = pending - rd;
                 }
                 for (size_t j = 0; j < copy; j++) {
-                    if (wr < sizeof c->proto.buf) c->proto.buf[wr++] = c->proto.buf[rd + j];
+                    /* COBS guarantees wr <= rd on valid input. Defend
+                     * against malformed frames whose code byte would
+                     * push wr past rd and clobber bytes we haven't yet
+                     * consumed. */
+                    if (wr > rd + j) break;
+                    if (wr < sizeof c->proto.buf)
+                        c->proto.buf[wr++] = c->proto.buf[rd + j];
                 }
                 rd += copy;
                 if (code < 0xFF && rd < pending) {
                     if (wr < sizeof c->proto.buf) c->proto.buf[wr++] = 0x00;
                 }
             }
-            c->proto.len = wr;
-            pending      = 0;
+            c->proto.len          = wr;
+            c->proto.cobs_pending = 0;
             frame_dispatch(c);
         } else {
-            if (pending < sizeof c->proto.buf) c->proto.buf[pending++] = b;
+            if (c->proto.cobs_pending < sizeof c->proto.buf)
+                c->proto.buf[c->proto.cobs_pending++] = b;
         }
     }
 }
@@ -180,26 +193,27 @@ static void feed_hdlc(zt_ctx *c, const unsigned char *buf, size_t n) {
 /* ------------------------------------------------------------------------- */
 
 static void feed_len16(zt_ctx *c, const unsigned char *buf, size_t n) {
-    static size_t        need = 0;
-    static unsigned char lenb[2];
-    static int           have_len = 0;
+    /* State (length header + remaining-bytes counter) lives on c->proto
+     * so framing_reset() and per-pane isolation work — previously these
+     * were file-static and shared across all callers. */
     for (size_t i = 0; i < n; i++) {
-        if (have_len < 2) {
-            lenb[have_len++] = buf[i];
-            if (have_len == 2) {
-                need = (size_t)lenb[0] | ((size_t)lenb[1] << 8);
-                if (need > sizeof c->proto.buf) {
-                    have_len = 0;
-                    need     = 0;
+        if (c->proto.len16_have < 2) {
+            c->proto.len16_lenb[c->proto.len16_have++] = buf[i];
+            if (c->proto.len16_have == 2) {
+                c->proto.len16_need = (size_t)c->proto.len16_lenb[0] |
+                                       ((size_t)c->proto.len16_lenb[1] << 8);
+                if (c->proto.len16_need > sizeof c->proto.buf) {
+                    c->proto.len16_have = 0;
+                    c->proto.len16_need = 0;
                 }
                 c->proto.len = 0;
             }
         } else {
-            if (c->proto.len < need && c->proto.len < sizeof c->proto.buf)
+            if (c->proto.len < c->proto.len16_need && c->proto.len < sizeof c->proto.buf)
                 c->proto.buf[c->proto.len++] = buf[i];
-            if (c->proto.len == need) {
+            if (c->proto.len == c->proto.len16_need) {
                 frame_dispatch(c);
-                have_len = 0;
+                c->proto.len16_have = 0;
             }
         }
     }

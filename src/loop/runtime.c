@@ -100,7 +100,7 @@ int run_interactive(zt_ctx *c) {
     c->tui.ui_dirty      = false;
 
     unsigned char rbuf[ZT_READ_CHUNK];
-    struct pollfd pfds[2];
+    struct pollfd pfds[3];
 
     while (!zt_g_quit) {
         if (zt_g_winch) {
@@ -109,14 +109,27 @@ int run_interactive(zt_ctx *c) {
             apply_layout(c);
         }
 
+        /* Threaded mode: the worker owns serial reads and writes to the
+         * SPSC ring; we poll the wake-pipe for "data ready" and keep
+         * serial.fd in the set with events=0 so the kernel still reports
+         * POLLHUP/POLLERR for hot-unplug detection without firing POLLIN
+         * (which would race the worker). */
+        bool threaded = c->serial.spsc_enabled && rx_thread_is_running(c);
         pfds[0].fd      = c->serial.fd;
-        pfds[0].events  = POLLIN;
+        pfds[0].events  = threaded ? 0 : POLLIN;
         pfds[0].revents = 0;
         pfds[1].fd      = STDIN_FILENO;
         pfds[1].events  = POLLIN;
         pfds[1].revents = 0;
+        nfds_t npfds = 2;
+        if (threaded && c->serial.spsc_wake_pipe[0] >= 0) {
+            pfds[2].fd      = c->serial.spsc_wake_pipe[0];
+            pfds[2].events  = POLLIN;
+            pfds[2].revents = 0;
+            npfds           = 3;
+        }
 
-        int pr          = poll(pfds, 2, ZT_HUD_REFRESH_MS);
+        int pr          = poll(pfds, npfds, ZT_HUD_REFRESH_MS);
         if (pr < 0) {
             if (errno == EINTR) continue;
             zt_warn("zyterm: poll: %s", strerror(errno));
@@ -130,24 +143,31 @@ int run_interactive(zt_ctx *c) {
             if (c->core.reconnect) {
                 run_reconnect_loop(c);
                 if (!zt_g_quit) continue;
+                /* Quit was requested mid-disconnect (Ctrl+A x in popup).
+                 * Don't add a "device error" warning on top of that —
+                 * the user already knows. */
+                break;
             }
             zt_warn("zyterm: serial device error");
             break;
         }
         if (pfds[0].revents & POLLHUP) {
-            ssize_t r = read(c->serial.fd, rbuf, sizeof rbuf);
-            if (r > 0) {
-                log_write(c, rbuf, (size_t)r);
-                rx_ingest(c, rbuf, (size_t)r);
+            if (!threaded) {
+                ssize_t r = read(c->serial.fd, rbuf, sizeof rbuf);
+                if (r > 0) {
+                    log_write(c, rbuf, (size_t)r);
+                    rx_ingest(c, rbuf, (size_t)r);
+                }
             }
             if (c->core.reconnect) {
                 run_reconnect_loop(c);
                 if (!zt_g_quit) continue;
+                break; /* user-initiated quit; see note above */
             }
             zt_warn("zyterm: serial hung up");
             break;
         }
-        if (pfds[0].revents & POLLIN) {
+        if (!threaded && (pfds[0].revents & POLLIN)) {
             for (;;) {
                 ssize_t r = read(c->serial.fd, rbuf, sizeof rbuf);
                 if (r > 0) {
@@ -167,6 +187,14 @@ int run_interactive(zt_ctx *c) {
                 zt_warn("zyterm: read(serial): %s", strerror(errno));
                 zt_g_quit = 1;
                 break;
+            }
+        }
+        if (threaded && npfds == 3 && (pfds[2].revents & POLLIN)) {
+            for (;;) {
+                size_t n = rx_thread_drain(c, rbuf, sizeof rbuf);
+                if (n == 0) break;
+                log_write(c, rbuf, n);
+                rx_ingest(c, rbuf, n);
             }
         }
         if (pfds[1].revents & (POLLERR | POLLHUP | POLLNVAL)) {
@@ -386,8 +414,14 @@ int run_replay(zt_ctx *c) {
                 ssize_t r = read(STDIN_FILENO, rbuf, sizeof rbuf);
                 if (r > 0) {
                     handle_stdin_chunk(c, rbuf, (size_t)r);
+                    /* short read → buffer drained; another read would
+                     * block (stdin is raw-mode blocking, VMIN=1) and
+                     * freeze replay until the user hits another key. */
+                    if ((size_t)r < sizeof rbuf) break;
                     continue;
                 }
+                if (r == 0) { zt_g_quit = 1; break; }
+                if (errno == EINTR) continue;
                 break;
             }
         }
@@ -428,8 +462,13 @@ int run_replay(zt_ctx *c) {
                 ssize_t r = read(STDIN_FILENO, rbuf, sizeof rbuf);
                 if (r > 0) {
                     handle_stdin_chunk(c, rbuf, (size_t)r);
+                    /* short read → drained; second read() would block
+                     * since stdin is in raw blocking mode (VMIN=1). */
+                    if ((size_t)r < sizeof rbuf) break;
                     continue;
                 }
+                if (r == 0) { zt_g_quit = 1; break; }
+                if (errno == EINTR) continue;
                 break;
             }
         }

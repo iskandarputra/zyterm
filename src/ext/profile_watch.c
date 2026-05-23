@@ -111,11 +111,28 @@ void profile_watch_tick(zt_ctx *c) {
     ssize_t n = read(c->ext.profile_inotify_fd, buf, sizeof buf);
     if (n <= 0) return; /* EAGAIN / no events */
 
-    bool match = false;
-    for (char *p = buf; p < buf + n;) {
+    bool        match = false;
+    const char *end   = buf + n;
+    for (char *p = buf; p + sizeof(struct inotify_event) <= end;) {
         const struct inotify_event *ev = (const struct inotify_event *) p;
-        if (ev->len > 0 && strcmp(ev->name, s_basename) == 0) match = true;
-        p += sizeof(struct inotify_event) + ev->len;
+        size_t step = sizeof(struct inotify_event) + ev->len;
+        /* Defensive bounds check: inotify guarantees events don't cross
+         * read() boundaries on a non-blocking fd of sufficient buffer,
+         * but a runaway ev->len (e.g. on a corrupted/extended kernel)
+         * would walk off the end of buf and segfault. */
+        if (step > (size_t)(end - p)) break;
+        /* ev->name is NUL-terminated by the kernel within ev->len, but
+         * only inspect it when len > 0. */
+        if (ev->len > 0) {
+            /* Bound the strcmp at ev->len so we can't run past the event
+             * record if the NUL is missing. */
+            size_t name_max = ev->len;
+            if (strnlen(ev->name, name_max) < name_max &&
+                strcmp(ev->name, s_basename) == 0) {
+                match = true;
+            }
+        }
+        p += step;
     }
     if (!match) return;
 

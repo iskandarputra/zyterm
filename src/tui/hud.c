@@ -158,6 +158,15 @@ void draw_hud(zt_ctx *c) {
         mo += (size_t)snprintf(modes + mo, sizeof modes - mo,
                                "  \033[38;5;214m\xe2\x96\xb2 SB %d%%", pct);
     }
+    /* Disconnected indicator: stays visible while the reconnect loop
+     * is running, even when the centred modal is dismissed (PgUp /
+     * scroll-into-history hides the modal so the user can review past
+     * data — see run_reconnect_loop). Bright amber pill so it's hard
+     * to miss in the HUD. */
+    if (c->tui.disconnected) {
+        mo += (size_t)snprintf(modes + mo, sizeof modes - mo,
+                               "  \033[1;38;5;208m\xe2\x97\x86 DISCONNECTED\033[0m");
+    }
 #undef MPILL
 
     bool has_flash =
@@ -750,7 +759,7 @@ void draw_keybind_popup(zt_ctx *c) {
         "",
     };
     draw_dialog(c, NULL, "zyterm \xc2\xb7 keybindings", "\033[38;5;214m", /* amber accent */
-                body, (int)(sizeof body / sizeof body[0]), "Esc to close");
+                body, (int)(sizeof body / sizeof body[0]), "any key to close");
 
 #undef BK
 #undef BD
@@ -758,6 +767,7 @@ void draw_keybind_popup(zt_ctx *c) {
 #undef BROW2
 #undef BROW1
 #undef BSEC
-    c->tui.popup_active = true;
+    c->tui.popup_active    = true;
+    c->tui.keybind_visible = true;
     ob_flush();
 }

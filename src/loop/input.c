@@ -43,6 +43,31 @@ void load_history_into_buf(zt_ctx *c) {
 
 void handle_cmd_key(zt_ctx *c, unsigned char k) {
     c->tui.command_mode = false;
+    /* While disconnected, refuse only keys that would talk to a serial
+     * fd we don't have. Everything else (scroll, search, copy, settings,
+     * log toggle, help, mouse) stays available so the user can review
+     * what was on screen before the unplug, copy text, etc. */
+    if (c->tui.disconnected) {
+        switch (k) {
+        case 'a':                       /* would direct_send(0x01) */
+        case 'A':                       /* autobaud probe needs a device */
+        case 'b': case 'B':             /* tcsendbreak */
+            set_flash(c, "no device \xe2\x80\x94 Ctrl+A r to retry, Ctrl+A x to quit");
+            c->tui.popup_active = false;
+            return;
+        case 'r': case 'R':
+            /* Just nudge the wait loop — DON'T call reconnect_attempt /
+             * run_reconnect_loop here. We're already inside the wait
+             * loop and the next tick (≤ ZT_RECONNECT_MS) will call
+             * reconnect_attempt naturally; running it from the handler
+             * would risk a double-open and a recursive
+             * run_reconnect_loop on failure. */
+            set_flash(c, "retrying \xe2\x80\xa6");
+            c->tui.popup_active = false;
+            return;
+        default: break;                 /* fall through to normal handler */
+        }
+    }
     c->tui.popup_active = false;
     switch (k) {
     case 'q':
@@ -101,6 +126,10 @@ void handle_cmd_key(zt_ctx *c, unsigned char k) {
         break;
     }
     case 'A': {
+        /* Pause before close so the worker doesn't keep filling its
+         * ring from the dup we're about to invalidate. autobaud_probe
+         * unpauses on its own exit paths. */
+        rx_thread_pause(c);
         if (c->serial.fd >= 0) {
             close(c->serial.fd);
             c->serial.fd = -1;
@@ -173,15 +202,19 @@ void handle_cmd_key(zt_ctx *c, unsigned char k) {
         /* Manual reconnect: close then enter the full wait-and-retry loop
          * so the user sees the reconnecting spinner until the device is
          * back (or they quit). Single-shot would leave serial_fd == -1. */
+        rx_thread_pause(c);
         if (c->serial.fd >= 0) {
             close(c->serial.fd);
             c->serial.fd = -1;
         }
         if (reconnect_attempt(c) == 0) {
+            rx_thread_unpause(c);
             set_flash(c, "reconnected to %s", c->serial.device);
         } else if (c->core.reconnect) {
+            /* run_reconnect_loop unpauses on its own success path. */
             run_reconnect_loop(c);
         } else {
+            rx_thread_unpause(c);
             set_flash(c, "reconnect failed: %s", strerror(errno));
         }
         break;
@@ -230,7 +263,8 @@ void handle_cmd_key(zt_ctx *c, unsigned char k) {
         c->tui.search_current = 0;
         draw_search_bar(c);
         return;
-    case 'k': draw_keybind_popup(c); return; /* stay in popup mode — don't apply_layout */
+    case 'k':
+    case '?': draw_keybind_popup(c); return; /* stay in popup mode — don't apply_layout */
     case 'j':
     case 'J':
         c->log.format = (c->log.format + 1) % ZT_LOG__COUNT;
@@ -482,16 +516,28 @@ void handle_settings_key(zt_ctx *c, const unsigned char *buf, size_t n) {
 }
 
 void handle_escape_seq(zt_ctx *c, const unsigned char *buf, size_t n) {
-    /* F1..F12 macro lookup takes precedence */
+    /* F1..F12 macro lookup takes precedence. If the chunk is the
+     * F-key prefix followed by additional bytes (a fast typist or a
+     * terminal that coalesces input across the kernel TTY buffer), we
+     * fire the macro and recurse on the remainder rather than dropping
+     * it on the floor — that was the source of "first keystroke after
+     * an F-key disappears" bugs. */
     {
-        int fk = fkey_index(buf, n);
+        size_t consumed = 0;
+        int    fk       = fkey_index_consume(buf, n, &consumed);
         if (fk > 0) {
             const char *m = c->ext.macros[fk - 1];
-            if (m && *m) {
-                macro_fire(c, fk);
-                return;
+            if (m && *m) macro_fire(c, fk);
+            /* macro_fire is a no-op if the slot is empty; either way
+             * we've handled the F-key portion. */
+            if (consumed < n) {
+                const unsigned char *rest = buf + consumed;
+                size_t               restn = n - consumed;
+                if (restn > 1 && rest[0] == 0x1B)
+                    handle_escape_seq(c, rest, restn);
+                else
+                    handle_stdin_chunk(c, rest, restn);
             }
-            /* no macro bound: drop silently (don't forward raw F-key) */
             return;
         }
     }
@@ -751,6 +797,18 @@ void delete_before_cursor(zt_ctx *c) {
 void handle_stdin_chunk(zt_ctx *c, const unsigned char *buf, size_t n) {
     c->proto.tab_echo = false; /* stop echo capture on any user input */
 
+    /* Transient overlay (Ctrl+A k / ? keybind help) is dismissed by
+     * ANY next key, including Esc. The key is consumed so the user
+     * doesn't accidentally also trigger its normal action. Without
+     * this, popup_active stays true → the main loop skips repaints →
+     * the popup is stuck on screen. */
+    if (c->tui.keybind_visible) {
+        c->tui.keybind_visible = false;
+        c->tui.popup_active    = false;
+        apply_layout(c);
+        return;
+    }
+
     /* ── Settings menu keystrokes ──────────────────────────────────── */
     if (c->tui.settings_mode) {
         handle_settings_key(c, buf, n);
@@ -871,7 +929,11 @@ void handle_stdin_chunk(zt_ctx *c, const unsigned char *buf, size_t n) {
 
         if (k == 0x01) {
             c->tui.command_mode = true;
-            draw_cmd_popup(c);
+            /* During the disconnect popup the only meaningful next-keys
+             * are q/x and r — skip drawing the full command help over
+             * the reconnect dialog. handle_cmd_key still gates the
+             * action set behind c->tui.disconnected. */
+            if (!c->tui.disconnected) draw_cmd_popup(c);
             continue;
         }
         if (k == 0x1B) {

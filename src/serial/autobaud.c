@@ -24,6 +24,9 @@ static const unsigned kRates[] = {9600,   19200,   38400,   57600,   115200,  23
 
 int                   autobaud_probe(zt_ctx *c) {
     if (!c || !c->serial.device) return -1;
+    /* Pause the RX worker so we can swap c->serial.fd without racing
+     * its read(). Unpaused on both exit paths below. */
+    rx_thread_pause(c);
     int      best_fd    = -1;
     unsigned best_rate  = 0;
     double   best_score = 0.0;
@@ -56,10 +59,14 @@ int                   autobaud_probe(zt_ctx *c) {
         }
         set_flash(c, "autobaud: %u  score=%.2f", kRates[i], score);
     }
-    if (best_fd < 0) return -1;
+    if (best_fd < 0) {
+        rx_thread_unpause(c);
+        return -1;
+    }
     if (c->serial.fd >= 0) close(c->serial.fd);
     c->serial.fd   = best_fd;
     c->serial.baud = best_rate;
     log_notice(c, "autobaud: chose %u bps (score %.2f)", best_rate, best_score);
+    rx_thread_unpause(c);
     return 0;
 }

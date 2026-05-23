@@ -30,38 +30,57 @@
 
 /* ------------------------------ macros ----------------------------------- */
 
-/* Map F-key index (1..12) from escape sequence. Returns -1 if not an F-key. */
-int fkey_index(const unsigned char *buf, size_t n) {
+/* Parse an F-key escape sequence at the start of @p buf. Returns the
+ * 1..12 F-key index and the number of consumed bytes via @p out_consumed
+ * (or 0 if not an F-key). Returns -1 if not recognised; callers can then
+ * dispatch the remainder (after @p *out_consumed) elsewhere. */
+int fkey_index_consume(const unsigned char *buf, size_t n, size_t *out_consumed) {
+    if (out_consumed) *out_consumed = 0;
     /* F1..F4 as SS3: \033OP..S */
     if (n >= 3 && buf[0] == 0x1B && buf[1] == 'O') {
+        int idx = -1;
         switch (buf[2]) {
-        case 'P': return 1;
-        case 'Q': return 2;
-        case 'R': return 3;
-        case 'S': return 4;
+        case 'P': idx = 1; break;
+        case 'Q': idx = 2; break;
+        case 'R': idx = 3; break;
+        case 'S': idx = 4; break;
         default: return -1;
         }
+        if (out_consumed) *out_consumed = 3;
+        return idx;
     }
-    /* F5..F12 as CSI: \033[<n>~ */
-    if (n >= 4 && buf[0] == 0x1B && buf[1] == '[' && buf[n - 1] == '~') {
-        int v = 0;
-        for (size_t i = 2; i < n - 1; i++) {
-            if (buf[i] < '0' || buf[i] > '9') return -1;
+    /* F5..F12 as CSI: \033[<digits>~ */
+    if (n >= 4 && buf[0] == 0x1B && buf[1] == '[') {
+        size_t i = 2;
+        int    v = 0;
+        while (i < n && buf[i] >= '0' && buf[i] <= '9') {
             v = v * 10 + (buf[i] - '0');
+            i++;
         }
+        if (i == 2 || i >= n || buf[i] != '~') return -1;
+        size_t consumed = i + 1;
+        int    idx;
         switch (v) {
-        case 15: return 5;
-        case 17: return 6;
-        case 18: return 7;
-        case 19: return 8;
-        case 20: return 9;
-        case 21: return 10;
-        case 23: return 11;
-        case 24: return 12;
+        case 15: idx = 5; break;
+        case 17: idx = 6; break;
+        case 18: idx = 7; break;
+        case 19: idx = 8; break;
+        case 20: idx = 9; break;
+        case 21: idx = 10; break;
+        case 23: idx = 11; break;
+        case 24: idx = 12; break;
         default: return -1;
         }
+        if (out_consumed) *out_consumed = consumed;
+        return idx;
     }
     return -1;
+}
+
+/* Back-compat wrapper: returns the F-key index ignoring trailing bytes.
+ * Prefer @c fkey_index_consume so the caller can dispatch the remainder. */
+int fkey_index(const unsigned char *buf, size_t n) {
+    return fkey_index_consume(buf, n, NULL);
 }
 
 /* Expand \r \n \t \\ \xNN escapes in-place in dst. */

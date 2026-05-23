@@ -475,23 +475,33 @@ void selection_copy(zt_ctx *c) {
         size_t bs = (ec < sc || total == 0) ? 0 : col_to_byte(vis, vis_len, sc - 1);
         size_t be = (ec < sc || total == 0) ? 0 : col_to_byte(vis, vis_len, ec);
         if (be > bs) {
+            /* Hard ceiling on the assembled selection. Computed once so
+             * the clamp below uses saturation arithmetic — a previous
+             * version did `256*1024 - len - 1` which underflows to
+             * SIZE_MAX whenever `len + 1 >= 256*1024`, producing a huge
+             * `be - bs` and a heap overflow inside memcpy. */
+            const size_t kMaxSel = 256 * 1024;
+            size_t       room    = (len < kMaxSel) ? (kMaxSel - len) : 0;
+            if (room == 0) break;
+            if ((be - bs) > room - (room > 1 ? 1 : 0)) {
+                be = bs + (room > 1 ? room - 1 : 0);
+            }
             size_t need = (be - bs) + 1; /* +1 for possible trailing \n */
             while (len + need >= cap) {
-                if (cap >= 256 * 1024) {
-                    be   = bs + (256 * 1024 - len - 1);
-                    need = (be - bs) + 1;
-                    break;
-                }
                 cap *= 2;
+                if (cap > kMaxSel) cap = kMaxSel;
                 char *t = realloc(out, cap);
                 if (!t) {
                     free(out);
                     return;
                 }
                 out = t;
+                if (cap == kMaxSel) break; /* don't grow further */
             }
-            memcpy(out + len, vis + bs, be - bs);
-            len += (be - bs);
+            if (be > bs) {
+                memcpy(out + len, vis + bs, be - bs);
+                len += (be - bs);
+            }
         }
         if (line != sel_ll) {
             if (len + 1 >= cap) {

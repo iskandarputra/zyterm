@@ -33,6 +33,12 @@ void flush_unsent(zt_ctx *c);
 int    rx_thread_start(zt_ctx *c);
 void   rx_thread_stop(zt_ctx *c);
 size_t rx_thread_drain(zt_ctx *c, unsigned char *dst, size_t cap);
+bool   rx_thread_is_running(zt_ctx *c);
+/* Idempotent pause/unpause; bracket every c->serial.fd swap so the
+ * worker can't race close+open. unpause respects spsc_enabled, so it's
+ * a no-op when threaded mode wasn't requested. */
+void   rx_thread_pause(zt_ctx *c);
+void   rx_thread_unpause(zt_ctx *c);
 
 /* ── loop/runtime.c ────────────────────────────────────────────────────── */
 int run_interactive(zt_ctx *c);
