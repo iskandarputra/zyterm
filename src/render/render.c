@@ -61,12 +61,11 @@ const char *zephyr_color(const unsigned char *line, size_t len) {
 void emit_ts(zt_ctx *c) {
     if (!c->proto.show_ts) return;
     struct timespec ts;
-    struct tm       tm;
     clock_gettime(CLOCK_REALTIME, &ts);
-    localtime_r(&ts.tv_sec, &tm);
-    char s[40];
-    int  sn = snprintf(s, sizeof s, "\033[38;5;240m[%02d:%02d:%02d.%03ld]\033[0m ", tm.tm_hour,
-                       tm.tm_min, tm.tm_sec, (long)(ts.tv_nsec / 1000000));
+    const char *hms = zt_cached_hhmmss(ts.tv_sec);
+    char        s[40];
+    int         sn = snprintf(s, sizeof s, "\033[38;5;240m[%s.%03ld]\033[0m ", hms,
+                              (long)(ts.tv_nsec / 1000000));
     if (sn > 0) ob_write(s, (size_t)sn);
 }
 
@@ -103,12 +102,11 @@ void flush_line(zt_ctx *c) {
      * based on c->proto.show_ts, letting the user toggle retroactively.        */
     if (c->log.line_len > 0) {
         struct timespec ts;
-        struct tm       tm;
         clock_gettime(CLOCK_REALTIME, &ts);
-        localtime_r(&ts.tv_sec, &tm);
-        char prefix[20];
-        int  pn = snprintf(prefix, sizeof prefix, "[%02d:%02d:%02d.%03ld] ", tm.tm_hour,
-                           tm.tm_min, tm.tm_sec, (long)(ts.tv_nsec / 1000000));
+        const char *hms = zt_cached_hhmmss(ts.tv_sec);
+        char        prefix[20];
+        int         pn =
+            snprintf(prefix, sizeof prefix, "[%s.%03ld] ", hms, (long)(ts.tv_nsec / 1000000));
         if (pn > 0 && (size_t)pn + c->log.line_len <= ZT_LINEBUF_CAP) {
             memmove(c->log.line + pn, c->log.line, c->log.line_len);
             memcpy(c->log.line, prefix, (size_t)pn);

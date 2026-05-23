@@ -9,6 +9,178 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No changes yet._
 
+## [1.2.0] — 2026-05-23
+
+Reliability + UX audit. Hunts a long-standing deadlock that left zyterm
+unresponsive after a USB unplug, finishes wiring `--threaded` (which
+shipped half-implemented), opens up the disconnect popup so scrollback
+keeps working, removes several dormant bug classes (HTTP slowloris,
+XMODEM padding, framer state bleed between panes, ASan SEGV in the
+glibc symbol pin), and brings every documented `--help` flag in line
+with what the code actually does.
+
+### Fixed
+- **Ctrl+A X deadlock after USB unplug.** Three inner stdin-read loops
+  (`run_reconnect_loop`, both replay loops) lacked the "short read →
+  break" guard the main loop has. After the kernel queued bytes from a
+  single keypress, the loop's second blocking `read()` on raw-mode stdin
+  (VMIN=1, no `O_NONBLOCK`) hung indefinitely — so `zt_g_quit` was set
+  but never observed. Adds the missing short-read break + EOF/EINTR
+  handling at all three sites. (`src/ext/reconnect.c`,
+  `src/loop/runtime.c`)
+- **Disconnect popup blocking scrollback.** The centred "device link
+  lost" modal owned the screen; PgUp / PgDn / mouse selection /
+  Ctrl+A / search were all swallowed. The popup now auto-hides as soon
+  as `sb_offset > 0` and the wait loop honours `sb_redraw`/`ui_dirty`,
+  so the user can review what was on screen before the unplug, copy
+  text, search, and bookmark — everything except keys that need a live
+  serial fd (Ctrl+A a / A / b are politely refused). A persistent
+  amber `◆ DISCONNECTED` pill in the HUD keeps the state visible even
+  when the modal is hidden. Returning to bottom restores the modal.
+  Reconnect doesn't yank the view away from a user mid-scroll — flashes
+  `✓ reconnected` instead. (`src/ext/reconnect.c`, `src/loop/input.c`,
+  `src/tui/hud.c`, `src/zt_ctx.h`)
+- **Ctrl+A k / ? popup stuck on screen.** The keybind help popup set
+  `popup_active = true` so the main loop's repaint pass was suppressed
+  — but no key was wired to dismiss it, and Esc only cleared the input
+  buffer. The footer hint "Esc to close" was a lie. Adds
+  `tui.keybind_visible`; any subsequent key dismisses the popup and is
+  consumed. Hint now reads "any key to close". (`src/loop/input.c`,
+  `src/tui/hud.c`)
+- **RX-thread fd race (`--threaded`).** The worker read directly from
+  `c->serial.fd` while the main thread could close + reopen it (manual
+  reconnect, autobaud, hot-unplug). Window for `read()` from a recycled
+  fd → garbage bytes (or worse, the contents of another fd) into the
+  ring. Worker now owns a private `dup(2)` of the fd; `rx_thread_pause`
+  / `rx_thread_unpause` helpers bracket every fd swap site so the
+  worker is cleanly stopped and restarted across the close+reopen.
+  Memory orders on the running flag tightened to release/acquire; fd
+  leak on `pthread_create` failure fixed. (`src/loop/rx_thread.c`,
+  `src/serial/autobaud.c`, `include/zyterm/internal/loop.h`)
+- **`--threaded` half-wired.** Previously the worker filled an SPSC
+  ring that nobody drained, and *both* threads read from the same fd
+  in parallel. Main loop now polls `spsc_wake_pipe[0]` and drains via
+  `rx_thread_drain` when threaded mode is on, with `serial.fd` kept in
+  the poll set with `events=0` for unplug detection only.
+  (`src/loop/runtime.c`)
+- **HTTP slowloris stall.** `accept_and_classify` busy-waited up to
+  200 ms (`20 × usleep(10ms)`) for the request headers, blocking the
+  whole UI/serial loop per slow client. Rewritten as
+  `accept_one` (non-blocking accept) + per-connection HC_NEW slots
+  pumped by `http_tick` with a 5 s header-read timeout. UI no longer
+  freezes. (`src/net/http.c`)
+- **HTTP `snprintf` truncation reads past stack buffer.** Eight call
+  sites used the `int` return of `snprintf` directly as a `write()`
+  length. On truncation the return is the would-be length, so the
+  kernel read past the buffer and emitted attacker-influenced bytes to
+  the network. Adds `snprintf_len` clamp and applies at all sites.
+  (`src/net/http.c`)
+- **XMODEM receiver wrote trailing 0x1A pad bytes.** The standard
+  XMODEM block size is 128 and the last block is zero-filled with
+  0x1A (CP/M SUB). The receiver wrote them verbatim, so files always
+  ended with garbage and the size was rounded up to a 128-byte
+  boundary. Now buffers one block ahead and trims trailing 0x1A on
+  EOT. `fwrite` and `fclose` return values are checked so a full disk
+  surfaces as an error instead of a silently truncated file.
+  (`src/proto/xmodem.c`)
+- **ZMODEM relay could hang on a wedged child.** Serial-side
+  EOF/POLLHUP wasn't an exit condition for the relay loop, and the
+  final `waitpid` was unbounded. Now exits on either side closing;
+  child is reaped with a bounded SIGTERM → SIGKILL fallback (~4 s
+  worst case). (`src/proto/xmodem.c`)
+- **Framer file-static state.** `feed_cobs` and `feed_len16` kept
+  decoder state in file-statics — `framing_reset()` couldn't clear it
+  on mode change, and the multi-pane code shared the same statics
+  across panes (frames bled between devices). State moved into
+  `c->proto`. Defensive `wr > rd` guard added against malformed COBS.
+  (`src/proto/framing.c`, `src/zt_ctx.h`)
+- **F-key parser dropped trailing bytes.** When a terminal coalesced
+  an F-key escape sequence with the next keystroke into a single
+  `read()`, the trailing key was silently lost. `fkey_index_consume`
+  now returns the prefix length so `handle_escape_seq` can re-dispatch
+  the remainder. (`src/proto/macros.c`, `src/loop/input.c`)
+- **`sig_crash` longjmp from fault signals was unsafe.** `siglongjmp`
+  out of SIGSEGV / SIGBUS / SIGFPE-fault back into running host code
+  is C-language UB — the heap is suspect and the next `malloc`/`free`
+  double-faults. Restricted embed-host recovery to SIGABRT/SIGFPE.
+  Memory-fault signals now restore the terminal and re-raise so the
+  process dies cleanly with a known exit status. (`src/core/core.c`)
+- **`profile_watch_tick` could walk past the inotify event buffer.**
+  Defensive bounds check and `strnlen` before `strcmp` on `ev->name`.
+  (`src/ext/profile_watch.c`)
+- **`selection_copy` 256 KB cap math could underflow.** The
+  saturating arithmetic was fragile against a future change that
+  allowed `len + 1 > kMaxSel`. Hardened with explicit `room` calc.
+  (`src/log/scrollback.c`)
+- **`reconnect_attempt` recursion via Ctrl+A r during disconnect.**
+  Pressing Ctrl+A r from inside the disconnect popup would re-enter
+  `run_reconnect_loop`, leaking the inner fd on success. Now
+  short-circuits to a `set_flash("retrying…")` and lets the existing
+  wait-loop tick do the actual retry. (`src/loop/input.c`)
+- **`--profile-save NAME` was wired to `session_detach`.** The handler
+  stored the name in `net.session_name` instead of calling
+  `profile_save` — so the documented "snapshot and exit" instead
+  silently tried to detach as a session named NAME. Now actually saves
+  to `~/.config/zyterm/NAME.conf` and exits. (`src/main.c`)
+- **`Ctrl+A ?` did nothing.** The connect banner and `--help` both
+  advertised `Ctrl+A ?` → help but no handler existed; `?` now aliases
+  `k`. (`src/loop/input.c`)
+- **Compact key list in `--help` lied.** The one-liner
+  `(q x p e c h t b s f r / a ?)` listed `?` (didn't exist) and omitted
+  ~14 keys that did. Replaced with a pointer to the actual help popup
+  plus six high-traffic shortcuts. (`src/main.c`)
+- **ASan SEGV in `strtol` from `atoi("230400")`.** The glibc symbol
+  pin (`.symver __isoc23_strtol → strtol@GLIBC_2.2.5` — needed so
+  binaries built on 24.04 still run on 22.04) bypassed the
+  AddressSanitizer / ThreadSanitizer / MemorySanitizer interceptors,
+  which are keyed on the modern `GLIBC_2.38` symbol. SEGV on the
+  fabricated pointer `0x303034303332` (ASCII bytes of the input
+  string). The pin is now skipped under any sanitizer
+  (`__SANITIZE_ADDRESS__` / `__SANITIZE_THREAD__` / clang
+  `__has_feature`). Sanitizer builds are dev-only and don't need
+  old-glibc portability. (`src/zt_internal.h`)
+- **`--autobaud` was broken.** The flag set `serial.baud = 0` as a
+  sentinel, but `setup_serial` would then call `set_custom_baud(fd, 0)`
+  and `zt_die`. Now opens at 115200 first, then runs `autobaud_probe`
+  to discover the right rate. (`src/main.c`)
+- **`--epoll` was a no-op stub.** `fastio_init` was never called from
+  anywhere. Flag removed from the parser. (`src/main.c`)
+
+### Added
+- **Wired-up `--threaded` mode.** Documented in `--help` ADVANCED I/O.
+  Worker thread drains serial into a 1 MiB SPSC ring; main thread
+  consumes via wake-pipe poll. Designed to reduce UART-latency jitter
+  at ≥ 1 Mbaud. (`src/loop/rx_thread.c`, `src/loop/runtime.c`)
+- **`--help` honesty pass.** Surfaced previously-hidden flags in five
+  new sections: `LOGGING & CAPTURE` (added `--log-format`,
+  `--mute-dbg`, `--mute-inf`), `FRAMING & CRC` (`--frame`, `--crc`),
+  `ADVANCED I/O` (`--threaded`, `--autobaud`), `HTTP & STREAMING`
+  (`--http`, `--webroot`, `--http-cors`, `--metrics`),
+  `SESSIONS & INTEGRATION` (`--detach`, `--attach`, `--filter`,
+  `--diff`), `CLIPBOARD` (`--osc52`, `--no-osc52`). Three new
+  examples in the footer. (`src/main.c`)
+- **HUD `◆ DISCONNECTED` pill** while reconnect loop runs.
+  (`src/tui/hud.c`)
+- **`zt_cached_hhmmss`** helper. The render path's per-line
+  `localtime_r` + per-field `snprintf` was hot at ≥ 500k baud / 1000+
+  lines/sec; now cached on the second boundary. (`src/core/core.c`)
+
+### Changed
+- **CI matrix is Linux-only.** macOS dropped — zyterm targets Linux
+  serial surfaces (termios2, inotify, `/sys/class/tty` USB discovery)
+  and we don't ship macOS binaries. Both gcc and clang are still in
+  matrix, both with and without ASan+UBSan. Per-job (`timeout-minutes:
+  15`) and per-step timeouts added; `timeout(1)` belt-and-braces
+  around the actual test/smoke invocations.
+  (`.github/workflows/ci.yml`)
+- **GitHub Actions bumped off Node 20.** `actions/checkout@v4 → v5`,
+  `actions/upload-artifact@v4 → v5`, `actions/download-artifact@v4 →
+  v5`. The transitive Node-20 dep via `awalsh128/cache-apt-pkgs-action`
+  was removed by inlining `apt-get install`.
+  (`.github/workflows/ci.yml`, `.github/workflows/release.yml`)
+- **Whole-tree clang-format pass.** The format-check guard had been
+  drifting on `main` for a while; now clean against clang-format-18+.
+
 ## [1.1.3] — 2026-04-21
 
 Patch release to align the tagged release with `main` after a follow-up
@@ -196,7 +368,8 @@ Initial public release.
 - Headless capture (`--dump <sec>`)
 - Log rotation (`--log-max-kb`)
 
-[Unreleased]: https://github.com/iskandarputra/zyterm/compare/v1.1.3...HEAD
+[Unreleased]: https://github.com/iskandarputra/zyterm/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/iskandarputra/zyterm/releases/tag/v1.2.0
 [1.1.3]: https://github.com/iskandarputra/zyterm/releases/tag/v1.1.3
 [1.1.2]: https://github.com/iskandarputra/zyterm/releases/tag/v1.1.2
 [1.1.1]: https://github.com/iskandarputra/zyterm/releases/tag/v1.1.1

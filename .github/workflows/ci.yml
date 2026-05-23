@@ -28,15 +28,19 @@ jobs:
       # never burn the full job timeout on a wedged test.
       ZT_CI_STEP_TIMEOUT: 600
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         timeout-minutes: 2
 
-      - name: Install build deps with cache
-        uses: awalsh128/cache-apt-pkgs-action@latest
+      - name: Install build deps
         timeout-minutes: 5
-        with:
-          packages: build-essential socat clang-format clang cppcheck
-          version: 1.0
+        # Inline apt-get rather than awalsh128/cache-apt-pkgs-action
+        # because the latter still pulls actions/cache/restore@v4 +
+        # actions/cache/save@v4 (Node 20, deprecation pending). The
+        # uncached install is ~15s — acceptable on ubuntu-latest.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential socat clang-format clang cppcheck
 
       - name: Check formatting
         if: matrix.sanitizer == 'none' && matrix.cc == 'gcc'

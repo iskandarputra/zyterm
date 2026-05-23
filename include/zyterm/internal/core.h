@@ -56,6 +56,11 @@ double ts_diff_sec(const struct timespec *a, const struct timespec *b);
 /** Fill @p t with the current monotonic time. */
 void now(struct timespec *t);
 
+/** Return cached "HH:MM:SS" for @p sec (wall-clock seconds). Re-runs
+ *  localtime_r() only on second boundaries; everything else is a string
+ *  compare. Not thread-safe — main-loop only. */
+const char *zt_cached_hhmmss(time_t sec);
+
 /* signal & terminal management */
 void sig_winch(int s);
 void install_signals(void);

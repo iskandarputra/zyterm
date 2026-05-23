@@ -241,6 +241,25 @@ double ts_diff_sec(const struct timespec *a, const struct timespec *b) {
     return (double)(a->tv_sec - b->tv_sec) + (double)(a->tv_nsec - b->tv_nsec) * 1e-9;
 }
 
+/* Cache the formatted "HH:MM:SS" portion of a wall-clock second so the
+ * render + log timestamp paths don't pay localtime_r + per-field
+ * snprintf on every line at high baud (>=500k typical for the user's
+ * RTOS targets, can be thousands of lines/sec). Re-localtime_r only on
+ * second boundaries. Returns a pointer to a static 9-byte buffer that
+ * remains valid until the next call. Not thread-safe; we only call it
+ * from the main loop. */
+const char *zt_cached_hhmmss(time_t sec) {
+    static time_t cached_sec = -1;
+    static char   cached[12];
+    if (sec != cached_sec) {
+        struct tm tm;
+        localtime_r(&sec, &tm);
+        snprintf(cached, sizeof cached, "%02d:%02d:%02d", tm.tm_hour, tm.tm_min, tm.tm_sec);
+        cached_sec = sec;
+    }
+    return cached;
+}
+
 /* =========================================================================
  * Signal handlers
  * ========================================================================= */

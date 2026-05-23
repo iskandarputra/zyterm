@@ -104,8 +104,11 @@ static void run_shell_action(zt_ctx *c, const hook_t *h, const unsigned char *li
         setenv("ZYTERM_BAUD", baud_s, 1);
         if (line && line_len > 0) {
             /* NUL-terminate by truncating to a stack buf (1 KiB cap) */
-            char   buf[1024];
-            size_t n = line_len < sizeof buf - 1 ? line_len : sizeof buf - 1;
+            char buf[1024];
+            /* Parens here are documentation, not correctness: `*` and
+             * `-` are left-to-right so `sizeof buf - 1` already binds
+             * before `<`, but the bare form reads ambiguously. */
+            size_t n = (line_len < (sizeof buf - 1)) ? line_len : (sizeof buf - 1);
             memcpy(buf, line, n);
             buf[n] = '\0';
             setenv("ZYTERM_LINE", buf, 1);
