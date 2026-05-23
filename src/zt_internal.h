@@ -63,11 +63,22 @@
 #endif
 #endif
 
+/* Per-architecture base symbol version. x86_64 has had every libc symbol
+ * since the very first 2.2.5; aarch64 was only added to glibc in 2.17.
+ * Pinning to a version that doesn't exist for the target arch produces a
+ * link-time "undefined reference to strtoul@GLIBC_2.2.5" — which is
+ * exactly what broke the v1.2.0 release workflow's arm64 build. */
+#if defined(__x86_64__)
+#define ZT_GLIBC_BASE_VER "GLIBC_2.2.5"
+#elif defined(__aarch64__) || defined(__riscv)
+#define ZT_GLIBC_BASE_VER "GLIBC_2.17"
+#endif
+
 #if defined(__linux__) && defined(__GLIBC__) && defined(__GLIBC_MINOR__)
-#if !defined(ZT_SANITIZER_ACTIVE)
+#if !defined(ZT_SANITIZER_ACTIVE) && defined(ZT_GLIBC_BASE_VER)
 #if (__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 38)
-__asm__(".symver __isoc23_strtol,strtol@GLIBC_2.2.5");
-__asm__(".symver __isoc23_strtoul,strtoul@GLIBC_2.2.5");
+__asm__(".symver __isoc23_strtol,strtol@" ZT_GLIBC_BASE_VER);
+__asm__(".symver __isoc23_strtoul,strtoul@" ZT_GLIBC_BASE_VER);
 #endif
 #endif
 #endif

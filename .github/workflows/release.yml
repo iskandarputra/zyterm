@@ -56,7 +56,7 @@ jobs:
         run: ./build.sh deb
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: zyterm-deb-${{ matrix.arch }}
           path: releases/*.deb
@@ -72,7 +72,7 @@ jobs:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           path: dist
           merge-multiple: true
