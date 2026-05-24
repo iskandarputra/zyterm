@@ -13,7 +13,7 @@ keeps things simple and gives the compiler room to inline.
 | Module    | Responsibility                                                                                                                                                                    |
 | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `core/`   | Logging, output buffer, signals, terminal raw mode, time, CRC.                                                                                                                    |
-| `serial/` | Open and configure the serial port (`termios2` / `IOSSIOSPEED`), reconnect probe, `epoll(7)` + `splice(2)` fast path on Linux, `TIOCGICOUNT` / `TIOCMGET` polling, autobaud.      |
+| `serial/` | Open and configure the serial port (`termios2` / `IOSSIOSPEED`), reconnect probe, USB port discovery via `/sys/class/tty`, `TIOCGICOUNT` / `TIOCMGET` polling, autobaud. Also carries unwired `epoll(7)` + `splice(2)` scaffolding in `fastio.c` for a future fast path. |
 | `log/`    | Persistent log file with rotation, JSONL emit, scrollback ring buffer.                                                                                                            |
 | `proto/`  | COBS, SLIP, HDLC, and length-prefixed frame decoders, XMODEM-CRC, YMODEM/ZMODEM via `lrzsz`, clipboard (dlopen xcb at runtime), OSC 52, OSC 8 hyperlinks, ANSI SGR pass-through, KGDB raw mode, F-key macros. |
 | `render/` | RX byte-stream parsing, Zephyr/severity colouring, scrollback push, throughput sparkline.                                                                                         |
@@ -46,18 +46,33 @@ zyterm is single-threaded by default:
 
 - One thread reads stdin, one event loop, one writer.
 - All state lives in a single `zt_ctx` value.
-- All polling is done with `poll(2)`, or `epoll(7)` on Linux when
-  `--epoll` is set.
+- All polling is done with `poll(2)`.
 - Signal handlers only flip the `zt_g_quit` and `zt_g_winch`
   `sig_atomic_t` flags. They never touch `zt_ctx`.
 
 There is an optional reader thread (`--threaded`):
 
-- It drains the serial fd into a 1 MiB SPSC ring (`loop/rx_thread.c`).
-- It wakes the main thread via a tiny pipe used as an eventfd.
-- It is meant for high baud rates (above 1 Mbps), where `read(2)`
-  latency in the main loop starts to lose bytes.
+- The worker drains the serial fd into a 1 MiB SPSC ring
+  (`src/loop/rx_thread.c`) using release/acquire atomics — no locks.
+- It wakes the main thread via a non-blocking pipe used as an eventfd.
+- The main loop poll set switches: `serial.fd` with `events=0` (HUP /
+  ERR detection only) plus `spsc_wake_pipe[0]` with `POLLIN` for the
+  ring drain. `rx_thread_drain()` copies up to a chunk per wake into
+  the existing `log_write` / `rx_ingest` pipeline.
+- The worker owns a private `dup(2)` of the serial fd; that way the
+  main thread can `close(2) + open(2)` (autobaud, reconnect, manual
+  reopen) without racing the worker's in-flight `read(2)`. To pick up
+  the new fd, callers wrap fd swaps with `rx_thread_pause(c)` /
+  `rx_thread_unpause(c)` (idempotent; respects `spsc_enabled`).
+- Meant for high baud rates (~ 1 Mbps and up) where UART interrupt
+  latency in the main loop produces visible jitter. Pure overhead
+  below ~500 kbaud — leave off by default.
 - The main thread still owns all rendering and writing.
+
+Note: `src/serial/fastio.c` carries scaffolding for a Linux
+epoll-edge-triggered fast path plus `splice(2)`-based log fan-out. It
+is currently not wired into the loop; the `--epoll` flag that briefly
+exposed it was removed in 1.2.0 because the integration was incomplete.
 
 ## 4. Hot paths
 
@@ -68,7 +83,7 @@ them tight, though there's always room for improvement.
 | --------------- | ---------------------------------------------------------------------------------------------------- |
 | RX to screen    | One `read()` (up to 64 KiB), one `framing_feed()`, one `render_rx()`.                                |
 | Stdout writes   | UI output goes through a coalescing buffer (`ob_*`), flushed once per loop iteration via `writev`.   |
-| RAW log capture | On Linux, `splice(2)` from the serial fd into the log file fd, avoiding a copy through userspace.    |
+| RAW log capture | `write(2)` from the same buffer that just hit `rx_ingest`. (A `splice(2)` fast path exists in `src/serial/fastio.c` but is not yet wired into the loop.) |
 | TX              | Bytes are spaced by `ZT_FLUSH_DELAY_US` (2 ms) to avoid overrunning slow embedded UART RX buffers.   |
 | Frame decode    | CRC tables are precomputed; decoder is a small state machine.                                        |
 | Scrollback      | Ring buffer of `char *` pointers. Push is O(1).                                                      |

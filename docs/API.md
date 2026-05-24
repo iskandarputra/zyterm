@@ -81,9 +81,14 @@ int run_zyterm(int argc, char **argv) {
 }
 ```
 
-`zt_die`, the SIGSEGV/SIGBUS/SIGFPE/SIGABRT handlers, and the alarm
-watchdog all check `zt_g_embed_jmp_armed` and `siglongjmp` back to your
-landing pad instead of calling `_exit`.
+`zt_die` and the alarm watchdog always honour `zt_g_embed_jmp_armed`
+and `siglongjmp` back instead of calling `_exit`. Among the crash
+signals, **only SIGABRT and SIGFPE** longjmp — SIGSEGV and SIGBUS are
+treated as terminal because longjmping out of a memory-fault leaves
+the heap in an unknown state and the next `malloc`/`free` in your host
+process would almost certainly double-fault. For those, the handler
+restores the terminal and re-raises so the OS produces a core dump and
+the host dies cleanly with a known exit status.
 
 ## 5. Side effects to know
 
@@ -93,7 +98,8 @@ While `zyterm_main` is running it will:
 - install handlers for SIGINT, SIGWINCH, SIGSEGV, SIGBUS, SIGFPE, SIGABRT,
   SIGPIPE, SIGCHLD, and SIGALRM (restored on return),
 - register an `atexit` cleanup hook (one-shot, idempotent),
-- spawn one reader thread per open serial port (joined on return).
+- when `--threaded` is set, spawn one RX worker per open serial port
+  (joined on return; default is single-threaded).
 
 `zt_embed_reset` undoes any of these that were left dangling by an
 abnormal exit from a previous run, so you can call `zyterm_main`
@@ -131,4 +137,4 @@ any release. Do not include them from your host.
 | ---------------------------- | -------------------------------------------------- |
 | `build/zyterm_embed.a`       | Static archive — run `ls -lh` to see current size  |
 | Stripped binary (`./zyterm`) | `strip -s zyterm` — typically well under 200 KB    |
-| Runtime dependencies         | libc (glibc ≥ 2.34 on Linux)                       |
+| Runtime dependencies         | libc only. Release binaries pin `strtol`/`strtoul` back to the per-arch base symbol version (`GLIBC_2.2.5` on x86_64, `GLIBC_2.17` on aarch64), so a binary built on Ubuntu 24.04 runs on 22.04 and older. Sanitizer builds skip the pin — see `src/zt_internal.h`. |

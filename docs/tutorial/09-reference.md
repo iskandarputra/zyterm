@@ -33,7 +33,7 @@ zyterm --diff <FILE_A> <FILE_B>
 | `--reconnect` / `--no-reconnect` | on       | Auto-reopen on hang-up.                            |
 | `--port-glob <pat>`              |          | E.g. `/dev/ttyUSB*`. Re-resolves on reconnect.     |
 | `--match-vid-pid <V:P>`          |          | Hex, e.g. `0403:6001`. Combine with `--port-glob`. |
-| `--autobaud`                     | off      | Probe common rates after open.                     |
+| `--autobaud`                     | off      | Probe common rates after open; pick the highest printable-ASCII ratio. Overrides `-b`. Also fireable at runtime with `Ctrl+A A`. |
 
 ## Logging & capture
 
@@ -78,7 +78,7 @@ zyterm --diff <FILE_A> <FILE_B>
 | Flag                      | Notes                                            |
 | ------------------------- | ------------------------------------------------ |
 | `--profile <name>`        | Load `~/.config/zyterm/<name>.conf`. Hot-reload. |
-| `--profile-save <name>`   | Snapshot at exit.                                |
+| `--profile-save <name>`   | Snapshot every CLI-supplied setting (+ `<DEVICE>` if given) to `~/.config/zyterm/<name>.conf` and exit. Useful as `zyterm -b 921600 --frame slip --crc ccitt /dev/ttyUSB0 --profile-save board-x`. |
 | `--on-match '/RE/=ACT'`   | POSIX ERE on RX line. `send:` prefix to TX.      |
 | `--on-connect '<cmd>'`    | Fires on each open / reopen.                     |
 | `--on-disconnect '<cmd>'` | Fires on hang-up / clean shutdown.               |
@@ -99,11 +99,10 @@ Hard limits: 16 hooks max, 100 ms per-hook rate-limit, 32 tracked PIDs.
 
 ## Misc
 
-| Flag             | Notes                                                    |
-| ---------------- | -------------------------------------------------------- |
-| `--threaded`     | Move RX read into a separate thread.                     |
-| `--epoll`        | Use `epoll` instead of `poll` (faster at high fd count). |
-| `--diff <a> <b>` | Diff two zyterm logs and exit.                           |
+| Flag             | Notes                                                                        |
+| ---------------- | ---------------------------------------------------------------------------- |
+| `--threaded`     | RX worker thread drains the serial port into a 1 MiB SPSC ring; main thread consumes via wake-pipe. Reduces UART-latency jitter at ≥ 1 Mbaud. Off by default; pure overhead below ~500 kbaud. |
+| `--diff <a> <b>` | Diff two zyterm logs and exit.                                               |
 | `--mute-dbg`     | Suppress `<dbg>` lines.                                  |
 | `--mute-inf`     | Suppress `<inf>` lines.                                  |
 | `-h, --help`     | Show help and exit.                                      |

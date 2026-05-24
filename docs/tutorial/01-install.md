@@ -26,7 +26,7 @@ or anything else. The whole binary is self-contained.
 git clone https://github.com/<your-fork>/zyterm.git
 cd zyterm
 make -j
-./zyterm --version          # → zyterm 1.1.1
+./zyterm --version          # → zyterm 1.2.0
 ```
 
 The build produces a single binary at `./zyterm` (~250 KB stripped).

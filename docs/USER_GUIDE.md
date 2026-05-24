@@ -127,48 +127,88 @@ That's it. Everything else in this guide is elaboration.
 
 ### Connection
 
-| Flag                  | Default | Meaning                                           |
-| --------------------- | ------- | ------------------------------------------------- |
-| `-b, --baud <rate>`   | 115200  | Any baud termios2 will accept (75 to 4 000 000+). |
-| `--data <5\|6\|7\|8>` | 8       | Data bits.                                        |
-| `--parity <n\|e\|o>`  | n       | None, even, or odd.                               |
-| `--stop <1\|2>`       | 1       | Stop bits.                                        |
-| `--flow <n\|r\|x>`    | n       | None, RTS/CTS, or XON/XOFF.                       |
-| `--reconnect`         | on      | Auto-reopen device on hangup.                     |
-| `--no-reconnect`      |         | Exit on hangup instead.                           |
+| Flag                    | Default | Meaning                                                                                  |
+| ----------------------- | ------- | ---------------------------------------------------------------------------------------- |
+| `-b, --baud <rate>`     | 115200  | Any baud termios2 will accept (75 to 4 000 000+).                                        |
+| `--data <5\|6\|7\|8>`   | 8       | Data bits.                                                                               |
+| `--parity <n\|e\|o>`    | n       | None, even, or odd.                                                                      |
+| `--stop <1\|2>`         | 1       | Stop bits.                                                                               |
+| `--flow <n\|r\|x>`      | n       | None, RTS/CTS, or XON/XOFF.                                                              |
+| `--reconnect`           | on      | Auto-reopen device on hangup. Survives USB unplug.                                       |
+| `--no-reconnect`        |         | Exit on hangup instead.                                                                  |
+| `--port-glob <pat>`     |         | E.g. `/dev/ttyUSB*`. Re-resolves on every reconnect, so a USB-serial that comes back as a different node is transparently picked up. With this set, `<DEVICE>` is optional. |
+| `--match-vid-pid <V:P>` |         | Hex USB IDs, e.g. `1a86:7523` (CH340). Combine with `--port-glob`.                       |
+| `--autobaud`            | off     | Open at 115200, then probe a fixed list of common rates and pick the one with the highest printable-ASCII ratio. Overrides `-b`. Also fireable interactively with `Ctrl+A A`. |
 
 ### Logging and capture
 
-| Flag                 | Meaning                                                            |
-| -------------------- | ------------------------------------------------------------------ |
-| `-l, --log <file>`   | Append log with millisecond timestamps. `Ctrl+A l` toggles inline. |
-| `--log-max-kb <N>`   | Rotate to `<file>.1` when the log exceeds N kilobytes.             |
-| `--tx-ts`            | Also log TX with `->` prefix and timestamps.                       |
-| `--dump <sec>`       | Headless capture for N seconds. `0` means forever.                 |
-| `--rec <file.cast>`  | Record the session as an asciinema v2 cast file.                   |
-| `--replay <file>`    | Replay a capture through the live UI.                              |
-| `--replay-speed <x>` | Replay multiplier. `0` is as fast as possible.                     |
+| Flag                          | Meaning                                                                  |
+| ----------------------------- | ------------------------------------------------------------------------ |
+| `-l, --log <file>`            | Append log with millisecond timestamps. `Ctrl+A l` toggles inline.       |
+| `--log-max-kb <N>`            | Rotate to `<file>.1` when the log exceeds N kilobytes.                   |
+| `--log-format <text\|json\|raw>` | Log encoding (default `text`). `json` is structured per-line; `raw` is the unrewritten serial byte stream. |
+| `--tx-ts`                     | Also log TX with `->` prefix and timestamps.                             |
+| `--mute-dbg`                  | Drop `<dbg>` level lines from log + scrollback.                          |
+| `--mute-inf`                  | Drop `<inf>` level lines from log + scrollback.                          |
+| `--dump <sec>`                | Headless capture for N seconds. `0` means forever.                       |
+| `--rec <file.cast>`           | Record the session as an asciinema v2 cast file.                         |
+| `--replay <file>`             | Replay a capture through the live UI.                                    |
+| `--replay-speed <x>`          | Replay multiplier. `0` is as fast as possible.                           |
+
+### Framing and CRC
+
+| Flag                              | Meaning                                                                  |
+| --------------------------------- | ------------------------------------------------------------------------ |
+| `--frame <raw\|cobs\|slip\|hdlc\|lenpfx>` | RX frame decoder. `lenpfx` is 16-bit little-endian length-prefixed.      |
+| `--crc <none\|ccitt\|ibm\|crc32>` | Trailing CRC stripped and verified per frame. Mismatches surface as a flash. |
 
 ### Profiles and hooks
 
 | Flag                       | Meaning                                                              |
 | -------------------------- | -------------------------------------------------------------------- |
 | `--profile <name>`         | Load `~/.config/zyterm/<name>.conf` and hot-reload on edits.         |
+| `--profile-save <name>`    | Snapshot every CLI-supplied setting (+ `<DEVICE>` if given) to `~/.config/zyterm/<name>.conf` and exit. |
 | `--on-connect <action>`    | Run shell action after each successful connect. Repeatable.          |
 | `--on-disconnect <action>` | Run shell action on disconnect or exit. Repeatable.                  |
 | `--on-match '/RE/=action'` | Run action on lines matching POSIX ERE. Prefix `send:` to inject TX. |
 
 ### Display and input
 
-| Flag                 | Meaning                                                           |
-| -------------------- | ----------------------------------------------------------------- |
-| `-x, --hex`          | Render RX as a hex dump.                                          |
-| `-e, --echo`         | Start with local echo on. Toggle inline with `Ctrl+A e`.          |
-| `--no-color`         | Disable RX log-level colouring.                                   |
-| `--ts`               | Start with timestamp display on. Toggle inline with `Ctrl+A t`.   |
-| `--watch <pattern>`  | Highlight matching lines. Repeatable up to 8, each gets a colour. |
-| `--watch-beep`       | Emit BEL on every watch match.                                    |
-| `--macro F<n>=<str>` | Bind F1 to F12 to a string. Supports `\r`, `\n`, `\t`, `\xNN`.    |
+| Flag                          | Meaning                                                                  |
+| ----------------------------- | ------------------------------------------------------------------------ |
+| `-x, --hex`                   | Render RX as a hex dump.                                                 |
+| `-e, --echo`                  | Start with local echo on. Toggle inline with `Ctrl+A e`.                 |
+| `--no-color`                  | Disable RX log-level colouring.                                          |
+| `--ts`                        | Start with timestamp display on. Toggle inline with `Ctrl+A t`.          |
+| `--watch <pattern>`           | Highlight matching lines. Repeatable up to 8, each gets a colour.        |
+| `--watch-beep`                | Emit BEL on every watch match.                                           |
+| `--macro F<n>=<str>`          | Bind F1 to F12 to a string. Supports `\r`, `\n`, `\t`, `\xNN`.           |
+| `--map-out <mode>` / `--map-in <mode>` | Rewrite outgoing / incoming line endings. Mode: `none \| cr \| lf \| crlf \| cr-crlf \| lf-crlf`. |
+| `--osc52` / `--no-osc52`      | Push in-app selections to the system clipboard via OSC 52 (default on). |
+
+### HTTP server and streaming
+
+| Flag                | Meaning                                                                       |
+| ------------------- | ----------------------------------------------------------------------------- |
+| `--http <port>`     | Bring up the built-in HTTP server. Endpoints: `GET /` (HTML), `GET /stream` (SSE), `GET /ws` (WebSocket), `GET /api/state`, `POST /api/send`, `GET /metrics`. |
+| `--webroot <dir>`   | Serve static files from `<dir>` (path traversal blocked).                     |
+| `--http-cors`       | Add `Access-Control-Allow-Origin: *` headers.                                 |
+| `--metrics <path>`  | AF\_UNIX socket emitting Prometheus-text counters.                            |
+
+### Sessions and integration
+
+| Flag                | Meaning                                                                       |
+| ------------------- | ----------------------------------------------------------------------------- |
+| `--detach <name>`   | Expose the live session on an AF\_UNIX socket so another zyterm can `--attach` from anywhere on the host. tmux-style. |
+| `--attach <name>`   | Attach to a `--detach`ed session. Ctrl-\ detaches.                            |
+| `--filter <cmd>`    | Pipe RX bytes through `sh -c <cmd>` before display. E.g. `--filter 'grep -v noise'`. |
+| `--diff <a> <b>`    | Diff two capture files and exit.                                              |
+
+### Performance / Advanced I/O
+
+| Flag         | Meaning                                                                                                                            |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `--threaded` | Drain serial on a dedicated worker thread into a 1 MiB SPSC ring. Reduces UART-latency jitter at ≥ 1 Mbaud. Pure overhead below ~500 kbaud — leave off by default. |
 
 ### Misc
 
@@ -250,35 +290,40 @@ flashes the HUD if there's nothing to copy.
 
 ### Ctrl+A menu
 
-| Key | Function                                                           |
-| --- | ------------------------------------------------------------------ |
-| `q` | Quit.                                                              |
-| `x` | Send extended hex byte (e.g. `0x1B` for ESC).                      |
-| `e` | Toggle local echo.                                                 |
-| `c` | Toggle log-level colouring.                                        |
-| `h` | Toggle hex view.                                                   |
-| `t` | Toggle timestamp display.                                          |
-| `l` | Toggle log capture to file.                                        |
-| `b` | Send BREAK.                                                        |
-| `r` | Force reconnect now.                                               |
-| `/` | Search. Type your query, then `n` and `N` to step through matches. |
-| `f` | Cycle flow control (none/RTS·CTS/XON·XOFF).                        |
-| `a` | Toggle the auto-baud probe.                                        |
-| `m` | Toggle mouse capture (on/off). Default is **on**.                  |
-| `s` | Open the session picker (multi-window split or attach).            |
-| `p` | Open the profile menu (saved baud, flow, macro presets).           |
-| `o` | Open settings dialog (4-page serial/display/keyboard/logging).     |
-| `k` | Show keybindings reference popup.                                  |
-| `j` | Cycle log format (text/JSON/raw).                                  |
-| `F` | Cycle framing mode (Raw/COBS/SLIP/HDLC/LenPfx).                    |
-| `K` | Cycle CRC mode.                                                    |
-| `G` | Toggle raw passthrough mode.                                       |
-| `D` | Mute/unmute `<dbg>` log-level lines.                               |
-| `I` | Mute/unmute `<inf>` log-level lines.                               |
-| `Y` | Copy: selection, then log line, then flash. Keyboard clipboard.    |
-| `.` | Open fuzzy finder over scrollback.                                 |
-| `+` | Add a bookmark at current scrollback position.                     |
-| `[` | Show bookmark list.                                                |
+Keys are typed as `Ctrl+A` followed by the letter (e.g. `Ctrl+A q`).
+Most letters are case-insensitive; uppercase variants that mean
+something different are called out explicitly.
+
+| Key       | Function                                                           |
+| --------- | ------------------------------------------------------------------ |
+| `q` / `x` | Quit.                                                              |
+| `?` / `k` | Show the full keybindings reference popup. Any key dismisses it.   |
+| `p`       | Pause / resume scrollback output (the log still writes if open).   |
+| `e`       | Toggle local echo.                                                 |
+| `c`       | Clear screen (also clears the in-flight line accumulator).         |
+| `h`       | Toggle hex dump mode.                                              |
+| `t`       | Toggle inline `[HH:MM:SS.mmm]` timestamps in scrollback.           |
+| `l`       | Start / stop logging (auto-names `zyterm-YYYYMMDD-NNN.txt`).       |
+| `n`       | Rename the current log file (only if a log is open).               |
+| `b`       | Send BREAK.                                                        |
+| `s`       | Print a one-shot RX/TX/lines/uptime stats line.                    |
+| `r`       | Force reconnect now (closes and reopens the device).               |
+| `/`       | Search scrollback. Type the query, then `n` / `N` step matches.    |
+| `f`       | Cycle flow control (none / RTS·CTS / XON·XOFF).                    |
+| `a`       | Send a literal `Ctrl+A` (0x01) byte to the device.                 |
+| `A`       | Run the auto-baud probe at runtime.                                |
+| `m`       | Toggle mouse capture (default ON). OFF lets the host terminal own selection. |
+| `o`       | Open the settings dialog (4 pages).                                |
+| `j`       | Cycle log format (text / JSON / raw).                              |
+| `F`       | Cycle framing mode (raw / COBS / SLIP / HDLC / len16).             |
+| `K`       | Cycle CRC mode (none / CCITT / IBM / CRC32).                       |
+| `G`       | Enter / leave raw passthrough mode (KGDB / GDB stub).              |
+| `D`       | Mute / unmute `<dbg>` level lines.                                 |
+| `I`       | Mute / unmute `<inf>` level lines.                                 |
+| `Y`       | Copy: current mouse selection if any, else the in-flight log line. |
+| `.`       | Open the fuzzy finder over scrollback.                             |
+| `+`       | Add a bookmark at the current scrollback position.                 |
+| `[`       | Show the bookmark list.                                            |
 
 ### Settings dialog (`Ctrl+A` then `o`)
 
@@ -296,6 +341,36 @@ OSC 52 clipboard, hyperlinks, pause, auto-reconnect.
 
 **Page 4 — Logging**: Log status, log file path, log format
 (text/JSON/raw), rotation limit, TX timestamps, bytes written.
+
+## Surviving USB unplug
+
+zyterm runs with `--reconnect` on by default, which means it treats
+hot-unplug as a temporary state rather than a fatal error. When the
+kernel reports the device gone (POLLHUP / `EIO`), zyterm closes the
+fd, fires `--on-disconnect` hooks if any, and shows the centred
+`⚠ connection interrupted` modal.
+
+While the wait loop runs:
+
+- The HUD displays a bright amber **`◆ DISCONNECTED`** pill, so the
+  state stays visible even after you dismiss the modal.
+- **Scrollback still works.** PgUp hides the modal automatically and
+  lets you read back through everything that was on screen at the
+  moment of the unplug. PgDn back to bottom brings the modal back.
+- `Ctrl+A /` (search), `Ctrl+A Y` (copy), `Ctrl+A [` (bookmark list),
+  `Ctrl+A o` (settings), `Ctrl+A k` / `?` (help) all work as normal.
+- Side-effecting keys that need a live serial fd (`Ctrl+A a` / `A`,
+  `Ctrl+A b`) are politely refused with a flash; nothing crashes.
+- `Ctrl+A r` nudges the wait loop into an immediate retry.
+- `Ctrl+A x` (or `q`) exits cleanly.
+
+When the device reappears, zyterm reopens it, fires `--on-connect`
+hooks, and shows a `✓ reconnected` flash. **The view stays where you
+left it** — if you were reading scrollback, you stay in scrollback;
+PgDn to bottom when you're ready to see live data again.
+
+If you'd rather have zyterm exit on disconnect (the classic minicom /
+screen behaviour), pass `--no-reconnect`.
 
 ## Recipes
 
@@ -347,18 +422,28 @@ F1, F2, and F3 now inject those bytes whenever pressed.
 
 ### Auto-baud probe
 
-Power-cycle the target and press `Ctrl+A a`. zyterm cycles through
-common rates (9600 up to 4 000 000) and locks on when it sees a clean
-ASCII frame.
+Power-cycle the target and press `Ctrl+A A` (capital `A`). zyterm
+cycles through common rates (9600 up to 4 000 000) and picks the one
+that yields the highest printable-ASCII ratio. The CLI flag
+`--autobaud` runs the same probe at startup before the first session.
+
+(Note: lowercase `Ctrl+A a` sends a literal `0x01` byte to the device,
+useful for `screen`-style apps on the other end that themselves use
+`Ctrl+A` as a prefix.)
 
 ## Files and environment
 
-| Name                  | Purpose                                                      |
-| --------------------- | ------------------------------------------------------------ |
-| `~/.zyterm/profiles`  | Saved baud, flow, and macro presets (managed by `Ctrl+A p`). |
-| `~/.zyterm/bookmarks` | Per-device bookmark store (managed by `Ctrl+A b`).           |
-| `~/.zyterm/history`   | Line-edit history.                                           |
-| `$ZYTERM_TRACE`       | If set to a path, fatal paths append a trace record there.   |
+| Name                              | Purpose                                                                                       |
+| --------------------------------- | --------------------------------------------------------------------------------------------- |
+| `~/.config/zyterm/<name>.conf`    | Profile files loaded with `--profile <name>` / written by `--profile-save <name>`. Honours `$XDG_CONFIG_HOME` if set. |
+| `~/.cache/zyterm/clipboard`       | Last-resort clipboard fallback when no helper is available.                                   |
+| `$ZYTERM_TRACE`                   | If set to a path, fatal paths append a trace record there.                                    |
+| `$XDG_CONFIG_HOME`                | Overrides the `~/.config` profile directory.                                                  |
+| `$NO_COLOR` / `$TERM=dumb`        | Forces monochrome `--help`.                                                                   |
+
+Bookmarks (`Ctrl+A +` / `Ctrl+A [`) and line-edit history (Up/Down
+arrows in the input bar) are in-memory only; they don't persist across
+runs.
 
 ## Troubleshooting
 
@@ -376,13 +461,18 @@ ASCII frame.
                    z y t e r m
    ┌──────────────────────────────────────────┐
    │ Ctrl+A then ...                          │
-   │   q quit         e echo       h hex      │
-   │   t timestamp    c color      x hex byte │
-   │   l log toggle   b bookmark   r reconnect│
-   │   / search       f fuzzy      a autobaud │
-   │   p profiles     s sessions   k keys     │
-   │   o settings     D mute-dbg   I mute-inf │
-   │ F1..F12  macros          PgUp/PgDn scroll│
-   │ Tab remote-complete      Ctrl+L clear    │
+   │   q/x quit      ?/k help      o settings │
+   │   p pause       e echo        c clear    │
+   │   h hex         t timestamp   m mouse    │
+   │   l log         n rename log  b BREAK    │
+   │   r reconnect   f flow        s stats    │
+   │   a ⇒0x01       A autobaud    Y yank     │
+   │   / search      . fuzzy       + bookmark │
+   │   [ bm list     j log fmt     F frame    │
+   │   K crc         G passthrough             │
+   │   D mute-dbg    I mute-inf               │
+   │                                          │
+   │ F1..F12  macros        PgUp/PgDn scroll  │
+   │ Tab remote-complete    Ctrl+L clear      │
    └──────────────────────────────────────────┘
 ```
