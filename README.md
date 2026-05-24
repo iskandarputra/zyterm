@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/iskandarputra/zyterm/actions/workflows/ci.yml/badge.svg)](https://github.com/iskandarputra/zyterm/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.1.1-green.svg)](https://github.com/iskandarputra/zyterm/releases)
+[![Version](https://img.shields.io/badge/version-1.2.0-green.svg)](https://github.com/iskandarputra/zyterm/releases)
 
 > A simple serial terminal for people who work with hardware every day.
 
@@ -28,7 +28,8 @@ We wanted something that felt a bit more comfortable for daily use, so we built 
 - **Stays responsive under load** — Uses ANSI scrolling regions and an optional reader thread, so your input bar doesn't freeze when the board is spewing boot logs. It handles high baud rates reasonably well, though your mileage may vary depending on the USB adapter.
 - **Built-in search & scrollback** — Press `Ctrl+A` then `/` to search through what your board has printed. Handy when you're looking for that one error buried in a thousand lines.
 - **Live HUD** — A small status bar showing baud rate, parity, throughput, and a sparkline. Nothing fancy, but useful at a glance.
-- **Small and self-contained** — It's a single C binary. No Python, no Node, no runtime dependencies beyond your system's libc. It should build and run on most Linux machines, and macOS too with minor caveats.
+- **Survives USB unplug** — Pull the adapter out mid-session and zyterm shows a disconnect dialog instead of crashing. Scrollback, search, and copy still work while the link is down; reconnecting restores the live tail without disturbing what you were reading.
+- **Small and self-contained** — It's a single C binary. No Python, no Node, no runtime dependencies beyond your system's libc. Linux is the supported and CI-tested target (termios2 custom baud, inotify config reload, `/sys/class/tty` USB discovery, optional epoll fast path); it may build on other Unixes but we don't ship binaries for them.
 
 ### How it compares
 
@@ -57,25 +58,27 @@ make
 ./zyterm /dev/ttyUSB0 -b 115200
 ```
 
-Swap `/dev/ttyUSB0` for whatever your OS shows — `ls /dev/tty*` on Linux, or `ls /dev/cu.*` on macOS.
+Swap `/dev/ttyUSB0` for whatever your OS shows — `ls /dev/tty*`.
 
-To quit, press `Ctrl+A` then `q`.
+To quit, press `Ctrl+A` then `q` (or `x`).
 
 ## The Essentials
 
 Most things are behind `Ctrl+A`. Press it to open the command menu, or use these shortcuts directly:
 
-| Shortcut          | Action                    |
-| :---------------- | :------------------------ |
-| `Ctrl+A` then `q` | Quit                      |
-| `Ctrl+A`          | Open the command menu     |
-| `Ctrl+A` then `/` | Search through scrollback |
-| `Ctrl+A` then `l` | Toggle logging to a file  |
-| `Ctrl+A` then `o` | Open the settings dialog  |
-| `PgUp` / `PgDn`   | Scroll through history    |
-| `Ctrl+L`          | Clear the screen          |
+| Shortcut                | Action                         |
+| :---------------------- | :----------------------------- |
+| `Ctrl+A` then `q` / `x` | Quit                           |
+| `Ctrl+A`                | Open the command menu          |
+| `Ctrl+A` then `?` / `k` | Show all keybindings           |
+| `Ctrl+A` then `/`       | Search through scrollback      |
+| `Ctrl+A` then `l`       | Toggle logging to a file       |
+| `Ctrl+A` then `o`       | Open the settings dialog       |
+| `Ctrl+A` then `r`       | Force reconnect                |
+| `PgUp` / `PgDn`         | Scroll through history         |
+| `Ctrl+L`                | Clear the screen               |
 
-There's more — F-key macros, hex view, fuzzy finding, multi-pane, bookmarks — but you can discover those at your own pace in the [User Guide](docs/USER_GUIDE.md).
+There's more — F-key macros, hex view, fuzzy finding, multi-pane, bookmarks — but you can discover those at your own pace via `Ctrl+A ?` or in the [User Guide](docs/USER_GUIDE.md).
 
 ## A Few Handy Recipes
 
@@ -101,10 +104,10 @@ Replay a saved log:
 
 ### Ubuntu / Debian (.deb)
 
-Grab the latest `.deb` from the [Releases page](https://github.com/iskandarputra/zyterm/releases):
+Grab the latest `.deb` (amd64 or arm64) from the [Releases page](https://github.com/iskandarputra/zyterm/releases) and install:
 
 ```sh
-sudo dpkg -i releases/zyterm_*.deb
+sudo dpkg -i zyterm_*.deb
 ```
 
 ### Build from source
@@ -141,14 +144,6 @@ For clipboard support on X11 desktops, zyterm quietly tries to load `libxcb.so.1
 ## What's Inside
 
 Plain C11, split into ten modules: core, serial, log, proto, render, tui, net, ext, loop, plus `main.c`. Run `make modules` if you're curious about the breakdown. The code is meant to be readable — if you want to see how something works, have a look around `src/`.
-
-## License
-
-MIT. See [LICENSE](LICENSE).
-
----
-
-\*zyterm builds on ideas from every serial terminal that came before it. If it's useful to you, that makes us happy. Stars, bug reports, and patches are always welcome. works, have a look around `src/`. We've tried to keep things straightforward.
 
 ## License
 
