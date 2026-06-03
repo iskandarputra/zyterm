@@ -5,9 +5,25 @@ All notable changes to **zyterm** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+> **[Unreleased] discipline:** record every user-visible change here in the
+> same change that introduces it — don't defer it to release time.
+
 ## [Unreleased]
 
-_No changes yet._
+### Documentation
+- **Docs rebuilt into a kind-based `docs/` tree.** Documentation is now
+  organized by *kind* rather than topic: `reference/` (how it works now),
+  `guide/` (task-oriented learning), `invariants/`, `decisions/` (ADRs),
+  `design/`, `plans/`, `tracking/`, `ops/`, and `archive/`. A router at
+  `docs/README.md` maps the layout. `CONTRIBUTING.md` and `SECURITY.md` now
+  live at the repository root.
+
+### Known issues
+- A source-review audit (recorded 2026-06-03) catalogued **28 defects**,
+  tracked in `docs/tracking/KNOWN_ISSUES.md`. These span pointer-ownership,
+  the unauthenticated local-IPC trust boundary, hostile device RX echoed
+  verbatim, and a handful of advertised-but-dead code paths (OSC 8
+  hyperlinks, the epoll/splice fast path, the fuzzy finder, multi-pane).
 
 ## [1.2.0] — 2026-05-23
 

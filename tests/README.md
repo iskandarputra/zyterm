@@ -49,5 +49,5 @@ for the established pattern.
 - Wall-clock budget: the full suite should finish in under 10 seconds
   on a laptop.
 
-See [docs/ARCHITECTURE.md, section 11](../docs/ARCHITECTURE.md#11-testing-strategy)
+See [CONTRIBUTING.md](../CONTRIBUTING.md) (Tests) and [docs/reference/ARCHITECTURE.md](../docs/reference/ARCHITECTURE.md)
 for the testing rationale.

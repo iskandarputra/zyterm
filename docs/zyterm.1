@@ -1,4 +1,4 @@
-.TH ZYTERM 1 "2026-05" "zyterm 1.2.0" "User Commands"
+.TH ZYTERM 1 "2026-06" "zyterm 1.2.0" "User Commands"
 .SH NAME
 zyterm \- high-performance RTOS serial terminal
 .SH SYNOPSIS
@@ -136,11 +136,12 @@ Send LF as CRLF (Windows-style firmware shells):
 .RE
 .SH FILES
 .TP
-.I ~/.config/zyterm/profiles/
-Saved profiles written by \fB\-\-profile\-save\fR.
-.TP
-.I ~/.zyterm_history
-Line-edit history (created on first run).
+.I ~/.config/zyterm/<name>.conf
+Profiles loaded by \fB\-\-profile\fR and written by \fB\-\-profile\-save\fR
+(honours \fB$XDG_CONFIG_HOME\fR).
+.PP
+Line-edit history and scrollback bookmarks are held in memory only; zyterm
+does not write a history or bookmarks file.
 .SH SEE ALSO
 .BR minicom (1),
 .BR picocom (1),
