@@ -2,7 +2,7 @@
 
 - **Severity:** 🔴 high (heap corruption / abort on the first reconnect when discovery hints are set)
 - **Area:** serial (port discovery) / ownership
-- **Status:** open  (recorded 2026-06-03; not yet fixed)
+- **Status:** ✅ resolved — fixed 2026-06-03 by the ZT-001 single-ownership change; `port_rediscover()`'s `free()` now operates on a heap pointer.
 - **Location:** `src/serial/port_discover.c:171` (free), `src/main.c:717` (the offending assignment)
 
 ## Root cause

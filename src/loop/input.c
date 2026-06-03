@@ -136,7 +136,23 @@ void handle_cmd_key(zt_ctx *c, unsigned char k) {
             close(c->serial.fd);
             c->serial.fd = -1;
         }
-        autobaud_probe(c);
+        if (autobaud_probe(c) != 0 && c->serial.fd < 0) {
+            /* The probe opened nothing and left us with no device. Don't
+             * strand the session at fd == -1 — poll() ignores a negative
+             * fd, so the POLLHUP/POLLERR-driven reconnect path would never
+             * fire and RX would be silently dead while the HUD still shows
+             * "connected" (ZT-005). Recover exactly like Ctrl+A r. */
+            rx_thread_pause(c); /* autobaud unpaused on failure; re-pause for the swap */
+            if (reconnect_attempt(c) == 0) {
+                rx_thread_unpause(c);
+                set_flash(c, "autobaud failed; reconnected to %s", c->serial.device);
+            } else if (c->core.reconnect) {
+                run_reconnect_loop(c); /* unpauses on its own success path */
+            } else {
+                rx_thread_unpause(c);
+                set_flash(c, "autobaud failed; no device \xe2\x80\x94 Ctrl+A r to retry");
+            }
+        }
         break;
     }
     case 's':

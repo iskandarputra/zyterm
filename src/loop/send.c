@@ -28,6 +28,13 @@
 #include <time.h>
 #include <unistd.h>
 
+/* Max wall-clock we keep retrying a blocked serial write before giving up,
+ * so a wedged line (hardware/software flow control held off, CTS stuck low)
+ * can't freeze the single-threaded UI loop indefinitely (ZT-026). The
+ * deadline is reset whenever a write makes progress, so a slow-but-moving
+ * link is never penalised — only a genuinely stuck one. */
+#define ZT_TX_STALL_DEADLINE_S 3.0
+
 /* ------------------------------ send ------------------------------------- */
 
 /* Apply outbound transforms (EOL mapping, then Telnet IAC escaping) to the
@@ -85,17 +92,27 @@ void trickle_send(zt_ctx *c, const unsigned char *buf, size_t n) {
     log_write_tx(c, buf, n);
     http_broadcast_tx(c, buf, n);
     struct timespec d = {0, ZT_FLUSH_DELAY_US * 1000L};
+    struct timespec t_progress;
+    now(&t_progress);
     for (size_t i = 0; i < n; i++) {
         for (;;) {
             ssize_t w = write(c->serial.fd, &buf[i], 1);
             if (w == 1) {
                 c->core.tx_bytes++;
+                now(&t_progress); /* progress resets the stall deadline */
                 break;
             }
             if (w < 0 && errno == EINTR) continue;
             if (w < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                 struct pollfd p = {.fd = c->serial.fd, .events = POLLOUT};
                 if (poll(&p, 1, 250) < 0 && errno != EINTR) goto out;
+                struct timespec tnow;
+                now(&tnow);
+                if (ts_diff_sec(&tnow, &t_progress) > ZT_TX_STALL_DEADLINE_S) {
+                    set_flash(c, "TX stalled (flow control?) \xe2\x80\x94 dropped %zu byte%s", n - i,
+                              (n - i) == 1 ? "" : "s");
+                    goto out;
+                }
                 continue;
             }
             goto out;
@@ -114,18 +131,28 @@ void direct_send(zt_ctx *c, const unsigned char *buf, size_t n) {
 
     log_write_tx(c, buf, n);
     http_broadcast_tx(c, buf, n);
-    size_t off = 0;
+    size_t          off = 0;
+    struct timespec t_progress;
+    now(&t_progress);
     while (off < n) {
         ssize_t w = write(c->serial.fd, buf + off, n - off);
         if (w > 0) {
             c->core.tx_bytes += (uint64_t)w;
             off += (size_t)w;
+            now(&t_progress); /* progress resets the stall deadline */
             continue;
         }
         if (w < 0 && errno == EINTR) continue;
         if (w < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             struct pollfd p = {.fd = c->serial.fd, .events = POLLOUT};
             if (poll(&p, 1, 250) < 0 && errno != EINTR) break;
+            struct timespec tnow;
+            now(&tnow);
+            if (ts_diff_sec(&tnow, &t_progress) > ZT_TX_STALL_DEADLINE_S) {
+                set_flash(c, "TX stalled (flow control?) \xe2\x80\x94 dropped %zu byte%s", n - off,
+                          (n - off) == 1 ? "" : "s");
+                break;
+            }
             continue;
         }
         break;

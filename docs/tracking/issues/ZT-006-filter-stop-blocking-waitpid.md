@@ -3,7 +3,7 @@
 - **Severity:** 🟠 medium (a misbehaving `--filter` child freezes the whole
   interactive terminal indefinitely; no input, no render, no recovery)
 - **Area:** ext (external filter subprocess)
-- **Status:** open  (recorded 2026-06-03; not yet fixed)
+- **Status:** ✅ resolved — fixed 2026-06-03 (branch `fix/zt-001-ownership-and-ui-hangs`). `filter_stop()` now uses a bounded `WNOHANG` grace window + `SIGKILL` escalation; no blocking `waitpid` on the loop tick.
 - **Location:** `src/ext/filter.c:86`
 
 ## Root cause

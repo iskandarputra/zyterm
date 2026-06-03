@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Heap corruption on profile hot-reload / USB replug (ZT-001, ZT-002).**
+  `c->serial.device` was sometimes a borrowed `argv` pointer yet was
+  `free()`d as if heap-owned — by `profile_load()` on an inotify reload and
+  by `port_rediscover()` on reconnect — causing an abort or heap corruption.
+  The device string is now always heap-owned (duplicated at assignment,
+  freed once on exit); this also closes the related startup leak (ZT-016).
+  (`src/main.c`, `src/ext/profile.c`, `src/serial/port_discover.c`)
+- **Device stranded after a failed interactive autobaud (ZT-005).** A failed
+  `Ctrl+A A` left `serial.fd == -1` with no recovery path (RX silently dead,
+  HUD still "connected"); it now drives the reconnect flow like `Ctrl+A r`.
+  (`src/loop/input.c`)
+- **UI hang on filter teardown (ZT-006).** `filter_stop()` no longer issues a
+  blocking `waitpid()` from the event loop — it reaps with a short grace
+  window then escalates to `SIGKILL`. (`src/ext/filter.c`)
+- **UI hang on a flow-controlled serial write (ZT-026).** Outgoing writes now
+  bound their `EAGAIN` retry with a progress-resetting stall deadline and
+  report "TX stalled" instead of looping forever. (`src/loop/send.c`)
+
 ### Documentation
 - **Docs rebuilt into a kind-based `docs/` tree.** Documentation is now
   organized by *kind* rather than topic: `reference/` (how it works now),
@@ -19,8 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   live at the repository root.
 
 ### Known issues
-- A source-review audit (recorded 2026-06-03) catalogued **28 defects**,
-  tracked in `docs/tracking/KNOWN_ISSUES.md`. These span pointer-ownership,
+- A source-review audit (recorded 2026-06-03) catalogued **28 defects**
+  (6 since fixed — see **Fixed** above), tracked in
+  `docs/tracking/KNOWN_ISSUES.md`. These span pointer-ownership,
   the unauthenticated local-IPC trust boundary, hostile device RX echoed
   verbatim, and a handful of advertised-but-dead code paths (OSC 8
   hyperlinks, the epoll/splice fast path, the fuzzy finder, multi-pane).

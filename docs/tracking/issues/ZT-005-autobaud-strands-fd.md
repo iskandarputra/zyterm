@@ -4,7 +4,7 @@
   reads "connected"; recovery needs a manual reconnect the operator has no
   reason to attempt)
 - **Area:** loop / serial
-- **Status:** open  (recorded 2026-06-03; not yet fixed)
+- **Status:** ✅ resolved — fixed 2026-06-03 (branch `fix/zt-001-ownership-and-ui-hangs`). The `Ctrl+A A` failure path now recovers like `Ctrl+A r` instead of leaving `fd == -1`.
 - **Location:** `src/loop/input.c:130` (the `Ctrl+A A` handler), with the
   consequence in `src/loop/runtime.c:118`
 

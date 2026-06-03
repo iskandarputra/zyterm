@@ -2,7 +2,7 @@
 
 - **Severity:** 🔴 critical (heap corruption / abort triggered by a routine config edit while running)
 - **Area:** ext (profile hot-reload) / ownership
-- **Status:** open  (recorded 2026-06-03; not yet fixed)
+- **Status:** ✅ resolved — fixed 2026-06-03 (branch `fix/zt-001-ownership-and-ui-hangs`). `serial.device` is now always heap-owned (`strdup` at `main.c`, freed once in teardown); verified clean under ASan/UBSan.
 - **Location:** `src/ext/profile.c:93` (free), `src/main.c:717` (the offending assignment)
 
 ## Root cause

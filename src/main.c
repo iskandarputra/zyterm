@@ -712,9 +712,16 @@ int zyterm_main(int argc, char **argv) {
         }
         char *found = port_discover(c.serial.port_glob, c.serial.match_vid, c.serial.match_pid);
         if (!found) zt_die("zyterm: no device matched --port-glob / --match-vid-pid");
+        free((void *)c.serial.device); /* a --profile may have set a heap copy (ZT-016) */
         c.serial.device = found;
     } else {
-        c.serial.device = argv[optind];
+        /* Own the device string on every path so profile_load() and
+         * port_rediscover() can free()+strdup() it safely (ZT-001/ZT-002),
+         * and a device= set earlier by --profile isn't leaked (ZT-016).
+         * The discovery path above already returns a strdup'd buffer. */
+        free((void *)c.serial.device);
+        c.serial.device = strdup(argv[optind]);
+        if (!c.serial.device) zt_die("zyterm: out of memory (device)");
     }
 
     if (log_path) {
@@ -817,6 +824,7 @@ int zyterm_main(int argc, char **argv) {
     free(c.net.metrics_path);
     free(c.net.session_name);
     free(c.net.http_webroot);
+    free((void *)c.serial.device); /* heap-owned on every path that reaches here (ZT-001) */
     return rc;
 }
 
