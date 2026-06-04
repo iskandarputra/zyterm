@@ -71,18 +71,29 @@ void draw_disconnect_popup(zt_ctx *c, int dots) {
              c->serial.device, anim);
 
     char line_baud[96];
+    /* parity is stored as the ASCII selector ('n'/'e'/'o'), matching
+     * setup_serial(), the HUD and the Ctrl+A p toggle — not a 0/1/2 code. */
     snprintf(line_baud, sizeof line_baud, "\033[2;38;5;245m%u baud \xc2\xb7 %d%c%d\033[0m",
              c->serial.baud, c->serial.data_bits,
-             c->serial.parity == 0 ? 'N' : (c->serial.parity == 1 ? 'O' : 'E'),
+             c->serial.parity == 'e' || c->serial.parity == 'E'   ? 'E'
+             : c->serial.parity == 'o' || c->serial.parity == 'O' ? 'O'
+                                                                  : 'N',
              c->serial.stop_bits);
 
+    /* Cold start (never connected) vs. a mid-session drop get different
+     * wording so the modal never claims a link was "lost" that never existed. */
+    const char *status_line =
+        c->tui.never_connected
+            ? "\033[38;5;208m\xe2\x97\x8c\033[0m \033[1;97mdevice not connected\033[0m"
+            : "\033[38;5;208m\xe2\x97\x8f\033[0m \033[1;97mdevice link lost\033[0m";
+    const char *title =
+        c->tui.never_connected ? "waiting for device" : "connection interrupted";
+
     const char *body[] = {
-        "",        "\033[38;5;208m\xe2\x97\x8f\033[0m \033[1;97mdevice link lost\033[0m",
-        "",        line_wait,
-        line_baud, "",
+        "", status_line, "", line_wait, line_baud, "",
     };
-    draw_dialog(c, "\xe2\x9a\xa0",                          /* ⚠ */
-                "connection interrupted", "\033[38;5;208m", /* amber accent */
+    draw_dialog(c, "\xe2\x9a\xa0",       /* ⚠ */
+                title, "\033[38;5;208m", /* amber accent */
                 body, (int)(sizeof body / sizeof body[0]),
                 "Ctrl+A x to quit \xc2\xb7 Ctrl+A r to force retry");
     ob_flush();
@@ -112,7 +123,9 @@ void run_reconnect_loop(zt_ctx *c) {
         close(c->serial.fd);
         c->serial.fd = -1;
     }
-    hooks_on_event(c, ZT_HOOK_EVENT_DISCONNECT);
+    /* On a cold start the link never existed, so a DISCONNECT event would be
+     * spurious — the matching CONNECT fires below on first successful open. */
+    if (!c->tui.never_connected) hooks_on_event(c, ZT_HOOK_EVENT_DISCONNECT);
     /* Dismiss command mode + scrollbar drag; we will own the popup state. */
     c->tui.command_mode = false;
     c->tui.sb_dragging  = false;
@@ -211,8 +224,12 @@ void run_reconnect_loop(zt_ctx *c) {
              * just flash that we're back and let them PgDn to live
              * when they're ready. */
             apply_layout(c);
-            set_flash(c, "\xe2\x9c\x93 reconnected");
-            c->tui.ui_dirty = true;
+            if (c->tui.never_connected)
+                set_flash(c, "\xe2\x9c\x93 connected to %s", c->serial.device);
+            else
+                set_flash(c, "\xe2\x9c\x93 reconnected");
+            c->tui.never_connected = false;
+            c->tui.ui_dirty        = true;
             hooks_on_event(c, ZT_HOOK_EVENT_CONNECT);
             return;
         }

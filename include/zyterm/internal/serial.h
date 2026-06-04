@@ -16,12 +16,15 @@
 
 /* ── serial/serial.c ───────────────────────────────────────────────────── */
 int set_custom_baud(int fd, unsigned baud);
-int setup_serial(const char *path, unsigned baud, int data_bits, char parity, int stop_bits,
-                 int flow);
-int apply_flow(int fd, int flow);
-int try_reopen_serial(const char *path, unsigned baud, int data_bits, char parity,
-                      int stop_bits, int flow);
-int reconnect_attempt(zt_ctx *c);
+/** True when a failed initial open()/connect (errno @c err) means "device not
+ *  present yet" and the cold-start path should wait rather than abort. */
+bool serial_open_err_transient(int err);
+int  setup_serial(const char *path, unsigned baud, int data_bits, char parity, int stop_bits,
+                  int flow);
+int  apply_flow(int fd, int flow);
+int  try_reopen_serial(const char *path, unsigned baud, int data_bits, char parity,
+                       int stop_bits, int flow);
+int  reconnect_attempt(zt_ctx *c);
 
 /* ── serial/fastio.c ───────────────────────────────────────────────────── */
 int  fastio_init(zt_ctx *c);

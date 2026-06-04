@@ -735,12 +735,36 @@ int zyterm_main(int argc, char **argv) {
      * the highest printable-ASCII ratio. */
     bool autobaud_pending = (c.serial.baud == 0);
     if (autobaud_pending) c.serial.baud = 115200;
-    c.serial.fd = setup_serial(c.serial.device, c.serial.baud, c.serial.data_bits,
-                               c.serial.parity, c.serial.stop_bits, c.serial.flow);
-    if (autobaud_pending) {
+
+    /* Cold start: try a non-fatal open first. If the device simply isn't here
+     * yet (unplugged USB, tcp:// peer still booting) and auto-reconnect is on
+     * — the default — boot straight into the wait-for-device UI instead of
+     * dying, mirroring the hot-unplug behaviour. Any other failure (bad perms,
+     * not a TTY, --no-reconnect) falls through to setup_serial() for the exact
+     * diagnostic + exit. */
+    c.serial.fd = try_reopen_serial(c.serial.device, c.serial.baud, c.serial.data_bits,
+                                    c.serial.parity, c.serial.stop_bits, c.serial.flow);
+    if (c.serial.fd < 0) {
+        int open_err = errno;
+        /* Only the interactive UI can wait for a device; a headless --dump
+         * capture with no device should fail fast. */
+        if (c.core.reconnect && dump_secs < 0 && serial_open_err_transient(open_err)) {
+            c.tui.disconnected    = true;
+            c.tui.never_connected = true;
+        } else {
+            /* Reproduce the precise fatal error (setup_serial zt_die()s). */
+            errno       = open_err;
+            c.serial.fd = setup_serial(c.serial.device, c.serial.baud, c.serial.data_bits,
+                                       c.serial.parity, c.serial.stop_bits, c.serial.flow);
+        }
+    }
+    if (autobaud_pending && c.serial.fd >= 0) {
         log_notice(&c, "autobaud: probing common rates \xe2\x80\xa6");
         if (autobaud_probe(&c) != 0)
             zt_warn("autobaud: no printable traffic detected; staying at %u", c.serial.baud);
+    } else if (autobaud_pending) {
+        log_notice(&c, "autobaud: deferred \xe2\x80\x94 device offline; will open at %u baud",
+                   c.serial.baud);
     }
 
     /* ── start subsystems that were configured via CLI flags ── */
@@ -748,14 +772,18 @@ int zyterm_main(int argc, char **argv) {
     if (c.net.metrics_path) metrics_start(&c, c.net.metrics_path);
     if (c.ext.filter_cmd) filter_start(&c, c.ext.filter_cmd);
     if (c.net.session_name) session_detach(&c, c.net.session_name);
-    if (c.serial.spsc_enabled) rx_thread_start(&c);
+    /* The reader thread dups c.serial.fd; only start it once we hold a live
+     * one. On a cold-start wait the reconnect loop starts it via
+     * rx_thread_unpause() the moment the device appears. */
+    if (c.serial.spsc_enabled && c.serial.fd >= 0) rx_thread_start(&c);
 
     if (c.ext.profile_name) (void)profile_watch_start(&c, c.ext.profile_name);
 
     /* Fire CONNECT hooks once after subsystems boot and the serial fd
      * is open. Reconnect-loop wakes also fire on every successful
-     * re-open via reconnect.c. */
-    hooks_on_event(&c, ZT_HOOK_EVENT_CONNECT);
+     * re-open via reconnect.c — including the first open when we booted
+     * waiting for the device, so don't fire here in that case. */
+    if (c.serial.fd >= 0) hooks_on_event(&c, ZT_HOOK_EVENT_CONNECT);
 
     if (c.log.rec_path) {
         if (cast_record_open(&c, c.log.rec_path) != 0)

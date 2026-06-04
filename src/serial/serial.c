@@ -110,6 +110,33 @@ int set_custom_baud(int fd, unsigned baud) {
 #endif
 }
 
+/* True when a failed initial open()/connect should be treated as "the device
+ * just isn't here yet" rather than a hard configuration error. This is the
+ * same policy the hot-unplug reconnect loop already applies at runtime, lifted
+ * to the cold-start path: launching with the cable unplugged (or a tcp:// peer
+ * that hasn't come up) parks in the wait-for-device UI instead of dying.
+ *
+ * Deliberately NOT transient: EACCES (permission — typically a permanent
+ * dialout-group problem the user must fix, so we surface it) and ENOTTY /
+ * everything else (a real misconfiguration like pointing at a regular file). */
+bool serial_open_err_transient(int err) {
+    switch (err) {
+    /* local tty: device node absent or no hardware behind it */
+    case ENOENT: /* /dev node not created — USB adapter unplugged   */
+    case ENXIO:  /* node exists, nothing answering behind it        */
+    case ENODEV: /* driver/device went away                         */
+    /* tcp:// / telnet:// / rfc2217:// peer not reachable yet */
+    case ECONNREFUSED:
+    case ETIMEDOUT:
+    case EHOSTUNREACH:
+    case ENETUNREACH:
+    case ECONNRESET:
+    case EHOSTDOWN:
+    case ENETDOWN: return true;
+    default: return false;
+    }
+}
+
 int setup_serial(const char *path, unsigned baud, int data_bits, char parity, int stop_bits,
                  int flow) {
     /* Network transport: tcp:// telnet:// rfc2217:// — return a connected

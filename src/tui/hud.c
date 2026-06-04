@@ -165,7 +165,8 @@ void draw_hud(zt_ctx *c) {
      * to miss in the HUD. */
     if (c->tui.disconnected) {
         mo += (size_t)snprintf(modes + mo, sizeof modes - mo,
-                               "  \033[1;38;5;208m\xe2\x97\x86 DISCONNECTED\033[0m");
+                               "  \033[1;38;5;208m\xe2\x97\x86 %s\033[0m",
+                               c->tui.never_connected ? "WAITING" : "DISCONNECTED");
     }
 #undef MPILL
 

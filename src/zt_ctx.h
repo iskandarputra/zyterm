@@ -234,6 +234,13 @@ typedef struct {
         bool            disconnected; /**< Reconnect popup is owning the screen —
                                             handle_cmd_key gates side-effecting
                                             keys behind this. */
+        bool never_connected;         /**< Cold start: the device was absent
+                                           at launch and we have not opened a
+                                           link yet. Flips the reconnect popup
+                                           + HUD wording from "interrupted /
+                                           reconnected" to "waiting / connected"
+                                           and suppresses the spurious DISCONNECT
+                                           hook on boot. Cleared on first open. */
         bool keybind_visible;         /**< Ctrl+A k/? help popup on screen;
                                            ANY next key dismisses it via the
                                            transient-overlay check at the top

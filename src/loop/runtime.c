@@ -30,6 +30,44 @@
 
 /* ------------------------------ run loop --------------------------------- */
 
+/* Top-of-screen masthead. Reflects the live link state: a green "connected"
+ * line normally, an amber "waiting for <device>" line when we booted with the
+ * device absent (c->tui.disconnected). Brackets the write in DECRC/DECSC so it
+ * lands in the saved-cursor region without disturbing the scroll position. */
+static void draw_masthead(zt_ctx *c) {
+    char banner[512];
+    int  bn;
+    if (c->tui.disconnected) {
+        bn = snprintf(banner, sizeof banner,
+                      "\0338\033[38;5;60m\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\033[0m "
+                      "\033[1;38;5;111mzyterm " ZT_VERSION "\033[0m "
+                      "\033[38;5;60m\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\033[0m\r\n"
+                      "    \033[38;5;208m\xe2\x97\x8c\033[0m "
+                      "\033[38;5;252mwaiting for "
+                      "\033[1;38;5;220m%s\033[0;38;5;252m @ "
+                      "\033[1;38;5;80m%u\033[0;38;5;252m baud \xe2\x80\xa6\033[0m\r\n"
+                      "    \033[38;5;60m\xe2\x94\x94\033[0m "
+                      "\033[38;5;245mCtrl+A x \xe2\x86\x92 quit  "
+                      "\xc2\xb7  Ctrl+A r \xe2\x86\x92 retry now\033[0m\r\n\0337",
+                      c->serial.device, c->serial.baud);
+    } else {
+        bn = snprintf(banner, sizeof banner,
+                      "\0338\033[38;5;60m\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\033[0m "
+                      "\033[1;38;5;111mzyterm " ZT_VERSION "\033[0m "
+                      "\033[38;5;60m\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\033[0m\r\n"
+                      "    \033[38;5;114m\xe2\x97\x8f\033[0m "
+                      "\033[38;5;252mconnected to "
+                      "\033[1;38;5;183m%s\033[0;38;5;252m @ "
+                      "\033[1;38;5;80m%u\033[0;38;5;252m baud\033[0m\r\n"
+                      "    \033[38;5;60m\xe2\x94\x94\033[0m "
+                      "\033[38;5;245mCtrl+A \xe2\x86\x92 menu  "
+                      "\xc2\xb7  Ctrl+A ? \xe2\x86\x92 help  "
+                      "\xc2\xb7  drag \xe2\x86\x92 select+copy\033[0m\r\n\0337",
+                      c->serial.device, c->serial.baud);
+    }
+    if (bn > 0) (void)zt_write_all(STDOUT_FILENO, banner, (size_t)bn);
+}
+
 int run_interactive(zt_ctx *c) {
     setup_stdin_raw();
     /* Register restore_terminal at most once per process — ATEXIT_MAX is
@@ -73,23 +111,7 @@ int run_interactive(zt_ctx *c) {
     c->tui.mouse_tracking = true;
     apply_layout(c);
 
-    (void)zt_write_cstr(STDOUT_FILENO, "\0338");
-    char banner[512];
-    int  bn = snprintf(banner, sizeof banner,
-                       "\033[38;5;60m\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\033[0m "
-                        "\033[1;38;5;111mzyterm " ZT_VERSION "\033[0m "
-                        "\033[38;5;60m\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\033[0m\r\n"
-                        "    \033[38;5;114m\xe2\x97\x8f\033[0m "
-                        "\033[38;5;252mconnected to "
-                        "\033[1;38;5;183m%s\033[0;38;5;252m @ "
-                        "\033[1;38;5;80m%u\033[0;38;5;252m baud\033[0m\r\n"
-                        "    \033[38;5;60m\xe2\x94\x94\033[0m "
-                        "\033[38;5;245mCtrl+A \xe2\x86\x92 menu  "
-                        "\xc2\xb7  Ctrl+A ? \xe2\x86\x92 help  "
-                        "\xc2\xb7  drag \xe2\x86\x92 select+copy\033[0m\r\n",
-                       c->serial.device, c->serial.baud);
-    if (bn > 0) (void)zt_write_all(STDOUT_FILENO, banner, (size_t)bn);
-    (void)zt_write_cstr(STDOUT_FILENO, "\0337");
+    draw_masthead(c);
     draw_hud(c);
     draw_input(c);
     ob_flush();
@@ -98,6 +120,18 @@ int run_interactive(zt_ctx *c) {
     c->core.t_last_hud   = c->core.t_start;
     c->core.t_last_paint = c->core.t_start;
     c->tui.ui_dirty      = false;
+
+    /* Cold start with the device absent: park in the wait-for-device loop
+     * before the main poll loop ever runs. It draws the "waiting for <device>"
+     * modal and returns once the link is up (or the user quits). On success it
+     * has already fired the CONNECT hook and restarted the reader thread, so
+     * we just refresh the masthead to the connected variant and fall through. */
+    if (c->tui.disconnected) {
+        run_reconnect_loop(c);
+        if (zt_g_quit) return 0;
+        draw_masthead(c);
+        c->tui.ui_dirty = true;
+    }
 
     unsigned char rbuf[ZT_READ_CHUNK];
     struct pollfd pfds[3];
