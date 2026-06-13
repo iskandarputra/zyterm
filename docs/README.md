@@ -6,7 +6,7 @@ of thing it is — and therefore how much to trust it, who maintains it, and whe
 "the event loop must never block" is an invariant; "logging is silently lost after the first
 rotation" is a known issue. Find the kind first, then the topic.
 
-zyterm is a single-binary Linux serial-terminal emulator in C (~12.5K LOC), version **1.2.0**
+zyterm is a single-binary Linux serial-terminal emulator in C (~12.5K LOC), version **1.3.0**
 (`ZT_VERSION`, `src/zt_ctx.h:70`).
 
 ---

@@ -7,7 +7,7 @@ in [`docs/`](docs/) — this file points at them.
 ## What zyterm is
 
 zyterm is a single-binary Linux serial-terminal emulator written in C (~12.5K LOC, version
-**1.2.0**). It opens a serial port (or a `tcp://` / `telnet://` transport), renders RX in a small
+**1.3.0**). It opens a serial port (or a `tcp://` / `telnet://` transport), renders RX in a small
 TUI with a HUD, and supports framing/CRC decoders, XMODEM/YMODEM/ZMODEM transfers, autobaud,
 auto-reconnect with port discovery, logging (text/json/raw with rotation), scrollback with regex
 search and bookmarks, profiles, event hooks, detach/attach sessions, an HTTP/SSE/WS bridge with
@@ -36,7 +36,7 @@ These are structural. Do not break them, and do not write docs that contradict t
   `core ← serial ← log ← proto ← render ← tui ← net ← ext ← loop`. `main.c` is the only translation
   unit allowed into `loop/`; the umbrella `src/zt_internal.h` includes only `loop.h`. Verify in
   [`docs/invariants/INVARIANTS.md`](docs/invariants/INVARIANTS.md) §8.
-- **Version source of truth.** `ZT_VERSION` is `"1.2.0"` at `src/zt_ctx.h:70`. Release tagging
+- **Version source of truth.** `ZT_VERSION` is `"1.3.0"` at `src/zt_ctx.h:70`. Release tagging
   checks `tag == ZT_VERSION`; never hard-code the version elsewhere.
 
 ## The one rule

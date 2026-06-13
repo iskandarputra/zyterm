@@ -1,6 +1,6 @@
 # zyterm internals
 
-Deep per-subsystem mechanics for zyterm 1.2.0. This is the level below
+Deep per-subsystem mechanics for zyterm 1.3.0. This is the level below
 [ARCHITECTURE.md](ARCHITECTURE.md): each section walks one mechanism as it actually exists
 in `src/`, with `file.c:line` citations you can open. For the higher-level module map and
 dependency chain see ARCHITECTURE.md; for the don't-regress rules referenced throughout, see

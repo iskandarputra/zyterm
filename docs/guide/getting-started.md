@@ -174,9 +174,10 @@ Two command keys are easy to misread, so to be explicit: `Ctrl+A a` sends a
 literal `0x01` (Ctrl+A) byte *to the device*, and `Ctrl+A A` (capital) runs an
 autobaud probe. Older notes claimed `a` was autobaud — it isn't.
 
-The `Ctrl+A .` "fuzzy history" entry shown in the reference popup is **not
-functional** in 1.2.0; don't rely on it. See
-[tracking/KNOWN_ISSUES.md](../tracking/KNOWN_ISSUES.md) (ZT-008).
+The `Ctrl+A .` "fuzzy history" finder filters your input history as you type.
+It was non-functional before 1.3.0 — it scanned from an always-NULL slot and no
+keystrokes reached it — and was repaired in the ZT-008 fix; see
+[tracking/KNOWN_ISSUES.md](../tracking/KNOWN_ISSUES.md).
 
 ## Quitting
 

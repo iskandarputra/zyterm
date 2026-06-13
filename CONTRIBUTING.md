@@ -1,6 +1,6 @@
 # Contributing to zyterm
 
-zyterm is a single-binary Linux serial terminal in C (~12.5K LOC, version 1.2.0). It is small,
+zyterm is a single-binary Linux serial terminal in C (~12.5K LOC, version 1.3.0). It is small,
 the build is plain, and the rules that protect it are few. This document is the change loop: how
 to build and run, how code is styled, the one structural rule you cannot break, how to add code
 and tests, how to commit, and — the part that keeps the project honest — how to work with `docs/`.

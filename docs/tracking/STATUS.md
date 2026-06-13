@@ -16,7 +16,7 @@ This board records *state*, not the detailed work. Where the work itself lives:
 
 ## Shipped
 
-The real, verified-working feature set of zyterm 1.2.0. Each line is grounded in `src/`; anything
+The real, verified-working feature set of zyterm 1.3.0. Each line is grounded in `src/`; anything
 absent or marked deferred below is not a working feature.
 
 | Area | State | Notes |

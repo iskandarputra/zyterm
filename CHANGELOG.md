@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-06-13
+
+Security-audit closeout. Closes the 28-defect source-review audit recorded
+2026-06-03 — the unauthenticated `POST /tx` device-command path, hostile-device
+RX driving the operator's terminal, world-reachable IPC sockets, and a long tail
+of silent-failure, bounds, and memory-leak fixes — adds opt-in `--http-token`
+bridge auth, makes the cold-start path wait for the device instead of aborting,
+and rebuilds `docs/` into a source-verified, kind-based tree.
+
 ### Added
 - **`--http-token <tok>`.** When set, the HTTP bridge requires
   `Authorization: Bearer <tok>` on the state-changing routes `POST /tx` and
@@ -456,7 +465,8 @@ Initial public release.
 - Headless capture (`--dump <sec>`)
 - Log rotation (`--log-max-kb`)
 
-[Unreleased]: https://github.com/iskandarputra/zyterm/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/iskandarputra/zyterm/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/iskandarputra/zyterm/releases/tag/v1.3.0
 [1.2.0]: https://github.com/iskandarputra/zyterm/releases/tag/v1.2.0
 [1.1.3]: https://github.com/iskandarputra/zyterm/releases/tag/v1.1.3
 [1.1.2]: https://github.com/iskandarputra/zyterm/releases/tag/v1.1.2
