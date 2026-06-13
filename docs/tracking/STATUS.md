@@ -42,7 +42,7 @@ absent or marked deferred below is not a working feature.
 | Pager | ✅ | `src/tui/pager.c`. |
 | Settings menu | ✅ | `Ctrl+A o` — 4 pages (serial / screen / keyboard / logging). |
 | Clipboard | ✅ | In-app mouse selection, OSC 52, and native xcb clipboard (runtime `dlopen("libxcb.so.1")`) — `src/proto/clipboard.c`. |
-| SGR passthrough | ✅ | `src/proto/sgr_passthrough.c`. |
+| Device SGR filter | ✅ | Bounded SGR-only filter, **on by default**: device colour renders, OSC/cursor/title still neutralized; `--no-sgr` (or settings `E`) = strict deny-all. `src/proto/sgr_passthrough.c` (`sgr_feed`) → [ADR-0009](../decisions/0009-device-rx-sgr-only-filter.md). |
 | KGDB passthrough | ✅ | `Ctrl+A G` raw passthrough. |
 | Diff | ✅ | `--diff <a> <b>` (`src/ext/diff.c`). |
 | Embedding API | ✅ | 7 exported symbols, `build/zyterm_embed.a` — see [EMBEDDING.md](../reference/EMBEDDING.md). |

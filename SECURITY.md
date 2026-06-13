@@ -72,15 +72,20 @@ token. The CORS block advertises only read-only `GET, OPTIONS` (`src/net/http.c`
 
 ### 3. A hostile device injecting terminal escapes via RX — default-denied
 
-Device RX is no longer echoed verbatim. The render path default-denies escapes: ESC and other
-C0/DEL controls are rewritten to inert `cat -v` caret notation (`^[`, `^G`, …) before reaching the
-terminal, so **OSC 52 clipboard hijack**, **window-title injection** and cursor/screen spoofs are
-neutralized. `\t` and UTF-8 pass through. Raw device escapes require the explicit, off-by-default
-`passthrough` / `sgr_passthrough` opt-in. (**ZT-003 — fixed**, `src/render/render.c`,
+Device RX is no longer echoed verbatim. By default the render path runs a **bounded SGR-only
+filter** (ADR-0009): well-formed `CSI … m` colour sequences pass, but ESC and every other
+control/escape — **OSC 52 clipboard hijack**, **window-title injection**, cursor/erase/alt-screen
+spoofs — are rewritten to inert `cat -v` caret notation (`^[`, `^G`, …) before reaching the
+terminal. SGR is the one escape class that cannot drive the terminal, and the parser whitelists
+only digit/`;`/`:` parameters (so `CSI ? 1 m` and friends are rejected) with a fixed, overflow-safe
+buffer. `\t` and UTF-8 pass through. `--no-sgr` selects strict deny-all (colour neutralized too).
+Full raw passthrough (`Ctrl+A G`) remains an explicit, off-by-default opt-in. (**ZT-003 / ZT-029 —
+fixed**, `src/render/render.c`, `src/proto/sgr_passthrough.c`,
 [detail](docs/tracking/issues/ZT-003-device-rx-escape-injection.md).)
 
-- *Residual risk:* if you enable a passthrough mode you are back to trusting the device's escapes —
-  only do so for devices you trust.
+- *Residual risk:* enabling full raw passthrough puts you back to trusting all of the device's
+  escapes — only do so for devices you trust. 8-bit C1 controls are not filtered (that range
+  carries UTF-8); see ADR-0009.
 
 ---
 

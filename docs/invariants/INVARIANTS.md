@@ -237,28 +237,35 @@ accumulator is fixed-size, so **every write into a decoder buffer is bounded** a
 
 The operator's terminal is a trust sink: bytes written to it can move the cursor, set the title,
 or drive OSC 52 clipboard writes. Device RX is **untrusted** (see
-[ADR-0008](../decisions/0008-device-rx-escape-default-deny.md)). The rule: **device RX must not be
-able to inject escape sequences into the operator's terminal** unless the operator explicitly opted
-into raw passthrough.
+[ADR-0008](../decisions/0008-device-rx-escape-default-deny.md) and
+[ADR-0009](../decisions/0009-device-rx-sgr-only-filter.md)). The rule: **a device must not be able
+to inject any escape sequence other than colour (SGR) into the operator's terminal** unless the
+operator explicitly opted into raw passthrough.
 
-- **Device RX is filtered before it reaches the operator terminal.** The render path default-denies
-  dangerous escapes: ESC and other C0/DEL controls are rewritten to inert `cat -v` caret notation
-  (`^[`, `^G`, …) before they enter `c->log.line`; `\t` and UTF-8 high bytes pass; `\r`/`\n` are
-  handled separately. Only the explicit `passthrough` / `sgr_passthrough` opt-ins emit device
-  escapes unmediated.
-  - `where`: `src/render/render.c` (`rx_line_putc` + the `raw_ok` gate in `render_rx`'s byte loop).
-    Closed [ZT-003](../tracking/issues/ZT-003-device-rx-escape-injection.md).
+- **Device RX is filtered before it reaches the operator terminal.** `render_rx` runs one of three
+  modes: STRICT neutralizes *every* escape; SGR_FILTER (the default) passes only well-formed SGR and
+  neutralizes the rest; RAW passes everything. In STRICT and SGR_FILTER, ESC and other C0/DEL
+  controls are rewritten to inert `cat -v` caret notation (`^[`, `^G`, …) before they enter
+  `c->log.line`; `\t` and UTF-8 high bytes pass; `\r`/`\n` are handled separately.
+  - `where`: `src/render/render.c` (`emit_inert_byte` + the `esc_mode` gate in `render_rx`'s byte
+    loop). Closed [ZT-003](../tracking/issues/ZT-003-device-rx-escape-injection.md).
 
-- **Dangerous OSC sequences are default-deny.** A device must not silently write the operator's
-  clipboard (OSC 52) or set the terminal title via emitted RX. Allowing them requires an explicit
-  operator toggle, not a default — enforced by the caret-notation filter above.
-  - `where`: render path `src/render/render.c`; clipboard module `src/proto/clipboard.c`.
-    See [ZT-003](../tracking/issues/ZT-003-device-rx-escape-injection.md).
+- **Dangerous OSC / cursor / DCS sequences are default-deny — only SGR colour is allowed by
+  default.** A device must not silently write the operator's clipboard (OSC 52), set the terminal
+  title, or move/erase the screen via emitted RX. The SGR filter (`sgr_feed`) admits *only*
+  `ESC [ <params> m` whose parameter bytes are digits, `;` or `:` — a private-parameter marker
+  (`< = > ?`) or intermediate, even with an `m` final (e.g. `CSI ? 1 m`), is neutralized. The param
+  buffer is fixed (`ZT_SGR_PARAM_CAP`) and overflow aborts to inert, so the parser cannot overrun.
+  - `where`: `src/proto/sgr_passthrough.c` (`sgr_feed`); render path `src/render/render.c`;
+    clipboard module `src/proto/clipboard.c`. See
+    [ZT-003](../tracking/issues/ZT-003-device-rx-escape-injection.md) / ADR-0009.
 
-- **SGR and KGDB/raw passthrough are explicit, gated modes.** When the operator enables
-  `sgr_passthrough` or `passthrough`, device escapes pass through *by request*. These flags are the
-  only sanctioned way device RX reaches the terminal unfiltered, and they must not be on by default.
-  - `where`: `src/zt_ctx.h:371` (`sgr_passthrough`), `:374` (`passthrough`).
+- **SGR-filter is the default; KGDB/raw passthrough is an explicit opt-in that must stay off by
+  default.** `proto.sgr_passthrough` (SGR_FILTER) is on by default and is *safe* — it only ever
+  forwards colour. `proto.passthrough` (RAW) forwards every escape and must remain off by default;
+  it is the deliberate, surfaced choice for a trusted device. `--no-sgr` selects STRICT.
+  - `where`: `src/zt_ctx.h` proto struct (`sgr_passthrough`, `sgr` parser, `passthrough`);
+    default set in `src/main.c`; RAW toggled by `Ctrl+A G` (`src/loop/input.c`).
 
 - **All terminal output goes through the output buffer (`ob_*`), flushed once per frame.** Direct
   `write(STDOUT_FILENO, …)` is reserved for the bounded emergency cleanup string in the crash

@@ -610,7 +610,7 @@ void draw_settings_page(zt_ctx *c) {
                  " " SK("D") " " SD " " SL("Timestamps          : ") SV("%s"),
                  c->proto.show_ts ? "On" : "Off");
         snprintf(rb[4], sizeof rb[4],
-                 " " SK("E") " " SD " " SL("SGR Passthrough     : ") SV("%s"),
+                 " " SK("E") " " SD " " SL("Device SGR Filter   : ") SV("%s"),
                  c->proto.sgr_passthrough ? "On" : "Off");
         snprintf(rb[5], sizeof rb[5],
                  " " SK("F") " " SD " " SL("Raw Passthrough     : ") SV("%s"),
