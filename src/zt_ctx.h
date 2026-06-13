@@ -68,10 +68,32 @@ struct termios2 {
 #define ZT_SPARK_HIST          32         /**< Throughput sparkline sample depth.       */
 #define ZT_SPSC_CAP            (1u << 20) /**< Reader-thread SPSC ring (1 MiB).         */
 #define ZT_VERSION             "1.3.0"
+#define ZT_SGR_PARAM_CAP       64   /**< Max CSI param/intermediate bytes (SGR filter).  */
 #define ZT_DEVLINE_CAP         1024 /**< Max bytes modeled on the device's current line. */
 #define ZT_DEVLINE_CSI_CAP     32   /**< Max CSI param/intermediate bytes (devline).     */
 #define ZT_RECONCILE_TAIL_MAX  256  /**< Max chars a completion may append to input.     */
 #define ZT_RECONCILE_WINDOW_MS 500  /**< Post-Tab completion-reconcile window.           */
+/** @} */
+
+/** @name Device-RX SGR-only filter (ADR-0009) @{ */
+/** Bounded CSI parser state for the device-RX SGR filter. Lives in
+ *  @ref zt_ctx::proto so a sequence split across read() chunks resumes
+ *  correctly. NONE is the zero-init default. See INVARIANTS §6. */
+typedef enum { ZT_SGR_NONE = 0, ZT_SGR_ESC, ZT_SGR_CSI } zt_sgr_state;
+
+typedef struct {
+    zt_sgr_state  state;                 /**< NONE / ESC seen / in CSI.        */
+    unsigned char buf[ZT_SGR_PARAM_CAP]; /**< CSI params+intermediates only.   */
+    size_t        len;                   /**< Bytes used in @c buf.            */
+} zt_sgr_parser;
+
+/** Disposition @ref sgr_feed returns for one device byte. */
+typedef enum {
+    ZT_SGR_ACT_HOLD,     /**< Byte consumed mid-sequence; render nothing.      */
+    ZT_SGR_ACT_EMIT_SGR, /**< A complete allowed SGR is in out[]; emit it.     */
+    ZT_SGR_ACT_INERT,    /**< Render out[] as inert caret-notation text.       */
+    ZT_SGR_ACT_REPROCESS /**< Render out[] inert, then re-feed the byte.       */
+} zt_sgr_act;
 /** @} */
 
 /** @name Device prompt-line reconciliation (ADR-0010) @{ */
@@ -407,8 +429,15 @@ typedef struct {
         zt_crc_mode   crc_mode;
         bool          crc_append; /**< Auto-append CRC to TX frames.            */
 
-        /* Tier 2 — SGR pass-through */
-        bool sgr_passthrough; /**< Keep device-emitted SGR escapes.         */
+        /* Tier 2 — device-RX SGR-only filter (ADR-0009). When on (default),
+         * only well-formed SGR (CSI … m, params 0-9 ; :) reaches the
+         * terminal; every other escape is neutralized to caret notation.
+         * Off → strict default-deny (all escapes neutralized). @c passthrough
+         * wins over this. */
+        bool          sgr_passthrough; /**< SGR-filter mode (default ON).      */
+        zt_sgr_parser sgr;             /**< Bounded CSI parser, cross-chunk.   */
+        bool          sgr_in_line;     /**< Device SGR emitted on the current
+                                            line → append \033[0m at flush.    */
 
         /* Tier 2 — KGDB / raw passthrough */
         bool passthrough; /**< Disable all line-editing + rendering.    */

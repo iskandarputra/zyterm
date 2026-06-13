@@ -205,6 +205,8 @@ static void usage(const char *a0) {
     help_row(fp, tty, "-x", "--hex", "", "render RX as hex dump");
     help_row(fp, tty, "-e", "--echo", "", "start with local echo on");
     help_row(fp, tty, NULL, "--no-color", "", "disable RX log-level colouring");
+    help_row(fp, tty, NULL, "--no-sgr", "",
+             "neutralize ALL device escapes (default: filter to SGR colour only)");
     help_row(fp, tty, NULL, "--ts", "", "start with timestamp display on");
     help_row(fp, tty, NULL, "--watch", "<pattern>",
              "highlight matching lines (repeatable, up to 8)");
@@ -374,11 +376,15 @@ int zyterm_main(int argc, char **argv) {
                                     * to fall back to the host terminal's
                                     * native selection (no app-level wheel). */
     c.proto.color_on      = true;
-    c.proto.osc52_enabled = true; /* on \u2192 in-app selection copies straight to
-                                   * the system clipboard via OSC 52 on every
-                                   * left-button release (or right-click on an
-                                   * existing selection). Disable with --no-osc52
-                                   * if your terminal misrenders the escape. */
+    c.proto.osc52_enabled = true;   /* on \u2192 in-app selection copies straight to
+                                     * the system clipboard via OSC 52 on every
+                                     * left-button release (or right-click on an
+                                     * existing selection). Disable with --no-osc52
+                                     * if your terminal misrenders the escape. */
+    c.proto.sgr_passthrough = true; /* on → device-emitted SGR colour renders;
+                                     * other escapes (OSC/cursor/title) stay
+                                     * neutralized (ADR-0009). --no-sgr for the
+                                     * strict default-deny posture. */
     c.tui.hist_view = 0;
     c.log.sb_lines  = calloc(ZT_SCROLLBACK_CAP, sizeof(char *));
     if (!c.log.sb_lines) zt_die("zyterm: out of memory (scrollback)");
@@ -415,6 +421,7 @@ int zyterm_main(int argc, char **argv) {
         OPT_PROFILE_SAVE,
         OPT_OSC52,
         OPT_NO_OSC52,
+        OPT_NO_SGR,
         OPT_MUTE_DBG,
         OPT_MUTE_INF,
         OPT_THREADED,
@@ -465,6 +472,7 @@ int zyterm_main(int argc, char **argv) {
         {"profile-save", required_argument, NULL, OPT_PROFILE_SAVE},
         {"osc52", no_argument, NULL, OPT_OSC52},
         {"no-osc52", no_argument, NULL, OPT_NO_OSC52},
+        {"no-sgr", no_argument, NULL, OPT_NO_SGR},
         {"mute-dbg", no_argument, NULL, OPT_MUTE_DBG},
         {"mute-inf", no_argument, NULL, OPT_MUTE_INF},
         {"threaded", no_argument, NULL, OPT_THREADED},
@@ -650,6 +658,7 @@ int zyterm_main(int argc, char **argv) {
             break;
         case OPT_OSC52: c.proto.osc52_enabled = true; break;
         case OPT_NO_OSC52: c.proto.osc52_enabled = false; break;
+        case OPT_NO_SGR: c.proto.sgr_passthrough = false; break;
         case OPT_MUTE_DBG: c.log.mute_dbg = true; break;
         case OPT_MUTE_INF: c.log.mute_inf = true; break;
         case OPT_THREADED: c.serial.spsc_enabled = true; break;

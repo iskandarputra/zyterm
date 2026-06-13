@@ -61,9 +61,11 @@ keypad numeric, ASCII G0, SGR reset) is documented inline at `core.c:436-450`. T
 handler `sig_crash` emits the *same* string from a static buffer (§2) so an abnormal exit
 leaves the terminal in the same clean state.
 
-> Device RX bytes are sanitized before they reach this terminal buffer: `render_rx` rewrites ESC
-> and other C0/DEL controls to inert `cat -v` caret notation unless an explicit passthrough mode is
-> on (closed [ZT-003](../tracking/issues/ZT-003-device-rx-escape-injection.md)); see §4 and
+> Device RX bytes are sanitized before they reach this terminal buffer: by default `render_rx`
+> runs a bounded SGR-only filter — device colour (`CSI … m`) passes, ESC and every other
+> control/escape become inert `cat -v` caret notation (closed
+> [ZT-003](../tracking/issues/ZT-003-device-rx-escape-injection.md) / ADR-0009; `--no-sgr` =
+> strict deny-all, `Ctrl+A G` = full raw); see §4 and
 > [INVARIANTS §6](../invariants/INVARIANTS.md).
 
 ---

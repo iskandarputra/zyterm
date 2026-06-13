@@ -38,7 +38,8 @@ Each record follows a fixed shape:
 | [0005](0005-rfc2217-deferred.md) | `rfc2217://` deferred to a stub | accepted | `rfc2217://` is a deliberate NYI stub; use ser2net raw + `tcp://`. |
 | [0006](0006-in-memory-history-and-bookmarks.md) | History & bookmarks in memory only | accepted | Line-edit history and bookmarks are session-scoped; profiles persist. |
 | [0007](0007-http-bridge-auth-model.md) | HTTP bridge auth model | accepted | Origin/Host-pinned by default; `--http-token` adds an optional bearer token on write routes. |
-| [0008](0008-device-rx-escape-default-deny.md) | Device RX escapes default-denied | accepted | Untrusted device escapes are neutralized to inert caret notation; raw passthrough is opt-in. |
+| [0008](0008-device-rx-escape-default-deny.md) | Device RX escapes default-denied | superseded in part by 0009 | Untrusted device escapes are neutralized to inert caret notation; raw passthrough is opt-in. |
+| [0009](0009-device-rx-sgr-only-filter.md) | Device RX SGR-only filter, on by default | accepted | A bounded SGR-only parser lets device colour render by default; OSC/cursor/title still neutralized; `--no-sgr` restores deny-all. |
 | [0010](0010-device-rx-input-reconciliation.md) | Tab-completion via device-line reconciliation | accepted | Mirror device completions into the input line by modeling the device's current line; append-only, whitelisted, gated to a post-Tab window. |
 
 ## Related
