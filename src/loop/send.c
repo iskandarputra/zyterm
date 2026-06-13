@@ -109,8 +109,8 @@ void trickle_send(zt_ctx *c, const unsigned char *buf, size_t n) {
                 struct timespec tnow;
                 now(&tnow);
                 if (ts_diff_sec(&tnow, &t_progress) > ZT_TX_STALL_DEADLINE_S) {
-                    set_flash(c, "TX stalled (flow control?) \xe2\x80\x94 dropped %zu byte%s", n - i,
-                              (n - i) == 1 ? "" : "s");
+                    set_flash(c, "TX stalled (flow control?) \xe2\x80\x94 dropped %zu byte%s",
+                              n - i, (n - i) == 1 ? "" : "s");
                     goto out;
                 }
                 continue;
@@ -149,8 +149,8 @@ void direct_send(zt_ctx *c, const unsigned char *buf, size_t n) {
             struct timespec tnow;
             now(&tnow);
             if (ts_diff_sec(&tnow, &t_progress) > ZT_TX_STALL_DEADLINE_S) {
-                set_flash(c, "TX stalled (flow control?) \xe2\x80\x94 dropped %zu byte%s", n - off,
-                          (n - off) == 1 ? "" : "s");
+                set_flash(c, "TX stalled (flow control?) \xe2\x80\x94 dropped %zu byte%s",
+                          n - off, (n - off) == 1 ? "" : "s");
                 break;
             }
             continue;
