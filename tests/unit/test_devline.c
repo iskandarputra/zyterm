@@ -119,6 +119,12 @@ static void test_tail(void) {
     ASSERT(!devline_tail(&d, (const unsigned char *)"esp_", 4, &t, &tl),
            "ambiguous + inline log ('esp_[...') → no-adopt");
 
+    devline_reset(&d);
+    feed(&d, "SkyCar:~$ skycab eeprom  read"); /* device redrew with a wider gap */
+    ASSERT(devline_tail(&d, (const unsigned char *)"skycab eeprom re", 16, &t, &tl) && tl == 2 &&
+               memcmp(t, "ad", 2) == 0,
+           "whitespace-tolerant anchor: typed single space matches redrawn double space");
+
     /* Crafted: a control byte in the tail must be rejected. */
     devline_reset(&d);
     memcpy(d.buf, "cmd\x07x", 5);

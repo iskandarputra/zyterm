@@ -155,24 +155,49 @@ static bool is_word(unsigned char b) {
            b == '_' || b == '-' || b == '.' || b == '/';
 }
 
+/* Match cmd against the device line starting at `start`, treating any run of
+ * spaces in cmd as matching a run of one-or-more spaces on the line. This lets a
+ * typed `eeprom re` anchor against a redrawn `eeprom  read` — the device's
+ * completion redraw can change the gap width between tokens. Returns the byte
+ * offset just past the matched command, or (size_t)-1 on no match. */
+static size_t match_cmd_at(const zt_devline *st, const unsigned char *cmd, size_t cmd_len,
+                           size_t start) {
+    size_t di = start, ci = 0;
+    while (ci < cmd_len) {
+        if (cmd[ci] == ' ') {
+            if (di >= st->len || st->buf[di] != ' ') return (size_t)-1;
+            while (ci < cmd_len && cmd[ci] == ' ')
+                ci++; /* consume cmd spaces  */
+            while (di < st->len && st->buf[di] == ' ')
+                di++; /* consume line spaces */
+        } else {
+            if (di >= st->len || st->buf[di] != cmd[ci]) return (size_t)-1;
+            di++;
+            ci++;
+        }
+    }
+    return di;
+}
+
 bool devline_tail(const zt_devline *st, const unsigned char *cmd, size_t cmd_len,
                   const unsigned char **tail, size_t *tail_len) {
     if (!st || !cmd || cmd_len == 0 || st->overflowed) return false;
     if (cmd_len > st->len) return false;
 
-    /* Last (rightmost) occurrence of cmd in the current device line — that is
-     * the live prompt echo, not a coincidental match inside the prompt. */
-    size_t best = (size_t)-1;
-    for (size_t start = 0; start + cmd_len <= st->len; start++)
-        if (memcmp(st->buf + start, cmd, cmd_len) == 0) best = start;
-    if (best == (size_t)-1) return false;
+    /* Rightmost whitespace-tolerant match of cmd in the device line — the live
+     * prompt echo, not a coincidental earlier hit. */
+    size_t end = (size_t)-1;
+    for (size_t start = 0; start < st->len; start++) {
+        size_t e = match_cmd_at(st, cmd, cmd_len, start);
+        if (e != (size_t)-1) end = e; /* keep the rightmost match's end */
+    }
+    if (end == (size_t)-1) return false;
 
     /* Take the maximal run of word characters after the command — the single
      * completed token. This stops at the space / '[' that begins an inline log
      * line, so logs printed on the prompt line cannot leak into the input. An
      * implausibly long run is rejected rather than truncated. */
-    size_t end = best + cmd_len;
-    size_t tl  = 0;
+    size_t tl = 0;
     while (end + tl < st->len && is_word(st->buf[end + tl])) {
         if (tl >= ZT_RECONCILE_TAIL_MAX) return false;
         tl++;
