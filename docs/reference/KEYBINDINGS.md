@@ -112,7 +112,7 @@ Each page binds letter keys to toggles. Keys are case-insensitive.
 | `b` | Toggle local echo |
 | `c` | Toggle hex render |
 | `d` | Toggle timestamps |
-| `e` | Toggle SGR passthrough |
+| `e` | Toggle device SGR filter (on = colour renders; off = strict caret-notation) |
 | `f` | Toggle KGDB/raw passthrough |
 | `g` | Mute `<dbg>` |
 | `h` | Mute `<inf>` |

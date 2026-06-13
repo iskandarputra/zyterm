@@ -2,7 +2,8 @@
 
 The home for confirmed defects, seeded 2026-06-03 from a staff-level source-review audit;
 recorded as found. All 28 audited defects (ZT-001 … ZT-028) have since been fixed on branch
-`fix/zt-001-ownership-and-ui-hangs` — see **Resolved**. Each row is a real bug found by reading
+`fix/zt-001-ownership-and-ui-hangs`; ZT-029 is a later finding (the mislabeled SGR passthrough),
+fixed under [ADR-0009](../decisions/0009-device-rx-sgr-only-filter.md) — see **Resolved**. Each row is a real bug found by reading
 `src/`, not a feature request — non-defect work lives in [STATUS.md](STATUS.md). High/critical
 defects also get a detail file under [`issues/`](issues/); the rest are tracked as board rows.
 Severity drives order, not discovery date.
@@ -65,6 +66,7 @@ broadcast and the fuzzy finder.
 | ZT-026 | ⚪ | error-handling | **Fixed** — `trickle_send`/`direct_send` bound the EAGAIN retry with a progress-resetting stall deadline (`ZT_TX_STALL_DEADLINE_S`) and flash "TX stalled". `src/loop/send.c`. |
 | ZT-027 | ⚪ | error-handling | **Fixed** — the non-threaded `POLLHUP` path drains the serial fd in a loop (like POLLIN) so buffered RX isn't lost before reconnect. `src/loop/runtime.c`. |
 | ZT-028 | ⚪ | security | **Fixed** — the metrics socket is created 0600 via a scoped `umask` and `metrics_tick` rejects non-self peers via `SO_PEERCRED`. `src/net/metrics.c`. |
+| ZT-029 | 🟠 | security | **Fixed** — "SGR Passthrough" forwarded *all* device escapes (the `raw_ok` gate disabled neutralization wholesale), not just SGR, and `sgr_filter()` was a dead no-op stub — so enabling it reopened the ZT-003 surface (OSC 52 / title / cursor). Replaced with a bounded, pure SGR-only filter (`sgr_feed`): only `CSI…m` with `0-9;:` params passes, private/intermediate markers (`CSI?1m`) and overflow abort to inert. Now safe to default-on; `--no-sgr` restores deny-all → [ADR-0009](../decisions/0009-device-rx-sgr-only-filter.md). `src/proto/sgr_passthrough.c`, `src/render/render.c`. |
 
 _None of these were user-visible API changes except the new `--http-token` flag and the now-required
 loopback `Origin`/`Host` on the bridge's write/stream routes; see [`../../CHANGELOG.md`](../../CHANGELOG.md)

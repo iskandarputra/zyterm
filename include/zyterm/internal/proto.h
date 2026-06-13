@@ -48,7 +48,12 @@ size_t osc8_rewrite(const unsigned char *in, size_t n, unsigned char *out, size_
 bool clipboard_native_set(const char *buf, size_t n);
 
 /* ── proto/sgr_passthrough.c ───────────────────────────────────────────── */
-void sgr_filter(zt_ctx *c, const unsigned char *buf, size_t n);
+/** Feed one untrusted device-RX byte to the bounded SGR-only filter
+ *  (ADR-0009). Pure: parser state is caller-owned, so it is unit-testable
+ *  without a @ref zt_ctx and survives read()-chunk boundaries. On
+ *  EMIT_SGR/INERT/REPROCESS it fills @c out (capacity ≥ ZT_SGR_PARAM_CAP+4)
+ *  with the bytes to emit verbatim / neutralize and sets @c *outlen. */
+zt_sgr_act sgr_feed(zt_sgr_parser *st, unsigned char b, unsigned char *out, size_t *outlen);
 
 /* ── proto/passthrough.c ───────────────────────────────────────────────── */
 void passthrough_enter(zt_ctx *c);
