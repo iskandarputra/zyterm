@@ -18,7 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   title injection, cursor/erase and every other escape are still neutralized, so
   the [INVARIANTS §6](docs/invariants/INVARIANTS.md) safety posture holds. Pass
   `--no-sgr` (or toggle `E` in the settings screen) for the strict deny-all mode.
-  Full raw passthrough (`Ctrl+A G`) is unchanged. (`src/render/render.c`,
+  Cursor-forward (`CSI n C`, which shells use to align completion-candidate
+  listings into columns — e.g. `foo ESC[6C bar`) renders as n spaces
+  so the columns stay aligned, instead of showing `^[[nC` litter. Full raw
+  passthrough (`Ctrl+A G`) is unchanged. (`src/render/render.c`,
   `src/proto/sgr_passthrough.c`)
 
 ### Fixed
