@@ -10,6 +10,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Device SGR colour now renders by default (ADR-0009).** Level-coloured device
+  logs (`<wrn>` yellow, `<err>` red, …) show in colour out of the box instead of
+  as inert `^[[1;33m` caret text. This is done through a new **bounded SGR-only
+  filter**: only well-formed `CSI … m` sequences pass; OSC 52 clipboard writes,
+  title injection, cursor/erase and every other escape are still neutralized, so
+  the [INVARIANTS §6](docs/invariants/INVARIANTS.md) safety posture holds. Pass
+  `--no-sgr` (or toggle `E` in the settings screen) for the strict deny-all mode.
+  Full raw passthrough (`Ctrl+A G`) is unchanged. (`src/render/render.c`,
+  `src/proto/sgr_passthrough.c`)
+
+### Fixed
+- **"SGR passthrough" was mislabeled and unsafe (ZT-029).** The flag disabled
+  escape neutralization *wholesale* (it shared the `raw_ok` gate with full raw
+  passthrough), so turning it on forwarded OSC/title/cursor sequences too — and
+  the `sgr_filter()` meant to isolate SGR was dead, no-op code. It is now a real,
+  bounded, unit-tested SGR-only parser (`sgr_feed`); the parameter whitelist
+  (`0-9 ; :`) rejects private-marker sequences such as `CSI ? 1 m`, and the fixed
+  parameter buffer cannot overrun. (`src/proto/sgr_passthrough.c`)
+
 ## [1.3.0] — 2026-06-13
 
 Security-audit closeout. Closes the 28-defect source-review audit recorded

@@ -114,6 +114,17 @@ void flush_line(zt_ctx *c) {
         }
     }
 
+    /* ADR-0009: if a device SGR was emitted on this line, close it with a
+     * reset so device colour can't bleed into the HUD or the next line.
+     * Stored in the line so live render and scrollback replay both contain it. */
+    if (c->proto.sgr_in_line) {
+        if (c->log.line_len + 4 <= ZT_LINEBUF_CAP) {
+            memcpy(c->log.line + c->log.line_len, "\033[0m", 4);
+            c->log.line_len += 4;
+        }
+        c->proto.sgr_in_line = false;
+    }
+
     scrollback_push(c);
 
     int watch_idx = watch_match(c, c->log.line, c->log.line_len);
@@ -228,6 +239,31 @@ static void rx_line_putc(zt_ctx *c, unsigned char b) {
     c->log.line[c->log.line_len++] = b;
 }
 
+/* Render one byte that is NOT part of an allowed escape: ESC/DEL and other
+ * C0 controls become inert cat -v caret notation (^[, ^G, ^?); \t and
+ * printable/UTF-8 bytes pass through. Shared by STRICT mode and the
+ * SGR-filter's neutralized paths. (ZT-003 / INVARIANTS §6.) */
+static void emit_inert_byte(zt_ctx *c, unsigned char b) {
+    if (b == 0x1B || b == 0x7F || (b < 0x20 && b != '\t')) {
+        rx_line_putc(c, '^');
+        rx_line_putc(c, (unsigned char)(b == 0x7F ? '?' : b + 0x40));
+    } else {
+        rx_line_putc(c, b);
+    }
+}
+
+/* Store a validated device SGR sequence verbatim in the line buffer so it
+ * renders in-position when the line flushes (and colours scrollback too).
+ * Flushes first if it wouldn't fit, so a sequence is never split. Safe: only
+ * whitelisted SGR (ADR-0009) ever reaches here, so scrollback replay cannot
+ * re-inject a dangerous escape. */
+static void put_sgr(zt_ctx *c, const unsigned char *seq, size_t len) {
+    if (c->log.line_len + len > ZT_LINEBUF_CAP) flush_line(c);
+    for (size_t k = 0; k < len && c->log.line_len < ZT_LINEBUF_CAP; k++)
+        c->log.line[c->log.line_len++] = seq[k];
+    c->proto.sgr_in_line = true;
+}
+
 void render_rx(zt_ctx *c, const unsigned char *buf, size_t n) {
     c->core.rx_bytes += n;
     if (c->core.paused) return;
@@ -252,10 +288,20 @@ void render_rx(zt_ctx *c, const unsigned char *buf, size_t n) {
             }
         }
     } else {
-        /* ZT-003 (INVARIANTS §6): device RX is untrusted. Unless the operator
-         * explicitly opted into a passthrough mode, escapes are neutralized
-         * below so a hostile device can't drive the operator's terminal. */
-        bool raw_ok = c->proto.passthrough || c->proto.sgr_passthrough;
+        /* ZT-003 / ADR-0009 (INVARIANTS §6): device RX is untrusted. Three
+         * modes decide how device escapes reach the operator's terminal:
+         *   ESC_RAW    (passthrough)     — everything verbatim (KGDB/full TUI);
+         *   ESC_SGR    (sgr_passthrough) — only well-formed SGR passes, every
+         *                                  other escape neutralized (DEFAULT);
+         *   ESC_STRICT (neither)         — neutralize every escape.
+         * passthrough wins over sgr_passthrough. */
+        enum {
+            ESC_STRICT,
+            ESC_RAW,
+            ESC_SGR
+        } esc_mode = c->proto.passthrough       ? ESC_RAW
+                     : c->proto.sgr_passthrough ? ESC_SGR
+                                                : ESC_STRICT;
         for (size_t i = 0; i < n; i++) {
             unsigned char b = buf[i];
 
@@ -283,21 +329,47 @@ void render_rx(zt_ctx *c, const unsigned char *buf, size_t n) {
                 }
             }
 
+            /* RAW: trusted device — \r dropped, \n flushes, all else verbatim. */
+            if (esc_mode == ESC_RAW) {
+                if (b == '\r') continue;
+                if (b == '\n') {
+                    flush_line(c);
+                    continue;
+                }
+                rx_line_putc(c, b);
+                continue;
+            }
+
+            /* SGR-filter: route ESC and mid-sequence bytes through the bounded
+             * parser FIRST (so a \r/\n mid-CSI aborts the sequence rather than
+             * stranding parser state into the next line). Only well-formed SGR
+             * survives; REPROCESS loops back after neutralizing the rest. */
+        sgr_reprocess:
+            if (esc_mode == ESC_SGR && (c->proto.sgr.state != ZT_SGR_NONE || b == 0x1B)) {
+                unsigned char seq[ZT_SGR_PARAM_CAP + 4];
+                size_t        sl = 0;
+                switch (sgr_feed(&c->proto.sgr, b, seq, &sl)) {
+                case ZT_SGR_ACT_HOLD: continue;
+                case ZT_SGR_ACT_EMIT_SGR: put_sgr(c, seq, sl); continue;
+                case ZT_SGR_ACT_INERT:
+                    for (size_t k = 0; k < sl; k++)
+                        emit_inert_byte(c, seq[k]);
+                    continue;
+                case ZT_SGR_ACT_REPROCESS:
+                    for (size_t k = 0; k < sl; k++)
+                        emit_inert_byte(c, seq[k]);
+                    goto sgr_reprocess; /* parser reset to NONE; re-handle b */
+                }
+            }
+
+            /* STRICT default-deny, and SGR mode's non-sequence bytes: \r/\n
+             * handled here; ESC/C0/DEL → inert caret notation; \t/printable pass. */
             if (b == '\r') continue;
             if (b == '\n') {
                 flush_line(c);
                 continue;
             }
-            /* Default-deny: replace ESC and other C0/DEL controls with cat -v
-             * caret notation (^[ , ^G, …) so OSC 52 clipboard writes, title
-             * injection and cursor/screen spoofs become inert, readable text.
-             * \t passes; UTF-8 high bytes pass; \r/\n handled above. */
-            if (!raw_ok && (b == 0x1B || b == 0x7F || (b < 0x20 && b != '\t'))) {
-                rx_line_putc(c, '^');
-                rx_line_putc(c, (unsigned char)(b == 0x7F ? '?' : b + 0x40));
-                continue;
-            }
-            rx_line_putc(c, b);
+            emit_inert_byte(c, b);
         }
     }
     if (live) ob_cstr("\0337");

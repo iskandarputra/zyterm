@@ -141,13 +141,16 @@ writes to a UNIX socket you specify, not to a log file.
 
 ## Can a hostile device change my terminal title or clipboard via RX?
 
-Not on the default path. As of the 2026-06 hardening, device RX is filtered before it
-reaches your terminal: ESC and other control bytes are rewritten to inert `cat -v` caret
-notation (`^[`, `^G`, …), so OSC 52 clipboard writes, title injection and screen spoofs are
-neutralized while text and UTF-8 still render (**ZT-003 — fixed**). You only get raw device
-escapes if you explicitly enable a passthrough mode (`Ctrl+A G`, or the SGR-passthrough
-toggle) — so only do that for devices you trust. The HTTP bridge is likewise origin-pinned
-and optionally token-gated (`--http-token`); see ZT-004/ZT-013.
+No. By default, device RX passes through a **bounded SGR-only filter** (ADR-0009): colour
+escapes (`CSI … m`) render so your device's coloured logs look right, but OSC 52 clipboard
+writes, title injection (OSC 0/1/2), cursor/erase/alt-screen and every other escape are
+rewritten to inert `cat -v` caret notation (`^[`, `^G`, …) — SGR is the one escape class that
+can't drive the terminal (**ZT-003 / ZT-029 — fixed**). Text and UTF-8 still render. For a
+strict deny-all posture (neutralize colour too), pass `--no-sgr` or toggle `E` off in the
+settings screen. You only get *raw* device escapes — cursor, clipboard, title and all — if you
+explicitly enable full raw passthrough (`Ctrl+A G`), so only do that for devices you trust. The
+HTTP bridge is likewise origin-pinned and optionally token-gated (`--http-token`); see
+ZT-004/ZT-013.
 
 ## I saw "OSC 8 hyperlinks", "fuzzy finder", or "multi-pane" mentioned — do they work?
 

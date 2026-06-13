@@ -178,10 +178,14 @@ and accept only peers whose uid matches yours
 .RB ( SO_PEERCRED ).
 .TP
 .B Device output
-Untrusted RX is filtered before it reaches your terminal: escape and other
-control bytes are shown as inert caret notation, so a hostile device cannot
-hijack the clipboard (OSC\ 52), set the title, or spoof the screen. Raw
-escapes require an explicit, off-by-default passthrough toggle.
+Untrusted RX is filtered before it reaches your terminal. By default a
+bounded SGR-only filter lets device colour render while clipboard (OSC\ 52),
+title, cursor and every other escape are shown as inert caret notation, so a
+hostile device cannot hijack the clipboard, set the title, or spoof the
+screen. Use
+.B \-\-no\-sgr
+for strict deny-all (colour neutralized too); full raw passthrough is a
+separate, off-by-default toggle.
 .PP
 See
 .B SECURITY.md

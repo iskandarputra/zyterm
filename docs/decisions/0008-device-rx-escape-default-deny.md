@@ -1,7 +1,13 @@
 # ADR-0008: Device RX escape sequences are default-denied on the render path
 
-- **Status:** accepted
+- **Status:** accepted; default policy superseded in part by [ADR-0009](0009-device-rx-sgr-only-filter.md) (2026-06-13)
 - **Date:** 2026-06-13
+
+> **Superseded in part by [ADR-0009](0009-device-rx-sgr-only-filter.md).** The threat model and the
+> caret-notation neutralization here still stand, but the *default* is no longer deny-all: well-formed
+> SGR colour now passes through a bounded SGR-only filter by default. The deny-all posture this ADR
+> describes is now the explicit STRICT mode (`--no-sgr`). ADR-0009 explains why option 2 below,
+> rejected here, was revisited.
 
 ## Context
 
