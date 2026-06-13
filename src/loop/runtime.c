@@ -187,10 +187,19 @@ int run_interactive(zt_ctx *c) {
         }
         if (pfds[0].revents & POLLHUP) {
             if (!threaded) {
-                ssize_t r = read(c->serial.fd, rbuf, sizeof rbuf);
-                if (r > 0) {
-                    log_write(c, rbuf, (size_t)r);
-                    rx_ingest(c, rbuf, (size_t)r);
+                /* ZT-027 (INVARIANTS §3): drain like the POLLIN path. A hung-up
+                 * device can still hold buffered RX; reading only once dropped
+                 * the tail before reconnect. */
+                for (;;) {
+                    ssize_t r = read(c->serial.fd, rbuf, sizeof rbuf);
+                    if (r > 0) {
+                        log_write(c, rbuf, (size_t)r);
+                        rx_ingest(c, rbuf, (size_t)r);
+                        if ((size_t)r < sizeof rbuf) break;
+                        continue;
+                    }
+                    if (r < 0 && errno == EINTR) continue;
+                    break; /* EOF, EAGAIN, or hard error → fall through to reconnect */
                 }
             }
             if (c->core.reconnect) {

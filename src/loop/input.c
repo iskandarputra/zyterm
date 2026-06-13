@@ -136,7 +136,23 @@ void handle_cmd_key(zt_ctx *c, unsigned char k) {
             close(c->serial.fd);
             c->serial.fd = -1;
         }
-        autobaud_probe(c);
+        if (autobaud_probe(c) != 0 && c->serial.fd < 0) {
+            /* The probe opened nothing and left us with no device. Don't
+             * strand the session at fd == -1 — poll() ignores a negative
+             * fd, so the POLLHUP/POLLERR-driven reconnect path would never
+             * fire and RX would be silently dead while the HUD still shows
+             * "connected" (ZT-005). Recover exactly like Ctrl+A r. */
+            rx_thread_pause(c); /* autobaud unpaused on failure; re-pause for the swap */
+            if (reconnect_attempt(c) == 0) {
+                rx_thread_unpause(c);
+                set_flash(c, "autobaud failed; reconnected to %s", c->serial.device);
+            } else if (c->core.reconnect) {
+                run_reconnect_loop(c); /* unpauses on its own success path */
+            } else {
+                rx_thread_unpause(c);
+                set_flash(c, "autobaud failed; no device \xe2\x80\x94 Ctrl+A r to retry");
+            }
+        }
         break;
     }
     case 's':
@@ -814,6 +830,22 @@ void handle_stdin_chunk(zt_ctx *c, const unsigned char *buf, size_t n) {
     /* ── Settings menu keystrokes ──────────────────────────────────── */
     if (c->tui.settings_mode) {
         handle_settings_key(c, buf, n);
+        return;
+    }
+
+    /* ── Fuzzy-finder keystrokes (Ctrl+A .) ────────────────────────────
+     * ZT-008: Ctrl+A . entered fuzzy mode but no route forwarded keystrokes
+     * to fuzzy_handle(), so typing/Enter/Esc did nothing and the overlay was
+     * stuck. Route here; on commit/cancel repaint the base UI + input bar. */
+    if (c->tui.fuzzy_mode) {
+        for (size_t i = 0; i < n; i++)
+            fuzzy_handle(c, buf[i]);
+        if (c->tui.fuzzy_mode) {
+            fuzzy_draw(c);
+        } else {
+            apply_layout(c);
+            c->tui.ui_dirty = true;
+        }
         return;
     }
 

@@ -204,8 +204,17 @@ static void feed_len16(zt_ctx *c, const unsigned char *buf, size_t n) {
                 if (c->proto.len16_need > sizeof c->proto.buf) {
                     c->proto.len16_have = 0;
                     c->proto.len16_need = 0;
+                } else {
+                    c->proto.len = 0;
+                    /* ZT-022 (INVARIANTS §5): a zero-length frame must be
+                     * dispatched immediately. Falling through to the payload
+                     * branch would consume the next byte as payload and desync
+                     * the whole stream. */
+                    if (c->proto.len16_need == 0) {
+                        frame_dispatch(c);
+                        c->proto.len16_have = 0;
+                    }
                 }
-                c->proto.len = 0;
             }
         } else {
             if (c->proto.len < c->proto.len16_need && c->proto.len < sizeof c->proto.buf)
@@ -238,7 +247,10 @@ void framing_feed(zt_ctx *c, const unsigned char *buf, size_t n) {
 /* ------------------------------------------------------------------------- */
 
 static size_t encode_cobs(const unsigned char *in, size_t n, unsigned char *out, size_t cap) {
-    if (cap < n + 2) return 0;
+    /* ZT-021 (INVARIANTS §5): COBS worst case is n + ceil(n/254) + 2 overhead
+     * bytes (one code byte per 254-byte run plus the leading code and trailing
+     * delimiter). The old `n + 2` bound undercounts the run-marker bytes. */
+    if (cap < n + n / 254 + 2) return 0;
     size_t        wr       = 0;
     size_t        code_pos = wr++;
     unsigned char code     = 1;

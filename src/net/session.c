@@ -33,8 +33,25 @@
 #include <termios.h>
 #include <unistd.h>
 
+/* ZT-012 (INVARIANTS §7): prefer $XDG_RUNTIME_DIR — a per-user 0700 directory
+ * the kernel guarantees only we can traverse — over a world-traversable
+ * /tmp. The /tmp fallback (rare; only when the var is unset) is still guarded
+ * by the 0600 socket perms and the peer-cred check below. Both --detach and
+ * --attach resolve the path the same way, so they stay in agreement. */
 static void session_path(const char *name, char *out, size_t cap) {
-    snprintf(out, cap, "/tmp/zyterm.%s.sock", name);
+    const char *rt = getenv("XDG_RUNTIME_DIR");
+    if (rt && *rt)
+        snprintf(out, cap, "%s/zyterm.%s.sock", rt, name);
+    else
+        snprintf(out, cap, "/tmp/zyterm.%s.sock", name);
+}
+
+/* Reject any attaching client whose uid isn't ours. */
+static bool session_peer_is_self(int fd) {
+    struct ucred cr;
+    socklen_t    len = sizeof cr;
+    if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cr, &len) != 0) return false;
+    return cr.uid == geteuid();
 }
 
 int session_detach(zt_ctx *c, const char *name) {
@@ -47,7 +64,11 @@ int session_detach(zt_ctx *c, const char *name) {
     addr.sun_family         = AF_UNIX;
     snprintf(addr.sun_path, sizeof addr.sun_path, "%s", path);
     unlink(path);
-    if (bind(fd, (struct sockaddr *)&addr, sizeof addr) != 0) {
+    /* ZT-012: create the socket node 0600 regardless of the inherited umask. */
+    mode_t old_umask = umask(0177);
+    int    brc       = bind(fd, (struct sockaddr *)&addr, sizeof addr);
+    umask(old_umask);
+    if (brc != 0) {
         close(fd);
         return -1;
     }
@@ -86,6 +107,10 @@ void session_tick(zt_ctx *c) {
             if (errno == EAGAIN) break;
             if (errno == EINTR) continue;
             break;
+        }
+        if (!session_peer_is_self(cfd)) { /* ZT-012: only our own uid may inject */
+            close(cfd);
+            continue;
         }
         for (int i = 0; i < ATT_MAX; i++) {
             if (att_fds[i] < 0) {

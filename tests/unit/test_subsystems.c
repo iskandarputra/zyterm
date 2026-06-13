@@ -390,6 +390,40 @@ static int find_free_port(void) {
     return port;
 }
 
+/* Connect to the in-test HTTP server on @port, send one raw request, pump
+ * http_tick() once, and read the response into @resp (NUL-terminated). */
+static size_t http_rt(zt_ctx *c, int port, const char *req, char *resp, size_t cap) {
+    int cfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (cfd < 0) return 0;
+    struct sockaddr_in sa = {0};
+    sa.sin_family         = AF_INET;
+    sa.sin_addr.s_addr    = htonl(INADDR_LOOPBACK);
+    sa.sin_port           = htons((uint16_t)port);
+    if (connect(cfd, (struct sockaddr *)&sa, sizeof sa) != 0) {
+        close(cfd);
+        return 0;
+    }
+    if (write(cfd, req, strlen(req)) < 0) {}
+    http_tick(c);
+    int fl = fcntl(cfd, F_GETFL, 0);
+    fcntl(cfd, F_SETFL, fl | O_NONBLOCK);
+    size_t total = 0;
+    for (int i = 0; i < 50 && total < cap - 1; i++) {
+        ssize_t rr = read(cfd, resp + total, cap - 1 - total);
+        if (rr > 0)
+            total += (size_t)rr;
+        else if (rr == 0)
+            break;
+        else if (errno == EAGAIN || errno == EWOULDBLOCK)
+            usleep(10000);
+        else
+            break;
+    }
+    resp[total] = '\0';
+    close(cfd);
+    return total;
+}
+
 static void test_http_server(void) {
     SECTION("http_server");
     zt_ctx c;
@@ -530,6 +564,84 @@ static void test_http_server(void) {
     }
     ASSERT(strstr(resp, "204") != NULL, "POST /tx returns 204");
     close(cfd);
+
+    /* ── ZT-004 / ZT-013: cross-origin & DNS-rebound requests are rejected. ── */
+    {
+        char        r[2048];
+        const char *xo = "POST /tx HTTP/1.1\r\nHost: localhost\r\n"
+                         "Origin: http://evil.example\r\nContent-Length: 5\r\n\r\nhello";
+        http_rt(&c, port, xo, r, sizeof r);
+        ASSERT(strstr(r, "403") != NULL, "cross-origin POST /tx rejected (ZT-004)");
+
+        const char *rb = "POST /tx HTTP/1.1\r\nHost: evil.example\r\n"
+                         "Content-Length: 5\r\n\r\nhello";
+        http_rt(&c, port, rb, r, sizeof r);
+        ASSERT(strstr(r, "403") != NULL, "rebound-Host POST /tx rejected (ZT-004)");
+
+        const char *xs = "GET /stream HTTP/1.1\r\nHost: localhost\r\n"
+                         "Origin: http://evil.example\r\n\r\n";
+        http_rt(&c, port, xs, r, sizeof r);
+        ASSERT(strstr(r, "403") != NULL, "cross-origin /stream rejected (ZT-013)");
+    }
+
+    /* ── ZT-004: bearer-token gating when --http-token is set. ── */
+    {
+        char r[2048];
+        c.net.http_token   = strdup("s3cret");
+
+        const char *noauth = "POST /tx HTTP/1.1\r\nHost: localhost\r\n"
+                             "Content-Length: 5\r\n\r\nhello";
+        http_rt(&c, port, noauth, r, sizeof r);
+        ASSERT(strstr(r, "401") != NULL, "POST /tx without token rejected (ZT-004)");
+
+        const char *bad = "POST /tx HTTP/1.1\r\nHost: localhost\r\n"
+                          "Authorization: Bearer wrong\r\nContent-Length: 5\r\n\r\nhello";
+        http_rt(&c, port, bad, r, sizeof r);
+        ASSERT(strstr(r, "401") != NULL, "POST /tx with wrong token rejected (ZT-004)");
+
+        const char *good = "POST /tx HTTP/1.1\r\nHost: localhost\r\n"
+                           "Authorization: Bearer s3cret\r\nContent-Length: 5\r\n\r\nhello";
+        http_rt(&c, port, good, r, sizeof r);
+        ASSERT(strstr(r, "204") != NULL, "POST /tx with valid token accepted (ZT-004)");
+
+        free(c.net.http_token);
+        c.net.http_token = NULL;
+    }
+
+    /* ── ZT-007: an RX burst >4096 B is fully segmented, not truncated. ── */
+    {
+        int s2 = socket(AF_INET, SOCK_STREAM, 0);
+        connect(s2, (struct sockaddr *)&sa, sizeof sa);
+        const char *sreq2 = "GET /stream HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        if (write(s2, sreq2, strlen(sreq2)) < 0) {}
+        http_tick(&c);
+        int fl2 = fcntl(s2, F_GETFL, 0);
+        fcntl(s2, F_SETFL, fl2 | O_NONBLOCK);
+        char drain[8192];
+        for (int i = 0; i < 5; i++)
+            if (read(s2, drain, sizeof drain) <= 0) usleep(5000); /* eat SSE header */
+
+        unsigned char big[10000];
+        memset(big, 'A', sizeof big);
+        http_broadcast(&c, big, sizeof big);
+        usleep(50000);
+
+        char   r2[65536];
+        size_t tot = 0;
+        for (int i = 0; i < 60 && tot < sizeof r2 - 1; i++) {
+            ssize_t rr = read(s2, r2 + tot, sizeof r2 - 1 - tot);
+            if (rr > 0)
+                tot += (size_t)rr;
+            else
+                usleep(10000);
+        }
+        r2[tot]    = '\0';
+        int events = 0;
+        for (const char *p = r2; (p = strstr(p, "data:")) != NULL; p += 5)
+            events++;
+        ASSERT(events >= 2, "broadcast >4096 B emits multiple SSE segments (ZT-007)");
+        close(s2);
+    }
 
     /* stop */
     http_stop(&c);
@@ -717,6 +829,20 @@ static void test_fuzzy(void) {
 
     fuzzy_exit(&c);
     ASSERT(!c.tui.fuzzy_mode, "fuzzy_mode false after exit");
+
+    /* ZT-008: with history present, typing must actually select a matching
+     * entry. The finder used to scan from index 0 (always NULL) and break
+     * immediately, so it never matched anything. */
+    history_push(&c, (const unsigned char *)"reboot", 6);
+    history_push(&c, (const unsigned char *)"status", 6);
+    history_push(&c, (const unsigned char *)"help", 4);
+    fuzzy_enter(&c);
+    fuzzy_handle(&c, 's');
+    fuzzy_handle(&c, 't');
+    fuzzy_handle(&c, 'a');
+    const char *sel = history_at(&c, c.tui.fuzzy_selected);
+    ASSERT(sel && strcmp(sel, "status") == 0, "fuzzy selects matching history (ZT-008)");
+    fuzzy_exit(&c);
 
     ctx_free(&c);
 }
@@ -946,68 +1072,62 @@ static void test_eol(void) {
 
     /* OUT: NONE is identity */
     memset(&st, 0, sizeof st);
-    size_t n = eol_translate_out(ZT_EOL_NONE, &st,
-                                 (const unsigned char *) "ab\r\n", 4, out, sizeof out);
+    size_t n = eol_translate_out(ZT_EOL_NONE, &st, (const unsigned char *)"ab\r\n", 4, out,
+                                 sizeof out);
     ASSERT(n == 4 && memcmp(out, "ab\r\n", 4) == 0, "out NONE identity");
 
     /* OUT: CR — every LF becomes CR */
     memset(&st, 0, sizeof st);
-    n = eol_translate_out(ZT_EOL_CR, &st,
-                          (const unsigned char *) "a\nb\n", 4, out, sizeof out);
+    n = eol_translate_out(ZT_EOL_CR, &st, (const unsigned char *)"a\nb\n", 4, out, sizeof out);
     ASSERT(n == 4 && memcmp(out, "a\rb\r", 4) == 0, "out CR maps LF→CR");
 
     /* OUT: LF — every CR becomes LF */
     memset(&st, 0, sizeof st);
-    n = eol_translate_out(ZT_EOL_LF, &st,
-                          (const unsigned char *) "a\rb\r", 4, out, sizeof out);
+    n = eol_translate_out(ZT_EOL_LF, &st, (const unsigned char *)"a\rb\r", 4, out, sizeof out);
     ASSERT(n == 4 && memcmp(out, "a\nb\n", 4) == 0, "out LF maps CR→LF");
 
     /* OUT: CRLF — bare LF → CRLF, lone CR → CRLF, existing CRLF kept once */
     memset(&st, 0, sizeof st);
-    n = eol_translate_out(ZT_EOL_CRLF, &st,
-                          (const unsigned char *) "a\nb", 3, out, sizeof out);
+    n = eol_translate_out(ZT_EOL_CRLF, &st, (const unsigned char *)"a\nb", 3, out, sizeof out);
     ASSERT(n == 4 && memcmp(out, "a\r\nb", 4) == 0, "out CRLF: LF→CRLF");
 
     memset(&st, 0, sizeof st);
-    n = eol_translate_out(ZT_EOL_CRLF, &st,
-                          (const unsigned char *) "a\rb", 3, out, sizeof out);
+    n = eol_translate_out(ZT_EOL_CRLF, &st, (const unsigned char *)"a\rb", 3, out, sizeof out);
     ASSERT(n == 4 && memcmp(out, "a\r\nb", 4) == 0, "out CRLF: lone CR→CRLF");
 
     memset(&st, 0, sizeof st);
-    n = eol_translate_out(ZT_EOL_CRLF, &st,
-                          (const unsigned char *) "a\r\nb", 4, out, sizeof out);
+    n = eol_translate_out(ZT_EOL_CRLF, &st, (const unsigned char *)"a\r\nb", 4, out,
+                          sizeof out);
     ASSERT(n == 4 && memcmp(out, "a\r\nb", 4) == 0, "out CRLF: CRLF idempotent");
 
     /* OUT: LF_CRLF — only LF expands */
     memset(&st, 0, sizeof st);
-    n = eol_translate_out(ZT_EOL_LF_CRLF, &st,
-                          (const unsigned char *) "a\rb\nc", 5, out, sizeof out);
+    n = eol_translate_out(ZT_EOL_LF_CRLF, &st, (const unsigned char *)"a\rb\nc", 5, out,
+                          sizeof out);
     ASSERT(n == 6 && memcmp(out, "a\rb\r\nc", 6) == 0, "out LF_CRLF expands LF only");
 
     /* IN: CRLF — coalesce CRLF→LF, lone CR/LF passthrough */
     memset(&st, 0, sizeof st);
-    n = eol_translate_in(ZT_EOL_CRLF, &st,
-                         (const unsigned char *) "a\r\nb", 4, out, sizeof out);
+    n = eol_translate_in(ZT_EOL_CRLF, &st, (const unsigned char *)"a\r\nb", 4, out, sizeof out);
     ASSERT(n == 3 && memcmp(out, "a\nb", 3) == 0, "in CRLF: CRLF→LF");
 
     /* IN: CRLF split across two calls (CR at end of chunk 1, LF at start of chunk 2) */
     memset(&st, 0, sizeof st);
-    size_t n1 = eol_translate_in(ZT_EOL_CRLF, &st,
-                                 (const unsigned char *) "x\r", 2, out, sizeof out);
-    size_t n2 = eol_translate_in(ZT_EOL_CRLF, &st,
-                                 (const unsigned char *) "\ny", 2, out + n1, sizeof out - n1);
+    size_t n1 =
+        eol_translate_in(ZT_EOL_CRLF, &st, (const unsigned char *)"x\r", 2, out, sizeof out);
+    size_t n2 = eol_translate_in(ZT_EOL_CRLF, &st, (const unsigned char *)"\ny", 2, out + n1,
+                                 sizeof out - n1);
     ASSERT(n1 == 1 && n2 == 2 && memcmp(out, "x\ny", 3) == 0, "in CRLF: split-chunk coalesce");
 
     /* IN: CRLF — lone CR at end of stream is held but eol_state flag retains it */
     memset(&st, 0, sizeof st);
-    n = eol_translate_in(ZT_EOL_CRLF, &st,
-                        (const unsigned char *) "abc\r", 4, out, sizeof out);
+    n = eol_translate_in(ZT_EOL_CRLF, &st, (const unsigned char *)"abc\r", 4, out, sizeof out);
     ASSERT(n == 3 && st.saw_cr == 1, "in CRLF: trailing CR is held in state");
 
     /* IN: CR_CRLF — CRLF→CR */
     memset(&st, 0, sizeof st);
-    n = eol_translate_in(ZT_EOL_CR_CRLF, &st,
-                         (const unsigned char *) "a\r\nb", 4, out, sizeof out);
+    n = eol_translate_in(ZT_EOL_CR_CRLF, &st, (const unsigned char *)"a\r\nb", 4, out,
+                         sizeof out);
     ASSERT(n == 3 && memcmp(out, "a\rb", 3) == 0, "in CR_CRLF: CRLF→CR");
 }
 
@@ -1046,13 +1166,13 @@ static void test_transport(void) {
     SECTION("transport (URL detect + Telnet IAC)");
 
     /* URL detection */
-    ASSERT(transport_is_url("tcp://1.2.3.4:23"),       "detect tcp://");
-    ASSERT(transport_is_url("telnet://host:23"),       "detect telnet://");
-    ASSERT(transport_is_url("rfc2217://host:2217"),    "detect rfc2217://");
-    ASSERT(!transport_is_url("/dev/ttyUSB0"),          "no detect: /dev path");
-    ASSERT(!transport_is_url("ttyUSB0"),               "no detect: bare name");
-    ASSERT(!transport_is_url(""),                      "no detect: empty");
-    ASSERT(!transport_is_url(NULL),                    "no detect: NULL");
+    ASSERT(transport_is_url("tcp://1.2.3.4:23"), "detect tcp://");
+    ASSERT(transport_is_url("telnet://host:23"), "detect telnet://");
+    ASSERT(transport_is_url("rfc2217://host:2217"), "detect rfc2217://");
+    ASSERT(!transport_is_url("/dev/ttyUSB0"), "no detect: /dev path");
+    ASSERT(!transport_is_url("ttyUSB0"), "no detect: bare name");
+    ASSERT(!transport_is_url(""), "no detect: empty");
+    ASSERT(!transport_is_url(NULL), "no detect: NULL");
 
     /* RX filter: IAC IAC → literal 0xFF */
     {
@@ -1068,8 +1188,7 @@ static void test_transport(void) {
         uint8_t       st  = 0;
         unsigned char b[] = {'x', 0xFF, 0xFB, 0x01, 'y'};
         size_t        n   = telnet_rx_filter(&st, b, sizeof b);
-        ASSERT(n == 2 && b[0] == 'x' && b[1] == 'y',
-               "RX: IAC WILL <opt> stripped");
+        ASSERT(n == 2 && b[0] == 'x' && b[1] == 'y', "RX: IAC WILL <opt> stripped");
     }
 
     /* RX filter: IAC SB ... IAC SE drops the whole sub-negotiation */
@@ -1077,35 +1196,35 @@ static void test_transport(void) {
         uint8_t       st  = 0;
         unsigned char b[] = {'p', 0xFF, 0xFA, 1, 2, 3, 0xFF, 0xF0, 'q'};
         size_t        n   = telnet_rx_filter(&st, b, sizeof b);
-        ASSERT(n == 2 && b[0] == 'p' && b[1] == 'q',
-               "RX: IAC SB ... IAC SE stripped");
+        ASSERT(n == 2 && b[0] == 'p' && b[1] == 'q', "RX: IAC SB ... IAC SE stripped");
     }
 
     /* RX filter: state survives across calls (IAC at end of chunk) */
     {
-        uint8_t       st = 0;
+        uint8_t       st   = 0;
         unsigned char b1[] = {'a', 0xFF};
         unsigned char b2[] = {0xFF, 'b'};
-        size_t n1 = telnet_rx_filter(&st, b1, sizeof b1);
-        size_t n2 = telnet_rx_filter(&st, b2, sizeof b2);
-        ASSERT(n1 == 1 && b1[0] == 'a',                 "RX split: chunk1 holds IAC");
-        ASSERT(n2 == 2 && b2[0] == 0xFF && b2[1] == 'b',"RX split: chunk2 emits 0xFF then 'b'");
+        size_t        n1   = telnet_rx_filter(&st, b1, sizeof b1);
+        size_t        n2   = telnet_rx_filter(&st, b2, sizeof b2);
+        ASSERT(n1 == 1 && b1[0] == 'a', "RX split: chunk1 holds IAC");
+        ASSERT(n2 == 2 && b2[0] == 0xFF && b2[1] == 'b',
+               "RX split: chunk2 emits 0xFF then 'b'");
     }
 
     /* TX escape: 0xFF doubles, normal bytes pass through */
     {
-        const unsigned char in[] = {'h', 0xFF, 'i'};
+        const unsigned char in[]   = {'h', 0xFF, 'i'};
         unsigned char       out[8] = {0};
-        size_t              w = telnet_tx_escape(in, sizeof in, out, sizeof out);
-        ASSERT(w == 4 && out[0] == 'h' && out[1] == 0xFF && out[2] == 0xFF
-                      && out[3] == 'i', "TX: 0xFF doubled");
+        size_t              w      = telnet_tx_escape(in, sizeof in, out, sizeof out);
+        ASSERT(w == 4 && out[0] == 'h' && out[1] == 0xFF && out[2] == 0xFF && out[3] == 'i',
+               "TX: 0xFF doubled");
     }
 
     /* TX escape: passthrough when no IAC present */
     {
-        const unsigned char in[] = {1, 2, 3, 4};
+        const unsigned char in[]   = {1, 2, 3, 4};
         unsigned char       out[8] = {0};
-        size_t              w = telnet_tx_escape(in, sizeof in, out, sizeof out);
+        size_t              w      = telnet_tx_escape(in, sizeof in, out, sizeof out);
         ASSERT(w == 4 && memcmp(out, in, 4) == 0, "TX: clean bytes pass through");
     }
 }
@@ -1191,15 +1310,15 @@ static void test_hooks(void) {
         if (access(counter, F_OK) == 0) break;
     }
     /* Count lines in the counter file. */
-    FILE *fp = fopen(counter, "r");
-    int  n_lines = 0;
+    FILE *fp      = fopen(counter, "r");
+    int   n_lines = 0;
     if (fp) {
         char ln[64];
-        while (fgets(ln, sizeof ln, fp)) n_lines++;
+        while (fgets(ln, sizeof ln, fp))
+            n_lines++;
         fclose(fp);
     }
-    ASSERT(n_lines == 1,
-           "exactly one shell fired despite 10 back-to-back triggers");
+    ASSERT(n_lines == 1, "exactly one shell fired despite 10 back-to-back triggers");
     unlink(counter);
 
     /* After the rate-limit window expires, hook fires again. */
@@ -1219,15 +1338,14 @@ static void test_hooks(void) {
     ASSERT(pipe(p) == 0, "pipe for send: action capture");
     c.serial.fd = p[1]; /* direct_send writes here */
 
-    r = hooks_register(&c, ZT_HOOK_EVENT_MATCH,
-                       "/login:/=send:root\\r\\n");
+    r           = hooks_register(&c, ZT_HOOK_EVENT_MATCH, "/login:/=send:root\\r\\n");
     ASSERT(r == 0, "register send: action hook");
 
     const unsigned char prompt[] = "login: ";
     hooks_on_line(&c, prompt, sizeof prompt - 1);
 
-    char rxbuf[16] = {0};
-    ssize_t got = read(p[0], rxbuf, sizeof rxbuf - 1);
+    char    rxbuf[16] = {0};
+    ssize_t got       = read(p[0], rxbuf, sizeof rxbuf - 1);
     ASSERT(got == 6 && memcmp(rxbuf, "root\r\n", 6) == 0,
            "send: action wrote escape-expanded bytes to serial fd");
     close(p[0]);
@@ -1266,8 +1384,8 @@ static void test_cast_record(void) {
     ASSERT(r == 0, "cast_record_open succeeds");
 
     /* Two o-events; should produce two JSON array lines after header. */
-    cast_record_o((const unsigned char *) "hello", 5);
-    cast_record_o((const unsigned char *) "\x1b[0m\n", 5);
+    cast_record_o((const unsigned char *)"hello", 5);
+    cast_record_o((const unsigned char *)"\x1b[0m\n", 5);
     cast_record_close(&c);
     ASSERT(c.log.rec_path == NULL, "rec_path cleared on close");
 
@@ -1281,17 +1399,14 @@ static void test_cast_record(void) {
         ASSERT(fgets(line3, sizeof line3, fp) != NULL, "event line 2 read");
         fclose(fp);
     }
-    ASSERT(strstr(line1, "\"version\":2") != NULL,
-           "header has version:2");
+    ASSERT(strstr(line1, "\"version\":2") != NULL, "header has version:2");
     ASSERT(strstr(line1, "\"width\":") != NULL && strstr(line1, "\"height\":") != NULL,
            "header has width/height");
-    ASSERT(strstr(line1, "\"timestamp\":") != NULL,
-           "header has timestamp");
+    ASSERT(strstr(line1, "\"timestamp\":") != NULL, "header has timestamp");
     ASSERT(line2[0] == '[' && strstr(line2, "\"o\"") && strstr(line2, "hello"),
            "event line 1 is [t,\"o\",\"hello\"] shape");
     /* The escape \x1b becomes JSON \u001b. */
-    ASSERT(strstr(line3, "\\u001b") != NULL,
-           "event line 2 escapes ESC as \\u001b");
+    ASSERT(strstr(line3, "\\u001b") != NULL, "event line 2 escapes ESC as \\u001b");
 
     /* Idempotent close. */
     cast_record_close(&c);
@@ -1326,7 +1441,7 @@ static void test_profile_watch(void) {
     rmdir(prof_dir);
     rmdir(xdg);
 
-    char *prev_xdg = getenv("XDG_CONFIG_HOME");
+    char *prev_xdg  = getenv("XDG_CONFIG_HOME");
     char *prev_save = prev_xdg ? strdup(prev_xdg) : NULL;
     setenv("XDG_CONFIG_HOME", xdg, 1);
 
@@ -1334,7 +1449,10 @@ static void test_profile_watch(void) {
     mkdir(xdg, 0700);
     mkdir(prof_dir, 0700);
     FILE *fp = fopen(prof_file, "w");
-    if (fp) { fputs("baud = 9600\n", fp); fclose(fp); }
+    if (fp) {
+        fputs("baud = 9600\n", fp);
+        fclose(fp);
+    }
 
     int r = profile_watch_start(&c, "utest");
     ASSERT(r == 0, "profile_watch_start succeeds");
@@ -1350,7 +1468,10 @@ static void test_profile_watch(void) {
     char tmp[256];
     snprintf(tmp, sizeof tmp, "%s.tmp", prof_file);
     fp = fopen(tmp, "w");
-    if (fp) { fputs("baud = 230400\n", fp); fclose(fp); }
+    if (fp) {
+        fputs("baud = 230400\n", fp);
+        fclose(fp);
+    }
     r = rename(tmp, prof_file);
     ASSERT(r == 0, "atomic-rename write to profile file");
 
@@ -1373,8 +1494,12 @@ static void test_profile_watch(void) {
     ASSERT(r == -1, "profile_watch_start empty name rejected");
 
     /* Restore env. */
-    if (prev_save) { setenv("XDG_CONFIG_HOME", prev_save, 1); free(prev_save); }
-    else            { unsetenv("XDG_CONFIG_HOME"); }
+    if (prev_save) {
+        setenv("XDG_CONFIG_HOME", prev_save, 1);
+        free(prev_save);
+    } else {
+        unsetenv("XDG_CONFIG_HOME");
+    }
     unlink(prof_file);
     unlink(tmp);
     rmdir(prof_dir);

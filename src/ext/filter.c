@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 int filter_start(zt_ctx *c, const char *shell_cmd) {
@@ -83,7 +84,22 @@ void filter_stop(zt_ctx *c) {
     }
     kill(c->ext.filter_pid, SIGTERM);
     int status = 0;
-    waitpid(c->ext.filter_pid, &status, 0);
+    /* Never block the UI/serial loop on a filter that ignores SIGTERM
+     * (e.g. `--filter 'trap "" TERM; cat'`) or is wedged (ZT-006). Poll
+     * for exit over a short grace window, then escalate to SIGKILL —
+     * after which the final reap returns promptly. */
+    bool reaped = false;
+    for (int i = 0; i < 20; i++) { /* ~100ms grace (20 x 5ms) */
+        if (waitpid(c->ext.filter_pid, &status, WNOHANG) != 0) {
+            reaped = true; /* >0 = exited, -1 = already gone */
+            break;
+        }
+        nanosleep(&(struct timespec){0, 5 * 1000000L}, NULL);
+    }
+    if (!reaped) {
+        kill(c->ext.filter_pid, SIGKILL);
+        waitpid(c->ext.filter_pid, &status, 0);
+    }
     if (c->ext.filter_stdout_fd >= 0) {
         close(c->ext.filter_stdout_fd);
         c->ext.filter_stdout_fd = -1;
@@ -103,11 +119,16 @@ void filter_feed(zt_ctx *c, const unsigned char *buf, size_t n) {
     size_t               left = n;
     while (left > 0) {
         ssize_t w = write(c->ext.filter_stdin_fd, p, left);
-        if (w <= 0) {
-            if (errno == EAGAIN || errno == EINTR) break;
+        if (w < 0) {
+            /* ZT-015: EINTR is a spurious interrupt — retry, don't drop the
+             * rest of the chunk. Only EAGAIN (pipe full) is a real "drop and
+             * move on"; anything else means the filter died. */
+            if (errno == EINTR) continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
             filter_stop(c);
             return;
         }
+        if (w == 0) break; /* nothing written, no error — avoid a busy spin */
         p += w;
         left -= (size_t)w;
     }

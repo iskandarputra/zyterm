@@ -221,6 +221,13 @@ void hex_flush_row(zt_ctx *c) {
     c->log.hex_row_len = 0;
 }
 
+/* Append one byte to the assembling RX line, flushing to scrollback when the
+ * fixed line buffer fills (every write stays bounded — INVARIANTS §5). */
+static void rx_line_putc(zt_ctx *c, unsigned char b) {
+    if (c->log.line_len >= ZT_LINEBUF_CAP) flush_line(c);
+    c->log.line[c->log.line_len++] = b;
+}
+
 void render_rx(zt_ctx *c, const unsigned char *buf, size_t n) {
     c->core.rx_bytes += n;
     if (c->core.paused) return;
@@ -245,6 +252,10 @@ void render_rx(zt_ctx *c, const unsigned char *buf, size_t n) {
             }
         }
     } else {
+        /* ZT-003 (INVARIANTS §6): device RX is untrusted. Unless the operator
+         * explicitly opted into a passthrough mode, escapes are neutralized
+         * below so a hostile device can't drive the operator's terminal. */
+        bool raw_ok = c->proto.passthrough || c->proto.sgr_passthrough;
         for (size_t i = 0; i < n; i++) {
             unsigned char b = buf[i];
 
@@ -277,12 +288,16 @@ void render_rx(zt_ctx *c, const unsigned char *buf, size_t n) {
                 flush_line(c);
                 continue;
             }
-            if (c->log.line_len < ZT_LINEBUF_CAP)
-                c->log.line[c->log.line_len++] = b;
-            else {
-                flush_line(c);
-                c->log.line[c->log.line_len++] = b;
+            /* Default-deny: replace ESC and other C0/DEL controls with cat -v
+             * caret notation (^[ , ^G, …) so OSC 52 clipboard writes, title
+             * injection and cursor/screen spoofs become inert, readable text.
+             * \t passes; UTF-8 high bytes pass; \r/\n handled above. */
+            if (!raw_ok && (b == 0x1B || b == 0x7F || (b < 0x20 && b != '\t'))) {
+                rx_line_putc(c, '^');
+                rx_line_putc(c, (unsigned char)(b == 0x7F ? '?' : b + 0x40));
+                continue;
             }
+            rx_line_putc(c, b);
         }
     }
     if (live) ob_cstr("\0337");

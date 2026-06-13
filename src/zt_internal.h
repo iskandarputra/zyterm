@@ -12,7 +12,7 @@
  *
  *   core   → serial → log → proto → render → tui → net → ext → loop
  *
- * @see docs/ARCHITECTURE.md
+ * @see docs/reference/ARCHITECTURE.md
  *
  * @author  Iskandar Putra (www.iskandarputra.com)
  * @copyright Copyright (c) 2026 Iskandar Putra. All rights reserved.

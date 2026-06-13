@@ -344,6 +344,7 @@ typedef struct {
         void *http_impl;    /**< Opaque — defined in http.c.              */
         char *http_webroot; /**< User static-files dir ('\0' = built-in). */
         bool  http_cors;    /**< Emit permissive CORS headers.            */
+        char *http_token;   /**< Bearer token gating POST /tx (NULL=off).  */
 
         /* Tier 3 — session (detach/attach) */
         int   session_fd; /**< Unix socket (for --detach host).         */

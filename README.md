@@ -25,11 +25,11 @@ If you work with microcontrollers or embedded boards, you've probably spent a lo
 
 We wanted something that felt a bit more comfortable for daily use, so we built zyterm. It's nothing revolutionary — just a serial terminal that tries to stay out of your way while giving you a few nice things:
 
-- **Stays responsive under load** — Uses ANSI scrolling regions and an optional reader thread, so your input bar doesn't freeze when the board is spewing boot logs. It handles high baud rates reasonably well, though your mileage may vary depending on the USB adapter.
+- **Stays responsive under load** — Uses ANSI scrolling regions and an optional reader thread (`--threaded`), so your input bar doesn't freeze when the board is spewing boot logs. It handles high baud rates reasonably well, though your mileage may vary depending on the USB adapter.
 - **Built-in search & scrollback** — Press `Ctrl+A` then `/` to search through what your board has printed. Handy when you're looking for that one error buried in a thousand lines.
 - **Live HUD** — A small status bar showing baud rate, parity, throughput, and a sparkline. Nothing fancy, but useful at a glance.
 - **Survives USB unplug** — Pull the adapter out mid-session and zyterm shows a disconnect dialog instead of crashing. Scrollback, search, and copy still work while the link is down; reconnecting restores the live tail without disturbing what you were reading.
-- **Small and self-contained** — It's a single C binary. No Python, no Node, no runtime dependencies beyond your system's libc. Linux is the supported and CI-tested target (termios2 custom baud, inotify config reload, `/sys/class/tty` USB discovery, optional epoll fast path); it may build on other Unixes but we don't ship binaries for them.
+- **Small and self-contained** — It's a single C binary. No Python, no Node, no runtime dependencies beyond your system's libc. Linux is the supported and CI-tested target (termios2 custom baud, inotify config reload, `/sys/class/tty` USB discovery); it may build on other Unixes but we don't ship binaries for them.
 
 ### How it compares
 
@@ -76,9 +76,9 @@ Most things are behind `Ctrl+A`. Press it to open the command menu, or use these
 | `Ctrl+A` then `o`       | Open the settings dialog       |
 | `Ctrl+A` then `r`       | Force reconnect                |
 | `PgUp` / `PgDn`         | Scroll through history         |
-| `Ctrl+L`                | Clear the screen               |
+| `Ctrl+A` then `c`       | Clear the screen               |
 
-There's more — F-key macros, hex view, fuzzy finding, multi-pane, bookmarks — but you can discover those at your own pace via `Ctrl+A ?` or in the [User Guide](docs/USER_GUIDE.md).
+There's more — F-key macros, hex view, bookmarks, framing decoders — and you can discover those at your own pace via `Ctrl+A ?` or in the [getting-started guide](docs/guide/getting-started.md). The full key catalogue lives in [docs/reference/KEYBINDINGS.md](docs/reference/KEYBINDINGS.md).
 
 ## A Few Handy Recipes
 
@@ -133,17 +133,21 @@ For clipboard support on X11 desktops, zyterm quietly tries to load `libxcb.so.1
 
 ## Documentation
 
-| Resource                              | What's in it                                  |
-| :------------------------------------ | :-------------------------------------------- |
-| [Tutorial](docs/tutorial/00-index.md) | Deep, chapter-by-chapter walkthrough          |
-| [User Guide](docs/USER_GUIDE.md)      | Flags, shortcuts, and recipes                 |
-| [API Docs](docs/API.md)               | Embedding zyterm's core in your own C program |
-| [Architecture](docs/ARCHITECTURE.md)  | How the codebase is organized                 |
-| [Contributing](docs/CONTRIBUTING.md)  | How to send patches, style rules, testing     |
+The docs live under [`docs/`](docs/README.md) and are organized by kind — reference (how it works now), guides (task-oriented learning), design notes, and decisions. Start at the [documentation map](docs/README.md) to find your way around.
+
+| Resource                                             | What's in it                                    |
+| :--------------------------------------------------- | :---------------------------------------------- |
+| [Documentation map](docs/README.md)                  | Router for everything below                     |
+| [Getting started](docs/guide/getting-started.md)     | Your first session, step by step                |
+| [CLI reference](docs/reference/CLI.md)               | Every command-line flag, verified against `src` |
+| [Keybindings](docs/reference/KEYBINDINGS.md)         | The full in-app key catalogue                   |
+| [Architecture](docs/reference/ARCHITECTURE.md)       | How the codebase is organized                   |
+| [Contributing](CONTRIBUTING.md)                      | How to send patches, style rules, testing       |
+| [Security](SECURITY.md)                              | Trust boundaries and how to report issues       |
 
 ## What's Inside
 
-Plain C11, split into ten modules: core, serial, log, proto, render, tui, net, ext, loop, plus `main.c`. Run `make modules` if you're curious about the breakdown. The code is meant to be readable — if you want to see how something works, have a look around `src/`.
+Plain C11, split into nine modules under `src/` — core, serial, log, proto, render, tui, net, ext, loop — plus `main.c`. Run `make modules` if you're curious about the breakdown. The code is meant to be readable — if you want to see how something works, have a look around `src/`, and [docs/reference/ARCHITECTURE.md](docs/reference/ARCHITECTURE.md) maps the layout.
 
 ## License
 
