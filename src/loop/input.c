@@ -813,8 +813,6 @@ void delete_before_cursor(zt_ctx *c) {
 }
 
 void handle_stdin_chunk(zt_ctx *c, const unsigned char *buf, size_t n) {
-    c->proto.tab_echo = false; /* stop echo capture on any user input */
-
     /* Transient overlay (Ctrl+A k / ? keybind help) is dismissed by
      * ANY next key, including Esc. The key is consumed so the user
      * doesn't accidentally also trigger its normal action. Without
@@ -990,14 +988,15 @@ void handle_stdin_chunk(zt_ctx *c, const unsigned char *buf, size_t n) {
             continue;
         }
         if (k == '\t') {
-            size_t unsent = c->tui.input_len - c->tui.sent_len;
+            /* Forward Tab to the device for its own completion. We deliberately
+             * do NOT mirror the echo into the local input line: device RX is
+             * untrusted and asynchronous (continuous log output interleaves with
+             * any completion echo), so capturing it injected log fragments into
+             * the command line. The completion is visible in the device's own
+             * echo in scrollback. */
             flush_unsent(c);
             unsigned char tab = '\t';
             direct_send(c, &tab, 1);
-            /* capture echo: skip N chars (echo of what we just flushed),
-             * then append completion suffix to buffer */
-            c->proto.tab_echo = true;
-            c->proto.tab_skip = unsent;
             draw_input(c);
             continue;
         }

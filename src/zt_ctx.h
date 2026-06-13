@@ -385,16 +385,13 @@ typedef struct {
         bool osc52_enabled;
 
         /* Tier 4 — OSC 8 hyperlink detection */
-        bool   hyperlinks;
+        bool hyperlinks;
 
-        bool   local_echo;
-        bool   color_on;
-        bool   show_ts;
-        bool   tx_ts;
-        bool   tx_line_start;
-
-        bool   tab_echo; /**< Capturing device completion echo.        */
-        size_t tab_skip;
+        bool local_echo;
+        bool color_on;
+        bool show_ts;
+        bool tx_ts;
+        bool tx_line_start;
 
         /* Tier 1 — line-ending translation (--map-out / --map-in). */
         zt_eol_map   map_out;

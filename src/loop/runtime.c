@@ -274,18 +274,12 @@ int run_interactive(zt_ctx *c) {
          * downstream terminal's reflow + repaint cost dominates and
          * the user sees jitter. Coalescing to one paint per ~16 ms
          * makes scrollback feel buttery without affecting RX latency
-         * (bytes still hit log/scrollback immediately via render_rx).
-         *
-         * Tab-completion echo (c->proto.tab_echo) bypasses the cap: the
-         * user is actively watching the input bar grow letter-by-
-         * letter and a 16 ms stall feels like a stutter. The echo
-         * window is short (single completion round-trip) so the
-         * extra paints have negligible cost. */
+         * (bytes still hit log/scrollback immediately via render_rx). */
         if (c->tui.ui_dirty && !c->tui.popup_active) {
             struct timespec tnow;
             now(&tnow);
             double since = ts_diff_sec(&tnow, &c->core.t_last_paint);
-            if (since >= 0.016 || c->proto.tab_echo) {
+            if (since >= 0.016) {
                 if (c->tui.sb_redraw) {
                     redraw_scrollback(c);
                     if (c->tui.sb_offset == 0) {

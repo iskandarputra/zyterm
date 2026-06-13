@@ -259,30 +259,6 @@ void render_rx(zt_ctx *c, const unsigned char *buf, size_t n) {
         for (size_t i = 0; i < n; i++) {
             unsigned char b = buf[i];
 
-            /* Tab completion echo capture: after Tab, Zephyr echoes the
-             * flushed chars (skip those) then the completion suffix
-             * (append to buffer).  Stop at [, \r, \n, ESC — all mark
-             * the start of log output, not completion text. */
-            if (c->proto.tab_echo) {
-                if (b == '[' || b == '\r' || b == '\n' || b == 0x1B) {
-                    c->proto.tab_echo = false;
-                } else if (b >= 0x20 && b < 0x7F) {
-                    if (c->proto.tab_skip > 0) {
-                        c->proto.tab_skip--;
-                    } else if (c->tui.input_len < ZT_INPUT_CAP - 1) {
-                        c->tui.input_buf[c->tui.input_len++] = b;
-                        c->tui.sent_len++;
-                    }
-                }
-                /* \b from device — undo one captured char */
-                if ((b == '\b' || b == 0x7F) && c->proto.tab_skip == 0) {
-                    if (c->tui.input_len > 0 && c->tui.sent_len > 0) {
-                        c->tui.input_len--;
-                        c->tui.sent_len--;
-                    }
-                }
-            }
-
             if (b == '\r') continue;
             if (b == '\n') {
                 flush_line(c);
