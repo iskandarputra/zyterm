@@ -190,7 +190,7 @@ requests on the
 [issue tracker](https://github.com/iskandarputra/zyterm/issues). A good report includes:
 
 - the exact command line you ran,
-- `zyterm --version` (this is **1.3.0**),
+- `zyterm --version` (this is **1.4.0**),
 - the device / adapter and its USB VID:PID (`lsusb`),
 - what you expected vs. what happened, and any on-screen error.
 

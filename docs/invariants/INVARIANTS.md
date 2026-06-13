@@ -380,7 +380,7 @@ pipeline. See [`ops/RELEASE.md`](../ops/RELEASE.md) and
 - **The version is single-sourced in `ZT_VERSION`.** No build script, doc, or CI step hard-codes the
   version string; everything derives from this one macro. The release workflow verifies the git tag
   equals `ZT_VERSION` and fails the release otherwise.
-  - `where`: `src/zt_ctx.h:70` (`#define ZT_VERSION "1.3.0"`); tag check in
+  - `where`: `src/zt_ctx.h:70` (`#define ZT_VERSION "1.4.0"`); tag check in
     `.github/workflows/release.yml`.
 
 - **Runtime dependency is libc only.** No new hard link-time dependency may be added. The X11

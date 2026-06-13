@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-06-13
+
+Device-output rendering. Device-emitted SGR colour now renders by default through
+a new bounded SGR-only filter — coloured logs (`<wrn>`/`<err>`) show in colour out
+of the box, while OSC 52 clipboard writes, title injection and cursor/erase escapes
+are still neutralized, so the v1.3.0 security posture ([INVARIANTS §6](docs/invariants/INVARIANTS.md))
+holds. `--no-sgr` selects the strict deny-all mode, and shell completion-candidate
+listings keep their column alignment (the device's cursor-forward padding is
+rendered as spaces instead of `^[[nC` litter). Fixes the mislabeled/unsafe
+`sgr_passthrough` (ZT-029).
+
 ### Changed
 - **Device SGR colour now renders by default (ADR-0009).** Level-coloured device
   logs (`<wrn>` yellow, `<err>` red, …) show in colour out of the box instead of
