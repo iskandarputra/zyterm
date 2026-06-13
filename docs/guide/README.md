@@ -6,7 +6,7 @@ the reference catalogues when you need the exhaustive list. For "why is it built
 this way" see the [decisions](../decisions/README.md); for "how it works inside"
 see the [reference](../reference/ARCHITECTURE.md).
 
-This guide tracks zyterm **1.2.0**. Every keystroke and flag below is verified
+This guide tracks zyterm **1.3.0**. Every keystroke and flag below is verified
 against the source; if something here disagrees with the binary, the binary wins
 and the guide is the bug.
 
@@ -54,8 +54,8 @@ When you want the complete, unabridged list rather than a guided path:
 ## A note on honesty
 
 A handful of things you might see in menus or older write-ups do not actually
-work in 1.2.0 — the `Ctrl+A .` fuzzy-history finder, the OSC 8 hyperlink toggle,
-and an unwired epoll/splice fast path among them. This guide never tells you to
+work in 1.3.0 — the OSC 8 hyperlink toggle and an unwired epoll/splice fast path
+among them. This guide never tells you to
 use them as if they worked; where it matters, the relevant page links to
 [tracking/KNOWN_ISSUES.md](../tracking/KNOWN_ISSUES.md) or the
 [roadmap](../plans/ROADMAP.md) instead.

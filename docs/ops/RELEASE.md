@@ -10,7 +10,7 @@ binary).
 There is exactly one place the version lives:
 
 ```c
-#define ZT_VERSION "1.2.0"
+#define ZT_VERSION "1.3.0"
 ```
 
 `src/zt_ctx.h:70`. Everything else derives from it:

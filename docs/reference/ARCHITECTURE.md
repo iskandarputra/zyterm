@@ -7,7 +7,7 @@ model, and the build pipeline. It deliberately stays at altitude — the byte-le
 [../invariants/INVARIANTS.md](../invariants/INVARIANTS.md). Known defects live in
 [../tracking/KNOWN_ISSUES.md](../tracking/KNOWN_ISSUES.md).
 
-zyterm is a single Linux binary (~12.5K LOC of C, version `1.2.0` — `ZT_VERSION` in
+zyterm is a single Linux binary (~12.5K LOC of C, version `1.3.0` — `ZT_VERSION` in
 `src/zt_ctx.h:70`). It is plain C11 + POSIX, links only libc (`-lpthread -ldl`, both
 absorbed into glibc ≥ 2.34), and has no build-time graphical dependency — the X11 clipboard
 is reached at runtime via `dlopen("libxcb.so.1")`.
@@ -170,7 +170,7 @@ The deep mechanics of both live in [INTERNALS.md](./INTERNALS.md).
 
 ## 6. Not wired / deferred (honest status)
 
-Some code is present but **not reachable** in 1.2.0. Do not treat these as working features.
+Some code is present but **not reachable** in 1.3.0. Do not treat these as working features.
 
 - **`serial/fastio.c` (epoll/splice fast path) — entirely unwired.** No call site exists; the
   runtime uses `poll(2)`. The `--epoll` flag was removed in 1.2.0 (only the `serial.epoll_fd = -1`
