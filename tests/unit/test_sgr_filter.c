@@ -124,6 +124,14 @@ static void test_sgr_neutralize(void) {
     n = filt("\x1b[2J", o); /* erase display */
     ASSERT(!has_esc(o, n) && memcmp(o, "^[[2J", 5) == 0, "CSI erase -> ^[[2J");
 
+    n = filt("ab\x1b[3Ccd", o); /* CUF column padding in completion listings */
+    ASSERT(!has_esc(o, n) && n == 7 && memcmp(o, "ab   cd", 7) == 0,
+           "CUF (ESC[3C) renders as 3 spaces, not ^[[3C litter");
+
+    n = filt("foo\x1b[6Cbar", o); /* shell pads candidate columns with CUF */
+    ASSERT(!has_esc(o, n) && memcmp(o, "foo      bar", 12) == 0,
+           "CUF aligns a word + 6 spaces + next column");
+
     n = filt("\x1b[?25h", o); /* DECSET hide cursor */
     ASSERT(!has_esc(o, n) && memcmp(o, "^[[?25h", 7) == 0, "DECSET -> inert");
 
