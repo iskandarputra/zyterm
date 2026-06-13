@@ -10,6 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Transparent interactive mode (`Ctrl+A G`).** zyterm's `passthrough` flag was
+  documented as a transparent KGDB/raw relay but was never wired. It now works: in
+  passthrough mode keystrokes go straight to the device and device RX is written to
+  the terminal byte-for-byte, so the **device** draws its own prompt, line-editing
+  and Tab-completion (rendered natively by your terminal) — no local input model to
+  desync. The HUD, `ZY ›` input line, scrollback paging and the SGR safety-filter are
+  suspended while it's on (file logging keeps running); exit by typing `~.` at the
+  start of a line. This is the robust answer to in-shell Tab-completion on a
+  chatty/async device. (`src/proto/passthrough.c`, `src/render/render.c`,
+  `src/loop/input.c`, `src/loop/runtime.c`)
+
 ### Removed
 - **Tab-completion echo capture.** zyterm used to mirror a device's Tab
   completion back into its own input line. On a chatty device this was unsafe:

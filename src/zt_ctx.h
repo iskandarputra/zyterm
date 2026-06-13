@@ -378,8 +378,9 @@ typedef struct {
         /* Tier 2 — SGR pass-through */
         bool sgr_passthrough; /**< Keep device-emitted SGR escapes.         */
 
-        /* Tier 2 — KGDB / raw passthrough */
-        bool passthrough; /**< Disable all line-editing + rendering.    */
+        /* Tier 2 — KGDB / raw (transparent) passthrough */
+        bool    passthrough;   /**< Transparent relay: raw stdin↔device, TUI off. */
+        uint8_t pt_line_state; /**< `~.` line-start exit detector (0/1).           */
 
         /* Tier 4 — clipboard (OSC 52) */
         bool osc52_enabled;

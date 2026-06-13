@@ -294,6 +294,14 @@ void render_rx(zt_ctx *c, const unsigned char *buf, size_t n) {
 void rx_ingest(zt_ctx *c, const unsigned char *buf, size_t n) {
     if (!c || !buf || n == 0) return;
 
+    /* Transparent (passthrough) mode: relay device RX raw to the terminal so it
+     * renders the device's own prompt/line/completion. The caller already logged
+     * these bytes; skip render/scrollback/framing/filter entirely. (INVARIANTS §6.) */
+    if (c->proto.passthrough) {
+        ob_write(buf, n);
+        return;
+    }
+
     /* Telnet IAC stripping (telnet:// transport only) — runs before EOL
      * translation so the IAC parser sees raw wire bytes. The filter is
      * stateful across read() chunks via c->serial.telnet_rx_st. We must

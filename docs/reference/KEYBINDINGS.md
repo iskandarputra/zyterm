@@ -46,7 +46,7 @@ called out explicitly.
 | `j` `J` | Cycle log format | text → json → raw (`input.c:270`). |
 | `F` | Cycle framing mode | Uppercase only (lowercase `f` is flow); `raw/cobs/slip/hdlc/lenpfx` (`input.c:278`). |
 | `K` | Cycle CRC mode | none/ccitt/ibm/crc32 (`input.c:284`). |
-| `G` | Toggle KGDB/raw passthrough | `input.c:288`. |
+| `G` | Toggle transparent (KGDB/raw) passthrough | Becomes a transparent relay: keystrokes go straight to the device and the device draws its own prompt/line/completion; the HUD, `ZY ›` input line, scrollback paging and SGR filter are suspended (logging keeps running). **Exit by typing `~.` at the start of a line.** (`src/proto/passthrough.c`, `src/loop/runtime.c`.) |
 | `+` | Add a bookmark | At the current scrollback offset (`input.c:294`). Lowercase `b` is BREAK. |
 | `[` | Bookmark list | `input.c:297`. |
 | `Y` | Yank to clipboard | Selection if active, else the current line (`input.c:298`). |

@@ -36,21 +36,21 @@ void passthrough_exit(zt_ctx *c) {
 
 bool passthrough_handle(zt_ctx *c, const unsigned char *buf, size_t n) {
     if (!c || !c->proto.passthrough || !buf || n == 0) return false;
-    /* Detect "~." at start of line (after \n or the very first byte). */
-    static int state = 0; /* 0 = line start, 1 = saw '~' */
+    /* Detect "~." at the start of a line. State lives in c->proto (not a
+     * file-static) so it never bleeds across sessions — see the resettable-state
+     * invariant. pt_line_state: 0 = line start, 1 = saw '~'. */
     for (size_t i = 0; i < n; i++) {
         unsigned char b = buf[i];
-        if (state == 1 && b == '.') {
+        if (c->proto.pt_line_state == 1 && b == '.') {
             passthrough_exit(c);
-            state = 0;
+            c->proto.pt_line_state = 0;
             return true;
         }
-        if (state == 0 && b == '~') {
-            state = 1;
+        if (c->proto.pt_line_state == 0 && b == '~') {
+            c->proto.pt_line_state = 1;
             continue;
         }
-        state = (b == '\n' || b == '\r') ? 0 : 2;
-        if (state == 2) state = 0;
+        c->proto.pt_line_state = 0;
     }
     /* Verbatim relay to serial. */
     if (c->serial.fd >= 0) direct_send(c, buf, n);

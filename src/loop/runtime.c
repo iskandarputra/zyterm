@@ -135,6 +135,7 @@ int run_interactive(zt_ctx *c) {
 
     unsigned char rbuf[ZT_READ_CHUNK];
     struct pollfd pfds[3];
+    bool          prev_pt = false; /* prior transparent (passthrough) state */
 
     while (!zt_g_quit) {
         if (zt_g_winch) {
@@ -266,6 +267,19 @@ int run_interactive(zt_ctx *c) {
             c->tui.ui_dirty = true;
         }
 
+        /* Transparent (passthrough) mode transitions: take the full screen on
+         * enter, restore the managed layout on exit. Handled here (loop layer)
+         * so the restore can call apply_layout(), and so every toggle path —
+         * Ctrl+A G, the settings toggle, and the `~.` exit — is covered. */
+        if (c->proto.passthrough != prev_pt) {
+            if (c->proto.passthrough)
+                ob_cstr("\033[r\033[2J\033[H"
+                        "\033[2m── transparent mode — type ~. to exit ──\033[0m\r\n");
+            else
+                apply_layout(c);
+            prev_pt = c->proto.passthrough;
+        }
+
         /* Single draw + flush per iteration (skip while popup is on top).
          *
          * Frame-rate cap (~60 fps): at high baud rates each RX chunk
@@ -275,7 +289,7 @@ int run_interactive(zt_ctx *c) {
          * the user sees jitter. Coalescing to one paint per ~16 ms
          * makes scrollback feel buttery without affecting RX latency
          * (bytes still hit log/scrollback immediately via render_rx). */
-        if (c->tui.ui_dirty && !c->tui.popup_active) {
+        if (c->tui.ui_dirty && !c->tui.popup_active && !c->proto.passthrough) {
             struct timespec tnow;
             now(&tnow);
             double since = ts_diff_sec(&tnow, &c->core.t_last_paint);
