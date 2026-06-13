@@ -236,7 +236,8 @@ accumulator is fixed-size, so **every write into a decoder buffer is bounded** a
 ## 6. Terminal output & escape-sequence safety
 
 The operator's terminal is a trust sink: bytes written to it can move the cursor, set the title,
-or drive OSC 52 clipboard writes. Device RX is **untrusted**. The rule: **device RX must not be
+or drive OSC 52 clipboard writes. Device RX is **untrusted** (see
+[ADR-0008](../decisions/0008-device-rx-escape-default-deny.md)). The rule: **device RX must not be
 able to inject escape sequences into the operator's terminal** unless the operator explicitly opted
 into raw passthrough.
 
@@ -273,7 +274,8 @@ The HTTP/SSE/WS bridge, the detach/attach session socket, and the metrics socket
 **state-mutating or data-leaking endpoints**. The trust boundary is the rule here:
 **loopback and the local user are not automatically trusted.** A localhost-only listener is still
 reachable cross-site (CORS simple-request, DNS rebind) and a `/tmp` socket is still reachable by
-any local user under a loose umask. See [`SECURITY.md`](../../SECURITY.md) and
+any local user under a loose umask. The bridge's auth model is recorded in
+[ADR-0007](../decisions/0007-http-bridge-auth-model.md). See [`SECURITY.md`](../../SECURITY.md) and
 [`design/HTTP_BRIDGE.md`](../design/HTTP_BRIDGE.md).
 
 - **Loopback ≠ trusted: mutating HTTP endpoints are origin-pinned (and optionally token-gated).**

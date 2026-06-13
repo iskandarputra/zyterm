@@ -100,6 +100,12 @@ Replay a saved log:
 ./zyterm --replay boot_capture.log
 ```
 
+Watch the session live in a browser (loopback only; the write routes are origin-pinned, and `--http-token` adds a bearer-token gate before you tunnel the port anywhere):
+
+```sh
+./zyterm /dev/ttyUSB0 --http 8080 --http-token "$(openssl rand -hex 16)"
+```
+
 ## Installation
 
 ### Ubuntu / Debian (.deb)
