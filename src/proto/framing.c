@@ -52,6 +52,8 @@ void framing_reset(zt_ctx *c) {
     c->proto.len16_need    = 0;
     c->proto.len16_lenb[0] = 0;
     c->proto.len16_lenb[1] = 0;
+    devline_reset(&c->proto.devline); /* ADR-0010: no stale prompt-line carryover */
+    c->tui.reconcile_pending = false;
 }
 
 /* ------------------------------------------------------------------------- */

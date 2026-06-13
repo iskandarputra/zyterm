@@ -10,15 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Removed
-- **Tab-completion echo capture.** zyterm used to mirror a device's Tab
-  completion back into its own input line. On a chatty device this was unsafe:
-  the asynchronous log stream interleaves with (or replaces) any completion
-  echo, so the capture injected log fragments into the command line — e.g.
-  `skycab … esp_` became `skycab … es RN_MSG : STATUS CHECK : SKYCAR NOT ALIGNED`.
-  Device RX no longer edits the local input line at all; it shows exactly what
-  you typed. Tab is still forwarded to the device, and the completion appears in
-  the device's own echo in scrollback. (`src/render/render.c`, `src/loop/input.c`)
+### Changed
+- **Tab-completion now mirrors into the input line via device prompt-line
+  reconciliation (ADR-0010), replacing a fragile echo-capture.** The old capture
+  appended whatever RX arrived after Tab and, on a chatty device, injected async
+  log fragments into the command line (`skycab … esp_` →
+  `skycab … es RN_MSG : STATUS CHECK : SKYCAR NOT ALIGNED`). It is replaced by a
+  model of the device's *current* line (reset on `\n`, so log lines can't pollute
+  it): on Tab, zyterm anchors on the exact command it sent and adopts only the
+  completion the device appended — **append-only** (never alters typed bytes),
+  content-whitelisted, length-capped, and gated to a 500 ms window. Device RX
+  never originates bytes to the device (Enter sends only `\r`), so the adopted
+  tail is display + history only. (`src/proto/devline.c`, `src/render/render.c`,
+  `src/loop/input.c`)
 
 ## [1.3.0] — 2026-06-13
 

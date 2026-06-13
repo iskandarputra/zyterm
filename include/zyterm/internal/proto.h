@@ -55,6 +55,22 @@ void passthrough_enter(zt_ctx *c);
 void passthrough_exit(zt_ctx *c);
 bool passthrough_handle(zt_ctx *c, const unsigned char *buf, size_t n);
 
+/* ── proto/devline.c — device prompt-line reconciliation (ADR-0010) ──────── */
+/** Reset the device-line model (call on connect/reconnect/embed reuse). */
+void devline_reset(zt_devline *st);
+/** Feed one RX byte through the minimal line discipline. Pure: state-only,
+ *  no @ref zt_ctx, no I/O — unit-testable in isolation. */
+void devline_feed(zt_devline *st, unsigned char b);
+/** If the device's current line contains @c cmd (anchored at/before the live
+ *  cursor) followed by a whitelisted completion tail, point @c *tail / @c
+ *  *tail_len at it and return true; else false (no safe completion). Pure. */
+bool devline_tail(const zt_devline *st, const unsigned char *cmd, size_t cmd_len,
+                  const unsigned char **tail, size_t *tail_len);
+/** Drive the model over an RX chunk and, inside the post-Tab window, adopt a
+ *  completion tail into the local input line (append-only). The only
+ *  ctx-touching entry point; tap it from rx_ingest on the normalized stream. */
+void devline_ingest(zt_ctx *c, const unsigned char *buf, size_t n);
+
 /* ── proto/line_endings.c ──────────────────────────────────────────────── */
 /** Worst-case output size for a translation of @c n bytes (LF→CRLF doubles). */
 #define ZT_EOL_OUT_CAP(n) ((n) * 2u)

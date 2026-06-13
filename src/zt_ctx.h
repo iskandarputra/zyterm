@@ -52,22 +52,46 @@ struct termios2 {
 #endif
 
 /** @name Compile-time limits @{ */
-#define ZT_INPUT_CAP      4096       /**< Max chars in the on-screen input line.   */
-#define ZT_LINEBUF_CAP    4096       /**< Max chars in a single log/render line.   */
-#define ZT_READ_CHUNK     65536      /**< Largest single read() from serial/stdin. */
-#define ZT_HISTORY_CAP    128        /**< Command-history ring capacity.           */
-#define ZT_FLUSH_DELAY_US 2000       /**< Stdout output buffer flush delay.        */
-#define ZT_HUD_REFRESH_MS 500        /**< HUD repaint cadence.                     */
-#define ZT_SCROLLBACK_CAP 10000      /**< Scrollback ring-buffer line count.       */
-#define ZT_WATCH_MAX      8          /**< Max @c --watch patterns.                 */
-#define ZT_MACRO_COUNT    12         /**< F1..F12.                                 */
-#define ZT_SEARCH_CAP     128        /**< Max chars in a search query.             */
-#define ZT_RECONNECT_MS   1000       /**< Reconnect-loop poll interval.            */
-#define PATH_MAX_LEN      1024       /**< Max length for log path / device path.   */
-#define ZT_BOOKMARK_MAX   64         /**< Max user-set scrollback bookmarks.       */
-#define ZT_SPARK_HIST     32         /**< Throughput sparkline sample depth.       */
-#define ZT_SPSC_CAP       (1u << 20) /**< Reader-thread SPSC ring (1 MiB).         */
-#define ZT_VERSION        "1.3.0"
+#define ZT_INPUT_CAP           4096       /**< Max chars in the on-screen input line.   */
+#define ZT_LINEBUF_CAP         4096       /**< Max chars in a single log/render line.   */
+#define ZT_READ_CHUNK          65536      /**< Largest single read() from serial/stdin. */
+#define ZT_HISTORY_CAP         128        /**< Command-history ring capacity.           */
+#define ZT_FLUSH_DELAY_US      2000       /**< Stdout output buffer flush delay.        */
+#define ZT_HUD_REFRESH_MS      500        /**< HUD repaint cadence.                     */
+#define ZT_SCROLLBACK_CAP      10000      /**< Scrollback ring-buffer line count.       */
+#define ZT_WATCH_MAX           8          /**< Max @c --watch patterns.                 */
+#define ZT_MACRO_COUNT         12         /**< F1..F12.                                 */
+#define ZT_SEARCH_CAP          128        /**< Max chars in a search query.             */
+#define ZT_RECONNECT_MS        1000       /**< Reconnect-loop poll interval.            */
+#define PATH_MAX_LEN           1024       /**< Max length for log path / device path.   */
+#define ZT_BOOKMARK_MAX        64         /**< Max user-set scrollback bookmarks.       */
+#define ZT_SPARK_HIST          32         /**< Throughput sparkline sample depth.       */
+#define ZT_SPSC_CAP            (1u << 20) /**< Reader-thread SPSC ring (1 MiB).         */
+#define ZT_VERSION             "1.3.0"
+#define ZT_DEVLINE_CAP         1024 /**< Max bytes modeled on the device's current line. */
+#define ZT_DEVLINE_CSI_CAP     32   /**< Max CSI param/intermediate bytes (devline).     */
+#define ZT_RECONCILE_TAIL_MAX  256  /**< Max chars a completion may append to input.     */
+#define ZT_RECONCILE_WINDOW_MS 500  /**< Post-Tab completion-reconcile window.           */
+/** @} */
+
+/** @name Device prompt-line reconciliation (ADR-0010) @{ */
+/** A bounded model of the characters currently on the DEVICE's prompt line,
+ *  rebuilt from RX by interpreting a minimal line discipline (printable, CR,
+ *  BS, LF, and ESC[K / ESC[nC / ESC[nD). Reset on '\n', so async log lines
+ *  (separate, newline-terminated) never pollute it. Used to mirror a device
+ *  Tab-completion into the local input line. Cursor (@c col) is a byte offset:
+ *  the completion tail is whitelisted to complete valid UTF-8, so a multibyte
+ *  edit degrades to "no completion adopted" rather than corrupting input.
+ *  See INVARIANTS §6. */
+typedef struct {
+    enum { ZT_DL_NONE = 0, ZT_DL_ESC, ZT_DL_CSI, ZT_DL_OSC } st; /**< Escape consumer. */
+    unsigned char buf[ZT_DEVLINE_CAP];     /**< Visible bytes of the current line. */
+    size_t        len;                     /**< High-water extent written in buf.  */
+    size_t        col;                     /**< Cursor column (byte offset).       */
+    bool          overflowed;              /**< Exceeded CAP → suppress adoption.  */
+    unsigned char csi[ZT_DEVLINE_CSI_CAP]; /**< Accumulated CSI params.            */
+    size_t        csi_len;
+} zt_devline;
 /** @} */
 
 /** @brief Logical frame modes for the @ref framing module.
@@ -214,11 +238,18 @@ typedef struct {
     } serial;
 
     struct {
-        int             rows, cols; /**< Current terminal size.                   */
-        unsigned char   input_buf[ZT_INPUT_CAP]; /**< Editable input line bytes.      */
-        size_t          input_len; /**< Valid length in @ref input_buf.          */
-        size_t          sent_len;  /**< Prefix already committed to the device.  */
-        size_t          cursor;    /**< Offset from @c sent_len into unsent.     */
+        int           rows, cols;              /**< Current terminal size.                   */
+        unsigned char input_buf[ZT_INPUT_CAP]; /**< Editable input line bytes.      */
+        size_t        input_len;               /**< Valid length in @ref input_buf.          */
+        size_t        sent_len;                /**< Prefix already committed to the device.  */
+        size_t        cursor;                  /**< Offset from @c sent_len into unsent.     */
+
+        /* Tab-completion reconciliation (ADR-0010): armed by Tab, cleared by any
+         * edit or the deadline. While armed, a device prompt-line completion may
+         * EXTEND (never replace) input_buf. */
+        bool            reconcile_pending;
+        size_t          reconcile_cmd_len; /**< input_len snapshot at Tab.           */
+        struct timespec reconcile_armed;   /**< Monotonic time Tab armed the window. */
 
         char           *hist[ZT_HISTORY_CAP];
         int             hist_count;
@@ -380,6 +411,9 @@ typedef struct {
 
         /* Tier 2 — KGDB / raw passthrough */
         bool passthrough; /**< Disable all line-editing + rendering.    */
+
+        /* Tier 2 — device prompt-line model for Tab-completion reconcile (ADR-0010). */
+        zt_devline devline;
 
         /* Tier 4 — clipboard (OSC 52) */
         bool osc52_enabled;

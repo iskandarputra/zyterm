@@ -31,7 +31,8 @@
 /* ------------------------------ stdin handling --------------------------- */
 
 void load_history_into_buf(zt_ctx *c) {
-    const char *s = history_at(c, c->tui.hist_view);
+    c->tui.reconcile_pending = false; /* history recall replaces the line */
+    const char *s            = history_at(c, c->tui.hist_view);
     if (!s) return;
     size_t n = strlen(s);
     if (n >= ZT_INPUT_CAP) n = ZT_INPUT_CAP - 1;
@@ -785,6 +786,7 @@ void handle_escape_seq(zt_ctx *c, const unsigned char *buf, size_t n) {
 }
 
 void insert_char(zt_ctx *c, unsigned char k) {
+    c->tui.reconcile_pending = false; /* user is editing — stop Tab reconcile */
     if (c->tui.input_len >= ZT_INPUT_CAP - 1) return;
     size_t abs = c->tui.sent_len + c->tui.cursor;
     if (abs < c->tui.input_len)
@@ -795,6 +797,7 @@ void insert_char(zt_ctx *c, unsigned char k) {
 }
 
 void delete_before_cursor(zt_ctx *c) {
+    c->tui.reconcile_pending = false; /* user is editing — stop Tab reconcile */
     if (c->tui.cursor > 0) {
         size_t abs = c->tui.sent_len + c->tui.cursor;
         memmove(&c->tui.input_buf[abs - 1], &c->tui.input_buf[abs], c->tui.input_len - abs);
@@ -988,15 +991,18 @@ void handle_stdin_chunk(zt_ctx *c, const unsigned char *buf, size_t n) {
             continue;
         }
         if (k == '\t') {
-            /* Forward Tab to the device for its own completion. We deliberately
-             * do NOT mirror the echo into the local input line: device RX is
-             * untrusted and asynchronous (continuous log output interleaves with
-             * any completion echo), so capturing it injected log fragments into
-             * the command line. The completion is visible in the device's own
-             * echo in scrollback. */
+            /* Forward Tab to the device for completion, then arm the
+             * reconciliation window: within ZT_RECONCILE_WINDOW_MS a device
+             * prompt-line completion may EXTEND (never replace) the local input
+             * line. Robust against async log spam — the device prompt-line
+             * model anchors on the exact command we just sent. See ADR-0010 /
+             * src/proto/devline.c. */
             flush_unsent(c);
             unsigned char tab = '\t';
             direct_send(c, &tab, 1);
+            c->tui.reconcile_pending = true;
+            c->tui.reconcile_cmd_len = c->tui.input_len;
+            now(&c->tui.reconcile_armed);
             draw_input(c);
             continue;
         }

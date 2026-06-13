@@ -260,6 +260,15 @@ into raw passthrough.
   only sanctioned way device RX reaches the terminal unfiltered, and they must not be on by default.
   - `where`: `src/zt_ctx.h:371` (`sgr_passthrough`), `:374` (`passthrough`).
 
+- **Tab-completion reconciliation may only extend the user's exact typed prefix.** Within a short
+  post-Tab window, a model of the device's current prompt line may adopt a device-appended
+  completion *tail* into the local input line — append-only (never replaces or deletes typed bytes),
+  content-whitelisted (no control/escape byte ever enters `input_buf`), and length-capped. Enter
+  sends only `\r`, so reconciliation never makes zyterm originate bytes to the device; the adopted
+  tail is display + history only. See [ADR-0010](../decisions/0010-device-rx-input-reconciliation.md).
+  - `where`: `src/proto/devline.c` (`devline_feed`/`devline_tail`/`devline_ingest`), armed by Tab in
+    `src/loop/input.c`, tapped in `src/render/render.c` (`rx_ingest`).
+
 - **All terminal output goes through the output buffer (`ob_*`), flushed once per frame.** Direct
   `write(STDOUT_FILENO, …)` is reserved for the bounded emergency cleanup string in the crash
   handler and the oversized-chunk fast path. This keeps rendering flicker-free and gives the cast

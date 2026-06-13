@@ -334,6 +334,11 @@ void rx_ingest(zt_ctx *c, const unsigned char *buf, size_t n) {
         }
     }
 
+    /* Tap the normalized RX stream into the device prompt-line model for
+     * Tab-completion reconciliation (ADR-0010). Raw mode only — framing/filter
+     * modes have no prompt-line concept and return early below. */
+    if (c->proto.mode == ZT_FRAME_RAW && c->ext.filter_pid <= 0) devline_ingest(c, buf, n);
+
     if (c->log.format == ZT_LOG_JSON) log_json_rx(c, buf, n);
     if (c->net.http_fd >= 0) http_broadcast(c, buf, n);
     if (c->ext.filter_pid > 0) {
