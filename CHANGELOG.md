@@ -30,8 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   title injection, cursor/erase and every other escape are still neutralized, so
   the [INVARIANTS §6](docs/invariants/INVARIANTS.md) safety posture holds. Pass
   `--no-sgr` (or toggle `E` in the settings screen) for the strict deny-all mode.
-  Full raw passthrough (`Ctrl+A G`) is unchanged. (`src/render/render.c`,
-  `src/proto/sgr_passthrough.c`)
+  Cursor-forward (`CSI n C`, which shells use to align completion-candidate
+  listings into columns) renders as n spaces so the columns stay aligned instead
+  of showing `^[[nC` litter. Full raw passthrough (`Ctrl+A G`) is unchanged.
+  (`src/render/render.c`, `src/proto/sgr_passthrough.c`)
 - **Tab-completion now mirrors into the input line via device prompt-line
   reconciliation (ADR-0010), replacing a fragile echo-capture.** The old capture
   appended whatever RX arrived after Tab and, on a chatty device, injected async

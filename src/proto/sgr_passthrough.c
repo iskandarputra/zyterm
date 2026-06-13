@@ -8,7 +8,10 @@
  * This filter relaxes that for the ONE escape class that cannot drive the
  * terminal — SGR (Select Graphic Rendition: colour/weight/underline,
  * `CSI … m`) — while still denying OSC (clipboard/title), cursor/erase,
- * private DECSET, DCS and every other control sequence.
+ * private DECSET, DCS and every other control sequence. One ergonomic
+ * exception: cursor-forward (`CSI n C`), which shells use to pad completion
+ * listings into columns, is rendered as n spaces (safe — spaces can't drive the
+ * terminal) instead of `^[[nC` caret litter.
  *
  * @ref sgr_feed is a pure, caller-owned-state byte classifier, so it is
  * unit-testable without a @ref zt_ctx and its state survives read()-chunk
@@ -53,6 +56,19 @@ static size_t sgr_rebuild(const zt_sgr_parser *st, unsigned char final, unsigned
     return k;
 }
 
+/* Parse the leading integer of the accumulated CSI params; default 1 (ECMA-48
+ * treats an omitted/zero CUF parameter as 1). Clamped to the out-buffer size. */
+static size_t sgr_csi_count(const zt_sgr_parser *st) {
+    size_t v = 0;
+    for (size_t i = 0; i < st->len; i++) {
+        unsigned char b = st->buf[i];
+        if (b < '0' || b > '9') break;
+        v = v * 10 + (size_t)(b - '0');
+        if (v >= ZT_SGR_PARAM_CAP) return ZT_SGR_PARAM_CAP;
+    }
+    return v ? v : 1;
+}
+
 zt_sgr_act sgr_feed(zt_sgr_parser *st, unsigned char b, unsigned char *out, size_t *outlen) {
     switch (st->state) {
     case ZT_SGR_NONE:
@@ -93,6 +109,17 @@ zt_sgr_act sgr_feed(zt_sgr_parser *st, unsigned char b, unsigned char *out, size
             if (b == 'm' && sgr_params_ok(st)) { /* the only allowed sequence */
                 *outlen = sgr_rebuild(st, 'm', out);
                 return ZT_SGR_ACT_EMIT_SGR;
+            }
+            if (b == 'C' && sgr_params_ok(st)) {
+                /* CUF (cursor-forward): the device pads completion listings into
+                 * columns with it. Render as that many spaces so the columns line
+                 * up — safe, since spaces can't drive the terminal — instead of
+                 * leaking `^[[nC` caret litter into the output. */
+                size_t cnt = sgr_csi_count(st);
+                for (size_t i = 0; i < cnt; i++)
+                    out[i] = ' ';
+                *outlen = cnt;
+                return ZT_SGR_ACT_INERT; /* INERT path emits the spaces verbatim */
             }
             *outlen = sgr_rebuild(st, b, out); /* non-SGR CSI → inert */
             return ZT_SGR_ACT_INERT;

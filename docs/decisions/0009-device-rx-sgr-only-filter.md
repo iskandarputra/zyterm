@@ -53,6 +53,13 @@ so a sequence split across `read()` chunks resumes correctly. Allowed SGR is sto
 line buffer (so it renders in-position and colours scrollback); a `\033[0m` is appended at flush to
 contain colour bleed into the HUD or the next line.
 
+One ergonomic exception to "SGR-only": cursor-forward (`CSI n C`, CUF) is rendered as *n* spaces
+rather than neutralized to caret text. Shells pad completion-candidate listings into columns with
+CUF (`reset_encoder ESC[2C position ESC[7C …`); rendering it as spaces keeps the columns aligned in
+the managed view. It is safe — spaces cannot move the cursor, write the clipboard, or drive the
+terminal — and the count is clamped to the parameter cap. Other cursor/erase finals stay
+neutralized.
+
 ## Consequences
 
 - Coloured device logs render out of the box, while OSC 52 clipboard writes, title injection,
