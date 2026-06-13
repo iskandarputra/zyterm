@@ -72,7 +72,7 @@ struct termios2 {
 #define ZT_DEVLINE_CAP         1024 /**< Max bytes modeled on the device's current line. */
 #define ZT_DEVLINE_CSI_CAP     32   /**< Max CSI param/intermediate bytes (devline).     */
 #define ZT_RECONCILE_TAIL_MAX  256  /**< Max chars a completion may append to input.     */
-#define ZT_RECONCILE_WINDOW_MS 500  /**< Post-Tab completion-reconcile window.           */
+#define ZT_RECONCILE_WINDOW_MS 1500 /**< Post-Tab reconcile window (cancelled on any edit). */
 /** @} */
 
 /** @name Device-RX SGR-only filter (ADR-0009) @{ */
