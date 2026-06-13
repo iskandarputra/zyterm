@@ -37,6 +37,8 @@ Each record follows a fixed shape:
 | [0004](0004-reconnect-on-by-default.md) | Auto-reconnect on by default | accepted | Hardware gets unplugged; reconnect defaults ON, `--no-reconnect` opts out. |
 | [0005](0005-rfc2217-deferred.md) | `rfc2217://` deferred to a stub | accepted | `rfc2217://` is a deliberate NYI stub; use ser2net raw + `tcp://`. |
 | [0006](0006-in-memory-history-and-bookmarks.md) | History & bookmarks in memory only | accepted | Line-edit history and bookmarks are session-scoped; profiles persist. |
+| [0007](0007-http-bridge-auth-model.md) | HTTP bridge auth model | accepted | Origin/Host-pinned by default; `--http-token` adds an optional bearer token on write routes. |
+| [0008](0008-device-rx-escape-default-deny.md) | Device RX escapes default-denied | accepted | Untrusted device escapes are neutralized to inert caret notation; raw passthrough is opt-in. |
 
 ## Related
 

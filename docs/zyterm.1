@@ -142,6 +142,50 @@ Profiles loaded by \fB\-\-profile\fR and written by \fB\-\-profile\-save\fR
 .PP
 Line-edit history and scrollback bookmarks are held in memory only; zyterm
 does not write a history or bookmarks file.
+.SH SECURITY
+zyterm trusts the user who runs it; it is not designed to be exposed to a
+network. Two surfaces widen that boundary and are hardened accordingly:
+.TP
+.B HTTP bridge (\-\-http)
+Binds loopback only. The write routes
+.RB ( "POST /tx" ", " "POST /api/send" )
+and the streaming reads
+.RB ( /ws ", " /stream )
+pin
+.I Host
+and
+.I Origin
+to a loopback literal, so a cross-site page or a DNS-rebound host cannot
+drive the device or read its output. Set
+.BI \-\-http\-token " tok"
+to additionally require
+.I "Authorization: Bearer tok"
+on the write routes \(em recommended before tunnelling or proxying the port
+beyond loopback.
+.B \-\-http\-cors
+adds CORS headers for read-only
+.B GET
+/
+.B OPTIONS
+only.
+.TP
+.B Detach and metrics sockets (\-\-detach, \-\-metrics)
+Created under
+.B $XDG_RUNTIME_DIR
+when set, mode
+.BR 0600 ,
+and accept only peers whose uid matches yours
+.RB ( SO_PEERCRED ).
+.TP
+.B Device output
+Untrusted RX is filtered before it reaches your terminal: escape and other
+control bytes are shown as inert caret notation, so a hostile device cannot
+hijack the clipboard (OSC\ 52), set the title, or spoof the screen. Raw
+escapes require an explicit, off-by-default passthrough toggle.
+.PP
+See
+.B SECURITY.md
+in the source tree for the full posture and reporting process.
 .SH SEE ALSO
 .BR minicom (1),
 .BR picocom (1),

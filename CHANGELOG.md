@@ -79,6 +79,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   report "TX stalled" instead of looping forever. (`src/loop/send.c`)
 
 ### Documentation
+- **ADR-0007 (HTTP bridge auth model)** and **ADR-0008 (device RX escape
+  default-deny)** record the *why* behind the two security decisions above;
+  `INVARIANTS §6/§7` and `SECURITY.md` now reflect the enforced behaviour, and
+  the man page gained a `SECURITY` section.
 - **Docs rebuilt into a kind-based `docs/` tree.** Documentation is now
   organized by *kind* rather than topic: `reference/` (how it works now),
   `guide/` (task-oriented learning), `invariants/`, `decisions/` (ADRs),

@@ -197,12 +197,14 @@ Several flags bypass the interactive TUI entirely and return without ever enteri
 
 | Flag | What happens | Device opened? |
 | --- | --- | --- |
-| `--dump <sec>` | Headless capture for N seconds (`run_dump`), then exit (`src/main.c:765`). | Yes |
-| `--replay <file>` | Replay the capture through the UI, then exit (`run_replay`, `src/main.c:694`). | No |
-| `--diff <a> <b>` | Diff two captures and return `diff_run`'s code (`src/main.c:619`). | No |
-| `--profile-save <name>` | Snapshot settings to the profile and exit (`src/main.c:673`). | No |
-| `--attach <name>` | Attach to a detached session, return when it ends (`src/main.c:596`). | No |
+| `--dump <sec>` | Headless capture for N seconds (`run_dump`), then exit. | Yes |
+| `--replay <file>` | Replay the capture through the UI, then exit (`run_replay`). | No |
+| `--diff <a> <b>` | Diff two captures and return `diff_run`'s code. | No |
+| `--profile-save <name>` | Snapshot settings to the profile and exit. | No |
+| `--attach <name>` | Attach to a detached session, return when it ends. | No |
 
 `--dump` is the only non-interactive mode that opens the serial device; the rest exit before
-`setup_serial`. All five run `scrollback_free` before returning so they are safe in embedded
-builds (`zyterm_main` re-entrancy resets getopt at `src/main.c:308`).
+`setup_serial`. The early-return modes (`--replay`/`--attach`/`--diff`/`--profile-save`, plus
+`-h`/`-V`) free every parse-owned heap field via a single `cleanup_ctx()` helper before returning,
+so they are leak-free in embedded reuse ([ZT-018](../tracking/KNOWN_ISSUES.md); `zyterm_main`
+re-entrancy resets getopt at startup).
