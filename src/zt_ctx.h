@@ -439,8 +439,9 @@ typedef struct {
         bool          sgr_in_line;     /**< Device SGR emitted on the current
                                             line → append \033[0m at flush.    */
 
-        /* Tier 2 — KGDB / raw passthrough */
-        bool passthrough; /**< Disable all line-editing + rendering.    */
+        /* Tier 2 — KGDB / raw (transparent) passthrough */
+        bool    passthrough;   /**< Transparent relay: raw stdin↔device, TUI off. */
+        uint8_t pt_line_state; /**< `~.` line-start exit detector (0/1).           */
 
         /* Tier 2 — device prompt-line model for Tab-completion reconcile (ADR-0010). */
         zt_devline devline;

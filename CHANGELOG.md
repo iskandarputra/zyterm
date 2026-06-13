@@ -10,6 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Transparent interactive mode (`Ctrl+A G`).** zyterm's `passthrough` flag was
+  documented as a transparent KGDB/raw relay but was never wired. It now works: in
+  passthrough mode keystrokes go straight to the device and device RX is written to
+  the terminal byte-for-byte, so the **device** draws its own prompt, line-editing
+  and Tab-completion (rendered natively by your terminal) — no local input model to
+  desync. The HUD, `ZY ›` input line, scrollback paging and the SGR safety-filter are
+  suspended while it's on (file logging keeps running); exit by typing `~.` at the
+  start of a line. The bulletproof fallback for any device the in-line completion
+  heuristic can't handle. (`src/proto/passthrough.c`, `src/render/render.c`,
+  `src/loop/input.c`, `src/loop/runtime.c`)
+
 ### Changed
 - **Device SGR colour now renders by default (ADR-0009).** Level-coloured device
   logs (`<wrn>` yellow, `<err>` red, …) show in colour out of the box instead of
@@ -33,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the prompt line (no newline, e.g. `skycab [00512770] <err> …`) from leaking in.
   Device RX never originates bytes to the device (Enter sends only `\r`), so the
   adopted tail is display + history only. A bulletproof fallback for any device
-  that defeats the heuristic is the transparent **`Ctrl+A G`** mode (below).
+  that defeats the heuristic is the transparent **`Ctrl+A G`** mode (above).
   (`src/proto/devline.c`, `src/render/render.c`, `src/loop/input.c`)
 
 ### Fixed

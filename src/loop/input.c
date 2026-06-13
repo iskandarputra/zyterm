@@ -816,6 +816,14 @@ void delete_before_cursor(zt_ctx *c) {
 }
 
 void handle_stdin_chunk(zt_ctx *c, const unsigned char *buf, size_t n) {
+    /* Transparent (passthrough) mode: relay keystrokes straight to the device —
+     * no line editing, no zyterm modes. passthrough_handle() also watches for the
+     * `~.` line-start exit sequence. */
+    if (c->proto.passthrough) {
+        passthrough_handle(c, buf, n);
+        return;
+    }
+
     /* Transient overlay (Ctrl+A k / ? keybind help) is dismissed by
      * ANY next key, including Esc. The key is consumed so the user
      * doesn't accidentally also trigger its normal action. Without
