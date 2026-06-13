@@ -21,6 +21,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   start of a line. The bulletproof fallback for any device the in-line completion
   heuristic can't handle. (`src/proto/passthrough.c`, `src/render/render.c`,
   `src/loop/input.c`, `src/loop/runtime.c`)
+- **`--trusted` mode — legacy fast path for a device you trust.** Restores the
+  pre-ZT-003 behaviour inside the managed view (HUD + scrollback kept, unlike the
+  full-screen `Ctrl+A G`): device escapes render **raw** so colours and the shell's
+  cursor-forward column padding draw natively and instantly, and Tab-completion is
+  mirrored by an **immediate echo capture** instead of the reconciliation model —
+  as fast as the old build, no waiting for the device's reprint. The tradeoff is
+  explicit: this is the pre-ZT-003 posture, so a hostile/buggy device could drive
+  your terminal (clipboard/title/cursor) and the quick capture can occasionally
+  grab an async log fragment — only use it for a device you trust. Off by default;
+  the secure SGR-filter + reconciliation remain the default. (`src/main.c`,
+  `src/render/render.c`, `src/loop/input.c`, INVARIANTS §6)
 
 ### Changed
 - **Device SGR colour now renders by default (ADR-0009).** Level-coloured device

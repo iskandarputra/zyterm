@@ -134,6 +134,7 @@ OSC 52 is independent of the native xcb clipboard worker, which is also active w
 | `-e`, `--echo` | — | off | Start with local echo on (`src/main.c:468`). Toggle with `Ctrl+A e`. |
 | `--no-color` | — | colour on | Disable RX log-level colouring (`src/main.c:469`). |
 | `--no-sgr` | — | SGR filter on | Strict deny-all for device escapes: neutralize *all* device RX escapes, including SGR colour, to inert caret notation. Default is a bounded SGR-only filter that lets device colour render while still denying OSC/cursor/title (`src/main.c`, ADR-0009). |
+| `--trusted` | — | off | **Trusted device, legacy fast path.** Render device escapes **raw** in the managed view (native colour + shell completion columns, no SGR filter) and mirror Tab-completion by an immediate echo capture instead of reconciliation — fast, like the pre-ZT-003 build. Reopens the ZT-003 escape surface (a hostile device could drive your terminal) and the quick capture can occasionally grab an async log fragment; only for a device you trust. The full-screen alternative is `Ctrl+A G` (`src/main.c`, `src/render/render.c`, INVARIANTS §6). |
 | `--ts` | — | off | Start with timestamp display on (`src/main.c:470`). Toggle with `Ctrl+A t`. |
 | `--watch` | `<pattern>` | — | Highlight matching lines. **Repeatable, up to 8** (`ZT_WATCH_MAX`, `src/zt_ctx.h:62`); a 9th triggers `zt_die` (`src/main.c:507`). |
 | `--watch-beep` | — | off | Emit BEL on a watch match (`src/main.c:513`). |

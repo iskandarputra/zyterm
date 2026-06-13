@@ -443,6 +443,17 @@ typedef struct {
         bool    passthrough;   /**< Transparent relay: raw stdin↔device, TUI off. */
         uint8_t pt_line_state; /**< `~.` line-start exit detector (0/1).           */
 
+        /* Tier 2 — "trusted device" legacy mode (opt-in via --trusted). Restores
+         * the pre-ZT-003 behaviour for a device you trust: device escapes render
+         * RAW into the managed view (native colour + completion columns, no SGR
+         * filter — @c trusted selects ESC_RAW in render_rx), and Tab-completion is
+         * mirrored by an immediate echo capture (@c tab_echo) instead of the
+         * reconciliation model — fast, like the legacy build, at the cost of the
+         * ZT-003 escape protections. See INVARIANTS §6. */
+        bool   trusted;  /**< Raw device rendering + immediate Tab capture.   */
+        bool   tab_echo; /**< Capturing the device completion echo into input.*/
+        size_t tab_skip; /**< Echoed sent-prefix bytes still to skip.         */
+
         /* Tier 2 — device prompt-line model for Tab-completion reconcile (ADR-0010). */
         zt_devline devline;
 

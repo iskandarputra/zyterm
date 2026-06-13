@@ -824,6 +824,11 @@ void handle_stdin_chunk(zt_ctx *c, const unsigned char *buf, size_t n) {
         return;
     }
 
+    /* Any user keystroke cancels an in-progress --trusted Tab capture (the Tab
+     * case below re-arms it for an actual Tab). Keeps the capture window tight
+     * to the completion echo, so later device output is never grabbed. */
+    c->proto.tab_echo = false;
+
     /* Transient overlay (Ctrl+A k / ? keybind help) is dismissed by
      * ANY next key, including Esc. The key is consumed so the user
      * doesn't accidentally also trigger its normal action. Without
@@ -999,18 +1004,28 @@ void handle_stdin_chunk(zt_ctx *c, const unsigned char *buf, size_t n) {
             continue;
         }
         if (k == '\t') {
-            /* Forward Tab to the device for completion, then arm the
-             * reconciliation window: within ZT_RECONCILE_WINDOW_MS a device
-             * prompt-line completion may EXTEND (never replace) the local input
-             * line. Robust against async log spam — the device prompt-line
-             * model anchors on the exact command we just sent. See ADR-0010 /
-             * src/proto/devline.c. */
+            /* Forward Tab to the device for completion. Then mirror the result
+             * into the local input line one of two ways:
+             *   --trusted : capture the device's completion echo directly as it
+             *               arrives (fast, legacy a58e6e9 behaviour — render_rx).
+             *   default   : arm the reconciliation window — within
+             *               ZT_RECONCILE_WINDOW_MS a device prompt-line completion
+             *               may EXTEND (never replace) the local input line,
+             *               anchored on the exact command we sent, robust against
+             *               async log spam (ADR-0010 / src/proto/devline.c). */
+            size_t unsent = c->tui.input_len - c->tui.sent_len;
             flush_unsent(c);
             unsigned char tab = '\t';
             direct_send(c, &tab, 1);
-            c->tui.reconcile_pending = true;
-            c->tui.reconcile_cmd_len = c->tui.input_len;
-            now(&c->tui.reconcile_armed);
+            if (c->proto.trusted) {
+                c->proto.tab_echo = true;
+                c->proto.tab_skip =
+                    unsent; /* skip the just-sent prefix the device echoes back */
+            } else {
+                c->tui.reconcile_pending = true;
+                c->tui.reconcile_cmd_len = c->tui.input_len;
+                now(&c->tui.reconcile_armed);
+            }
             draw_input(c);
             continue;
         }

@@ -294,16 +294,43 @@ void render_rx(zt_ctx *c, const unsigned char *buf, size_t n) {
          *   ESC_SGR    (sgr_passthrough) — only well-formed SGR passes, every
          *                                  other escape neutralized (DEFAULT);
          *   ESC_STRICT (neither)         — neutralize every escape.
-         * passthrough wins over sgr_passthrough. */
+         * passthrough and --trusted both select ESC_RAW; passthrough wins, then
+         * trusted, then sgr_passthrough. */
         enum {
             ESC_STRICT,
             ESC_RAW,
             ESC_SGR
         } esc_mode = c->proto.passthrough       ? ESC_RAW
+                     : c->proto.trusted         ? ESC_RAW
                      : c->proto.sgr_passthrough ? ESC_SGR
                                                 : ESC_STRICT;
         for (size_t i = 0; i < n; i++) {
             unsigned char b = buf[i];
+
+            /* --trusted: immediate Tab-completion echo capture. After Tab the
+             * device echoes the just-sent chars (skip those) then the completion
+             * suffix (append to the local input line). Stop at [, \r, \n, ESC —
+             * those mark the start of log output, not completion text. Fast but
+             * trusting; the secure path is the reconcile model (ADR-0010). The
+             * captured byte still falls through to render below. tab_echo is only
+             * ever armed in --trusted mode, so this is a no-op otherwise. */
+            if (c->proto.tab_echo) {
+                if (b == '[' || b == '\r' || b == '\n' || b == 0x1B) {
+                    c->proto.tab_echo = false;
+                } else if (b >= 0x20 && b < 0x7F) {
+                    if (c->proto.tab_skip > 0) {
+                        c->proto.tab_skip--;
+                    } else if (c->tui.input_len < ZT_INPUT_CAP - 1) {
+                        c->tui.input_buf[c->tui.input_len++] = b;
+                        c->tui.sent_len++;
+                    }
+                } else if ((b == '\b' || b == 0x7F) && c->proto.tab_skip == 0) {
+                    if (c->tui.input_len > 0 && c->tui.sent_len > 0) {
+                        c->tui.input_len--;
+                        c->tui.sent_len--;
+                    }
+                }
+            }
 
             /* RAW: trusted device — \r dropped, \n flushes, all else verbatim. */
             if (esc_mode == ESC_RAW) {
@@ -417,7 +444,8 @@ void rx_ingest(zt_ctx *c, const unsigned char *buf, size_t n) {
     /* Tap the normalized RX stream into the device prompt-line model for
      * Tab-completion reconciliation (ADR-0010). Raw mode only — framing/filter
      * modes have no prompt-line concept and return early below. */
-    if (c->proto.mode == ZT_FRAME_RAW && c->ext.filter_pid <= 0) devline_ingest(c, buf, n);
+    if (!c->proto.trusted && c->proto.mode == ZT_FRAME_RAW && c->ext.filter_pid <= 0)
+        devline_ingest(c, buf, n); /* --trusted uses the immediate echo capture instead. */
 
     if (c->log.format == ZT_LOG_JSON) log_json_rx(c, buf, n);
     if (c->net.http_fd >= 0) http_broadcast(c, buf, n);

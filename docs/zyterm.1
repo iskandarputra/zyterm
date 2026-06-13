@@ -184,8 +184,12 @@ title, cursor and every other escape are shown as inert caret notation, so a
 hostile device cannot hijack the clipboard, set the title, or spoof the
 screen. Use
 .B \-\-no\-sgr
-for strict deny-all (colour neutralized too); full raw passthrough is a
-separate, off-by-default toggle.
+for strict deny-all (colour neutralized too). Full raw passthrough
+.RB ( Ctrl+A\ G )
+and
+.B \-\-trusted
+(raw rendering in the managed view plus the fast legacy Tab echo-capture, for a
+device you trust) are separate, off-by-default opt-ins that reopen this surface.
 .PP
 See
 .B SECURITY.md

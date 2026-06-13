@@ -260,12 +260,16 @@ operator explicitly opted into raw passthrough.
     clipboard module `src/proto/clipboard.c`. See
     [ZT-003](../tracking/issues/ZT-003-device-rx-escape-injection.md) / ADR-0009.
 
-- **SGR-filter is the default; KGDB/raw passthrough is an explicit opt-in that must stay off by
-  default.** `proto.sgr_passthrough` (SGR_FILTER) is on by default and is *safe* — it only ever
-  forwards colour. `proto.passthrough` (RAW) forwards every escape and must remain off by default;
-  it is the deliberate, surfaced choice for a trusted device. `--no-sgr` selects STRICT.
-  - `where`: `src/zt_ctx.h` proto struct (`sgr_passthrough`, `sgr` parser, `passthrough`);
-    default set in `src/main.c`; RAW toggled by `Ctrl+A G` (`src/loop/input.c`).
+- **SGR-filter is the default; raw passthrough (every escape) is an explicit opt-in that must stay
+  off by default.** `proto.sgr_passthrough` (SGR_FILTER) is on by default and is *safe* — it only
+  ever forwards colour. RAW forwards every escape and must remain off by default; it is the
+  deliberate, surfaced choice for a trusted device, reachable two ways: `proto.passthrough`
+  (`Ctrl+A G`, full-screen transparent relay) and `proto.trusted` (`--trusted`, RAW inside the
+  managed view + the immediate Tab echo-capture). Both reopen the ZT-003 surface by operator
+  request; neither may ever default on. `--no-sgr` selects STRICT.
+  - `where`: `src/zt_ctx.h` proto struct (`sgr_passthrough`, `sgr` parser, `passthrough`,
+    `trusted`/`tab_echo`); defaults (all off but `sgr_passthrough`) set in `src/main.c`; RAW toggled
+    by `Ctrl+A G` or `--trusted` (`src/loop/input.c`, `src/render/render.c`).
 
 - **Tab-completion reconciliation may only extend the user's exact typed prefix.** Within a short
   post-Tab window, a model of the device's current prompt line may adopt a device-appended
@@ -276,6 +280,10 @@ operator explicitly opted into raw passthrough.
   tail is display + history only. See [ADR-0010](../decisions/0010-device-rx-input-reconciliation.md).
   - `where`: `src/proto/devline.c` (`devline_feed`/`devline_tail`/`devline_ingest`), armed by Tab in
     `src/loop/input.c`, tapped in `src/render/render.c` (`rx_ingest`).
+  - **`--trusted` exception:** under `proto.trusted` the reconciliation model is bypassed and the
+    legacy immediate echo-capture (`proto.tab_echo`) mirrors completion into `input_buf` instead. It
+    is *not* single-token-bounded — on a chatty device it can capture an async-log fragment — which
+    is exactly why it is opt-in and off by default. It still never originates bytes to the device.
 
 - **All terminal output goes through the output buffer (`ob_*`), flushed once per frame.** Direct
   `write(STDOUT_FILENO, …)` is reserved for the bounded emergency cleanup string in the crash

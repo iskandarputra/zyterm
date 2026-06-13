@@ -79,13 +79,14 @@ spoofs — are rewritten to inert `cat -v` caret notation (`^[`, `^G`, …) befo
 terminal. SGR is the one escape class that cannot drive the terminal, and the parser whitelists
 only digit/`;`/`:` parameters (so `CSI ? 1 m` and friends are rejected) with a fixed, overflow-safe
 buffer. `\t` and UTF-8 pass through. `--no-sgr` selects strict deny-all (colour neutralized too).
-Full raw passthrough (`Ctrl+A G`) remains an explicit, off-by-default opt-in. (**ZT-003 / ZT-029 —
-fixed**, `src/render/render.c`, `src/proto/sgr_passthrough.c`,
+Full raw passthrough (`Ctrl+A G`) and `--trusted` both remain explicit, off-by-default opt-ins.
+(**ZT-003 / ZT-029 — fixed**, `src/render/render.c`, `src/proto/sgr_passthrough.c`,
 [detail](docs/tracking/issues/ZT-003-device-rx-escape-injection.md).)
 
-- *Residual risk:* enabling full raw passthrough puts you back to trusting all of the device's
-  escapes — only do so for devices you trust. 8-bit C1 controls are not filtered (that range
-  carries UTF-8); see ADR-0009.
+- *Residual risk:* enabling full raw passthrough (`Ctrl+A G`) or `--trusted` puts you back to
+  trusting all of the device's escapes — only do so for devices you trust. `--trusted` additionally
+  re-enables the legacy Tab echo-capture, which on a chatty device can splice an async-log fragment
+  into the input line. 8-bit C1 controls are not filtered (that range carries UTF-8); see ADR-0009.
 
 ---
 
