@@ -79,10 +79,11 @@ struct termios2 {
  *  rebuilt from RX by interpreting a minimal line discipline (printable, CR,
  *  BS, LF, and ESC[K / ESC[nC / ESC[nD). Reset on '\n', so async log lines
  *  (separate, newline-terminated) never pollute it. Used to mirror a device
- *  Tab-completion into the local input line. Cursor (@c col) is a byte offset:
- *  the completion tail is whitelisted to complete valid UTF-8, so a multibyte
- *  edit degrades to "no completion adopted" rather than corrupting input.
- *  See INVARIANTS §6. */
+ *  Tab-completion into the local input line. Cursor (@c col) is a byte offset;
+ *  the adopted completion tail is restricted to a single token (word chars), so
+ *  it stops at the space/'[' that begins an inline log line, and a non-ASCII
+ *  completion degrades to no-adopt rather than corrupting input. See
+ *  INVARIANTS §6 / ADR-0010. */
 typedef struct {
     enum { ZT_DL_NONE = 0, ZT_DL_ESC, ZT_DL_CSI, ZT_DL_OSC } st; /**< Escape consumer. */
     unsigned char buf[ZT_DEVLINE_CAP];     /**< Visible bytes of the current line. */

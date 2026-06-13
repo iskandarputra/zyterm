@@ -263,7 +263,8 @@ into raw passthrough.
 - **Tab-completion reconciliation may only extend the user's exact typed prefix.** Within a short
   post-Tab window, a model of the device's current prompt line may adopt a device-appended
   completion *tail* into the local input line — append-only (never replaces or deletes typed bytes),
-  content-whitelisted (no control/escape byte ever enters `input_buf`), and length-capped. Enter
+  restricted to a single token (so no control/escape byte or inline-log text enters `input_buf`),
+  and length-capped. Enter
   sends only `\r`, so reconciliation never makes zyterm originate bytes to the device; the adopted
   tail is display + history only. See [ADR-0010](../decisions/0010-device-rx-input-reconciliation.md).
   - `where`: `src/proto/devline.c` (`devline_feed`/`devline_tail`/`devline_ingest`), armed by Tab in

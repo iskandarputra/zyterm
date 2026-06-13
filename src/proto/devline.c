@@ -143,31 +143,16 @@ void devline_feed(zt_devline *st, unsigned char b) {
     dl_putc(st, b);       /* printable / UTF-8 */
 }
 
-/* Minimal check that buf[0..n) is whole, control-free UTF-8 (or ASCII).
- * Rejects embedded control/DEL and a sequence truncated at the end (so an
- * in-flight multibyte char makes us wait for the next chunk). */
-static bool tail_clean(const unsigned char *buf, size_t n) {
-    size_t i = 0;
-    while (i < n) {
-        unsigned char b = buf[i];
-        if (b < 0x20 || b == 0x7F) return false; /* control/DEL not allowed */
-        size_t need;
-        if (b < 0x80)
-            need = 0;
-        else if ((b & 0xE0) == 0xC0)
-            need = 1;
-        else if ((b & 0xF0) == 0xE0)
-            need = 2;
-        else if ((b & 0xF8) == 0xF0)
-            need = 3;
-        else
-            return false;                   /* stray continuation / invalid lead */
-        if (i + 1 + need > n) return false; /* truncated multibyte at end */
-        for (size_t k = 0; k < need; k++)
-            if ((buf[i + 1 + k] & 0xC0) != 0x80) return false;
-        i += 1 + need;
-    }
-    return true;
+/* A shell completion extends a single token, so the tail is a run of "word"
+ * characters. Stopping at the first non-word byte (space, '[', '<', ':',
+ * control, …) is what keeps an inline async log line from leaking in: this
+ * device prints logs ON the prompt line with no preceding newline — e.g.
+ * `SkyCar:~$ skycab [00512770] <err> …` — so the tail must end at the space /
+ * '[' before the log, not run to the end of the line. (ASCII word set;
+ * multibyte UTF-8 is non-word, so a non-ASCII completion degrades to no-adopt.) */
+static bool is_word(unsigned char b) {
+    return (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') ||
+           b == '_' || b == '-' || b == '.' || b == '/';
 }
 
 bool devline_tail(const zt_devline *st, const unsigned char *cmd, size_t cmd_len,
@@ -182,11 +167,18 @@ bool devline_tail(const zt_devline *st, const unsigned char *cmd, size_t cmd_len
         if (memcmp(st->buf + start, cmd, cmd_len) == 0) best = start;
     if (best == (size_t)-1) return false;
 
+    /* Take the maximal run of word characters after the command — the single
+     * completed token. This stops at the space / '[' that begins an inline log
+     * line, so logs printed on the prompt line cannot leak into the input. An
+     * implausibly long run is rejected rather than truncated. */
     size_t end = best + cmd_len;
-    size_t tl  = st->len - end; /* everything the device appended after cmd */
-    if (tl == 0 || tl > ZT_RECONCILE_TAIL_MAX) return false;
+    size_t tl  = 0;
+    while (end + tl < st->len && is_word(st->buf[end + tl])) {
+        if (tl >= ZT_RECONCILE_TAIL_MAX) return false;
+        tl++;
+    }
+    if (tl == 0) return false;
     if (cmd_len + tl >= ZT_INPUT_CAP) return false;
-    if (!tail_clean(st->buf + end, tl)) return false;
 
     *tail     = st->buf + end;
     *tail_len = tl;

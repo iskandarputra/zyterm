@@ -103,10 +103,21 @@ static void test_tail(void) {
            "double occurrence → rightmost (live) anchor");
 
     devline_reset(&d);
-    feed(&d, "SkyCar:~$ git status ");
-    ASSERT(devline_tail(&d, (const unsigned char *)"git", 3, &t, &tl) && tl == 8 &&
-               memcmp(t, " status ", 8) == 0,
-           "spaces allowed in tail");
+    feed(&d, "SkyCar:~$ skycab [00512770] <err> BATTERY_MANAGER FAILED");
+    ASSERT(devline_tail(&d, (const unsigned char *)"sky", 3, &t, &tl) && tl == 3 &&
+               memcmp(t, "cab", 3) == 0,
+           "inline log on prompt line: tail stops at space → 'cab'");
+
+    devline_reset(&d);
+    feed(&d, "SkyCar:~$ skycab ");
+    ASSERT(devline_tail(&d, (const unsigned char *)"sky", 3, &t, &tl) && tl == 3 &&
+               memcmp(t, "cab", 3) == 0,
+           "trailing space ends the tail (single token)");
+
+    devline_reset(&d);
+    feed(&d, "SkyCar:~$ esp_[00020191] <err> X");
+    ASSERT(!devline_tail(&d, (const unsigned char *)"esp_", 4, &t, &tl),
+           "ambiguous + inline log ('esp_[...') → no-adopt");
 
     /* Crafted: a control byte in the tail must be rejected. */
     devline_reset(&d);
@@ -166,6 +177,14 @@ static void test_reconcile(void) {
     feed_ctx(&c, "SkyCar:~$ esp_");  /* prior prompt echo */
     feed_ctx(&c, "config");          /* device appends the completion */
     ASSERT(in_eq(&c, "esp_config") && c.tui.sent_len == c.tui.input_len, "unique completion adopted");
+    free(c.log.sb_lines);
+
+    /* inline log on the prompt line (no newline) — the exact screenshot bug:
+     * adopt only the completed token, never the appended log. */
+    arm(&c, "sky", true);
+    feed_ctx(&c, "SkyCar:~$ sky");
+    feed_ctx(&c, "cab [00512770] <err> BATTERY_MANAGER: [BMGR][-1] SEND BMS REQUEST FAILED");
+    ASSERT(in_eq(&c, "skycab"), "inline-log completion adopts only 'skycab'");
     free(c.log.sb_lines);
 
     /* the regression: an async log burst must NOT leak into the input line */

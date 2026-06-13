@@ -18,8 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `skycab … es RN_MSG : STATUS CHECK : SKYCAR NOT ALIGNED`). It is replaced by a
   model of the device's *current* line (reset on `\n`, so log lines can't pollute
   it): on Tab, zyterm anchors on the exact command it sent and adopts only the
-  completion the device appended — **append-only** (never alters typed bytes),
-  content-whitelisted, length-capped, and gated to a 500 ms window. Device RX
+  **single completed token** the device appended — **append-only** (never alters
+  typed bytes), length-capped, and gated to a 500 ms window. Restricting the tail
+  to one token also stops a log printed *inline* on the prompt line (no newline,
+  e.g. `skycab [00512770] <err> …`) from leaking in. Device RX
   never originates bytes to the device (Enter sends only `\r`), so the adopted
   tail is display + history only. (`src/proto/devline.c`, `src/render/render.c`,
   `src/loop/input.c`)
