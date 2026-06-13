@@ -94,54 +94,43 @@ dropped rather than stalling the loop; any other error (or a short write that ca
 queued) closes the SSE connection (`:1028-1035`). This is the right posture for a
 diagnostic feed — a slow browser loses events, it never wedges the serial path.
 
-## Open items and defects
+## Broadcast robustness (fixed)
 
-The broadcast path has two recorded defects (see
+Two broadcast-path defects are now closed (see
 [../tracking/KNOWN_ISSUES.md](../tracking/KNOWN_ISSUES.md)):
 
-- **ZT-007** (🟠 medium, `src/net/http.c:1020`) —
-  [issue](../tracking/issues/ZT-007-http-broadcast-truncates-4k.md). `http_broadcast`
-  caps each broadcast at 4096 B (`chunk = n > 4096 ? 4096 : n`) with no loop, so an RX
-  burst larger than 4 KiB is silently truncated in the web view. Fix: loop in ≤4096-byte
-  segments.
-- **ZT-009** (🟠 medium, `src/net/http.c:1037`) —
-  [issue](../tracking/issues/ZT-009-ws-broadcast-ignores-errors.md). The WS path calls
-  `ws_frame_text()` and ignores its write result, unlike the SSE path which checks and
-  closes on error. Dead WS peers are never detected, and a partial frame corrupts the
-  stream. Compounding it, **ZT-017** (⚪ low, `:1036`) notes those dead WS slots are never
-  reaped, so 16 ungraceful disconnects exhaust every slot and DoS the bridge. Fix:
-  mirror the SSE check-and-close on WS writes.
+- **ZT-007 (fixed)** — [issue](../tracking/issues/ZT-007-http-broadcast-truncates-4k.md).
+  `http_broadcast` / `http_broadcast_tx` now loop over the whole payload in ≤4096-byte
+  segments for both SSE and WS, so an RX burst larger than 4 KiB is no longer truncated.
+- **ZT-009 / ZT-017 (fixed)** —
+  [issue](../tracking/issues/ZT-009-ws-broadcast-ignores-errors.md). `ws_frame_text()`
+  returns an error and `http_broadcast` closes the WS peer on a failed/partial frame
+  (mirroring the SSE check-and-close), so dead peers are reaped and 16 ungraceful
+  disconnects no longer exhaust every slot.
 
 ## Security posture (read this before exposing the bridge)
 
-The bridge binds **loopback only** (`INADDR_LOOPBACK`, `src/net/http.c:189`), so it is
-not reachable from the network by default. But within that boundary it is
-**completely unauthenticated** — there is no token, no password, no session. This is the
-local-IPC trust boundary called out in
-[INVARIANTS §7](../invariants/INVARIANTS.md) and detailed in
-[../../SECURITY.md](../../SECURITY.md). Treat "anything that can make HTTP requests to
-127.0.0.1" as fully trusted, because it is. The relevant defects:
+The bridge binds **loopback only** (`INADDR_LOOPBACK`, `src/net/http.c`), so it is not
+reachable from the network by default. As of the 2026-06 hardening, within that boundary it
+is **origin-pinned**, and its write routes can additionally require a bearer token. This is
+the local-IPC trust boundary in [INVARIANTS §7](../invariants/INVARIANTS.md), detailed in
+[../../SECURITY.md](../../SECURITY.md). What's enforced:
 
-- **ZT-004** (🔴 high, `src/net/http.c:907`) —
-  [issue](../tracking/issues/ZT-004-unauth-http-tx-csrf.md). `POST /tx` / `POST /api/send`
-  writes the request body straight to the serial line with no authentication. Because
-  the body is a CORS *simple request* and (with `--http-cors`) the server returns
-  `Access-Control-Allow-Origin: *`, a malicious web page the operator merely *visits* —
-  or a DNS-rebinding attacker — can drive commands onto the device. Fix direction: a
-  bearer token plus `Origin`/`Host` validation, and never a wildcard CORS on
-  state-changing routes.
-- **ZT-013** (🟠 medium, `src/net/http.c:861`) — the `/ws` upgrade does **no `Origin`
-  check**, so any cross-origin site can open a WebSocket and read the live RX stream.
-  Fix: an `Origin` allowlist plus the same token.
-- **ZT-017** (⚪ low, `src/net/http.c:1036`) — the WS-slot leak above is also a
-  denial-of-service vector for the bridge.
+- **ZT-004 (fixed)** — [issue](../tracking/issues/ZT-004-unauth-http-tx-csrf.md).
+  `POST /tx` / `POST /api/send` pin `Host`/`Origin` to a loopback literal (rejecting CORS
+  simple requests from foreign origins and DNS-rebound hosts with `403`) and, when
+  `--http-token` is set, require `Authorization: Bearer <token>` (`401` otherwise).
+  `cors_block` advertises only `GET, OPTIONS` — never `POST` to `*`. The helpers are
+  `request_origin_ok()` / `request_token_ok()` in `src/net/http.c`.
+- **ZT-013 (fixed)** — the `/ws` upgrade and the `/stream` SSE validate `Origin`/`Host` via
+  the same helper before streaming device output.
 
-Until ZT-004 and ZT-013 are fixed, do not enable `--http` on a shared or multi-user host,
-and never combine `--http-cors` `*` with `POST /tx` on anything you care about. See
-[../plans/RELIABILITY_HARDENING.md](../plans/RELIABILITY_HARDENING.md) for the fix order.
+The built-in web UI is same-origin, so it works without a token; set `--http-token` when you
+tunnel or proxy the port beyond loopback. The bounded `http_write_all()` (EAGAIN-aware, 2 s
+deadline) means a slow webroot transfer no longer truncates or stalls the loop (**ZT-011**).
 
-Also note: `--http` parses its port with `atoi()` and no range check (**ZT-020**,
-`src/main.c:586`) — pass a valid 1–65535 port.
+Also note: `--http` parses its port with `strtol` and range-checks 1–65535 (**ZT-020**,
+`src/main.c`).
 
 ---
 

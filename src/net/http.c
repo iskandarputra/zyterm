@@ -24,6 +24,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -173,6 +174,134 @@ static void hc_close(int i) {
         close(g_conn[i].fd);
         g_conn[i].fd = -1;
     }
+}
+
+/* Bounded, EAGAIN-aware full write for one-shot HTTP responses.
+ *
+ * ZT-011 (INVARIANTS §7): the client fds are SOCK_NONBLOCK, and the loop's
+ * zt_write_all() only retries EINTR — using it to push a large --webroot file
+ * truncated the response on the first EAGAIN. This waits for writability, but
+ * with an overall deadline so a stalled peer can't hang the loop (§3). */
+#define HTTP_WRITE_DEADLINE_MS 2000
+static int http_write_all(int fd, const void *buf, size_t n) {
+    const unsigned char *p         = (const unsigned char *)buf;
+    size_t               rem       = n;
+    int                  waited_ms = 0;
+    while (rem > 0) {
+        ssize_t w = write(fd, p, rem);
+        if (w > 0) {
+            p += (size_t)w;
+            rem -= (size_t)w;
+            waited_ms = 0;
+            continue;
+        }
+        if (w == 0) return -1;
+        if (errno == EINTR) continue;
+        if (errno != EAGAIN && errno != EWOULDBLOCK) return -1;
+        struct pollfd pf = {.fd = fd, .events = POLLOUT};
+        int           pr = poll(&pf, 1, 250);
+        if (pr < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (pr == 0) {
+            waited_ms += 250;
+            if (waited_ms >= HTTP_WRITE_DEADLINE_MS) return -1; /* stalled peer */
+        }
+    }
+    return 0;
+}
+
+/* Non-blocking "write every byte or fail" for streaming frames. A partial
+ * write corrupts SSE/WS framing, so the peer must be dropped — never blocks
+ * (broadcast runs on the loop tick). */
+static int http_stream_write(int fd, const void *buf, size_t n) {
+    const unsigned char *p   = (const unsigned char *)buf;
+    size_t               rem = n;
+    while (rem > 0) {
+        ssize_t w = write(fd, p, rem);
+        if (w > 0) {
+            p += (size_t)w;
+            rem -= (size_t)w;
+            continue;
+        }
+        if (w < 0 && errno == EINTR) continue;
+        return -1; /* EAGAIN or hard error → caller closes the peer */
+    }
+    return 0;
+}
+
+/* ---- Origin / Host validation + bearer auth (ZT-004, ZT-013) ----
+ *
+ * The bridge binds loopback only, but the operator's browser is itself on
+ * loopback, so a cross-site page or a DNS-rebound host can still reach it.
+ * Defences: pin Host to a loopback literal (rebind defence); pin Origin —
+ * which browsers always send cross-origin and on POST — to loopback (CSRF
+ * defence); and, when --http-token is set, require a matching bearer token on
+ * state-changing routes. See INVARIANTS §7. */
+
+/* Find header @name (e.g. "Host:") in the request; return its trimmed value +
+ * length via @out_len, or NULL. Stops at the blank line ending the headers. */
+static const char *http_header(const char *req, const char *name, size_t *out_len) {
+    size_t nl = strlen(name);
+    for (const char *line = req; line && *line;) {
+        const char *eol = strstr(line, "\r\n");
+        if (!eol || eol == line) break; /* malformed, or blank line = headers end */
+        if ((size_t)(eol - line) > nl && strncasecmp(line, name, nl) == 0) {
+            const char *v = line + nl;
+            while (*v == ' ' || *v == '\t')
+                v++;
+            *out_len = (size_t)(eol - v);
+            return v;
+        }
+        line = eol + 2;
+    }
+    return NULL;
+}
+
+static bool host_is_loopback(const char *h, size_t n) {
+    static const char *ok[] = {"127.0.0.1", "localhost", "[::1]", "::1"};
+    for (size_t k = 0; k < sizeof ok / sizeof ok[0]; k++) {
+        size_t l = strlen(ok[k]);
+        if (n >= l && strncasecmp(h, ok[k], l) == 0 && (n == l || h[l] == ':')) return true;
+    }
+    return false;
+}
+
+static bool origin_is_loopback(const char *v, size_t n) {
+    const char *s = memmem(v, n, "://", 3);
+    if (!s) return false; /* "null" (file://, sandboxed) or malformed → reject */
+    s += 3;
+    return host_is_loopback(s, n - (size_t)(s - v));
+}
+
+/* Reject cross-origin / DNS-rebound requests on state-changing & streaming
+ * routes. Same-origin built-in UI passes; a foreign page or rebound host does
+ * not. */
+static bool request_origin_ok(const char *req) {
+    size_t      hl   = 0;
+    const char *host = http_header(req, "Host:", &hl);
+    if (!host || !host_is_loopback(host, hl)) return false;
+    size_t      ol  = 0;
+    const char *org = http_header(req, "Origin:", &ol);
+    if (org && !origin_is_loopback(org, ol)) return false;
+    return true;
+}
+
+/* When --http-token is set, require "Authorization: Bearer <token>". With no
+ * token configured the bridge is anonymous-but-origin-pinned (the built-in UI
+ * keeps working); set a token to additionally gate writes. */
+static bool request_token_ok(const zt_ctx *c, const char *req) {
+    if (!c->net.http_token || !*c->net.http_token) return true;
+    size_t            al    = 0;
+    const char       *a     = http_header(req, "Authorization:", &al);
+    static const char pfx[] = "Bearer ";
+    size_t            pl    = sizeof pfx - 1;
+    if (!a || al <= pl || strncmp(a, pfx, pl) != 0) return false;
+    a += pl;
+    al -= pl;
+    size_t tl = strlen(c->net.http_token);
+    return al == tl && memcmp(a, c->net.http_token, tl) == 0;
 }
 
 /* ---- Server setup ---- */
@@ -600,12 +729,17 @@ static const char kIndex[] =
 
 /* ---- CORS / API helpers ---- */
 
-/** Build the "Access-Control-Allow-*" block when CORS is enabled. */
+/** Build the "Access-Control-Allow-*" block when CORS is enabled.
+ *
+ * ZT-004 (INVARIANTS §7): never advertise a wildcard origin for write methods.
+ * Only GET/OPTIONS are offered cross-origin; POST (which mutates the device) is
+ * intentionally omitted, and is additionally gated by request_origin_ok() +
+ * request_token_ok() in classify_request(). */
 static const char *cors_block(const zt_ctx *c) {
     if (!c || !c->net.http_cors) return "";
     return "Access-Control-Allow-Origin: *\r\n"
-           "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
-           "Access-Control-Allow-Headers: Content-Type\r\n"
+           "Access-Control-Allow-Methods: GET, OPTIONS\r\n"
+           "Access-Control-Allow-Headers: Content-Type, Authorization\r\n"
            "Access-Control-Max-Age: 86400\r\n";
 }
 
@@ -617,8 +751,8 @@ static void send_json(zt_ctx *c, int fd, const char *json) {
                        "Content-Length: %zu\r\nConnection: close\r\nCache-Control: no-cache\r\n"
                        "%s\r\n",
                       strlen(json), cors_block(c));
-    (void)zt_write_all(fd, hdr, snprintf_len(h, sizeof hdr));
-    (void)zt_write_all(fd, json, strlen(json));
+    (void)http_write_all(fd, hdr, snprintf_len(h, sizeof hdr));
+    (void)http_write_all(fd, json, strlen(json));
 }
 
 /** Reply to a CORS preflight. */
@@ -628,7 +762,7 @@ static void send_preflight(zt_ctx *c, int fd) {
                       "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n"
                        "%s\r\n",
                       cors_block(c));
-    (void)zt_write_all(fd, hdr, snprintf_len(h, sizeof hdr));
+    (void)http_write_all(fd, hdr, snprintf_len(h, sizeof hdr));
 }
 
 /** Escape a C string for JSON output into @p out (up to @p cap-1 bytes). */
@@ -769,12 +903,12 @@ static int serve_webroot(zt_ctx *c, int fd, const char *root, const char *urlpat
                        "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %lld\r\n"
                         "Connection: close\r\n%s\r\n",
                        mime_for(full), (long long)st.st_size, cors_block(c));
-    (void)zt_write_all(fd, hdr, snprintf_len(hn, sizeof hdr));
+    (void)http_write_all(fd, hdr, snprintf_len(hn, sizeof hdr));
 
     char    buf[8192];
     ssize_t r;
     while ((r = read(ffd, buf, sizeof buf)) > 0) {
-        if (zt_write_all(fd, buf, (size_t)r) != 0) break;
+        if (http_write_all(fd, buf, (size_t)r) != 0) break;
     }
     close(ffd);
     return 1;
@@ -788,8 +922,8 @@ static void send_text_c(zt_ctx *c, int fd, const char *status, const char *ctype
                       "HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\n"
                        "Connection: close\r\nCache-Control: no-cache\r\n%s\r\n",
                       status, ctype, n, cors_block(c));
-    (void)zt_write_all(fd, hdr, snprintf_len(h, sizeof hdr));
-    (void)zt_write_all(fd, body, n);
+    (void)http_write_all(fd, hdr, snprintf_len(h, sizeof hdr));
+    (void)http_write_all(fd, body, n);
 }
 
 static void handle_ws_upgrade(int fd, const char *key) {
@@ -809,7 +943,7 @@ static void handle_ws_upgrade(int fd, const char *key) {
                         "Upgrade: websocket\r\nConnection: Upgrade\r\n"
                         "Sec-WebSocket-Accept: %s\r\n\r\n",
                        accept);
-    (void)zt_write_all(fd, resp, snprintf_len(rn, sizeof resp));
+    (void)http_write_all(fd, resp, snprintf_len(rn, sizeof resp));
 }
 
 /* Stash a freshly-accepted fd into an HC_NEW slot. The actual request
@@ -848,17 +982,31 @@ static void classify_request(zt_ctx *c, int i) {
     }
 
     if (strstr(req, "GET /stream") || strstr(req, "GET /api/stream")) {
+        /* ZT-013: the live RX stream is sensitive — pin Origin/Host so a
+         * cross-origin page can't open an EventSource and read device output. */
+        if (!request_origin_ok(req)) {
+            send_text_c(c, cfd, "403 Forbidden", "text/plain", "forbidden\n", 10);
+            hc_close(i);
+            return;
+        }
         char hdrbuf[512];
         int  hn = snprintf(hdrbuf, sizeof hdrbuf,
                            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
                             "Cache-Control: no-cache\r\nConnection: keep-alive\r\n"
                             "%s\r\n: zyterm\n\n",
                            cors_block(c));
-        (void)zt_write_all(cfd, hdrbuf, snprintf_len(hn, sizeof hdrbuf));
+        (void)http_write_all(cfd, hdrbuf, snprintf_len(hn, sizeof hdrbuf));
         h->type = HC_SSE;
         return;
     }
     if (strstr(req, "GET /ws")) {
+        /* ZT-013 (INVARIANTS §7): validate Origin/Host before upgrading, or any
+         * web page could open a WS and read the live RX stream cross-origin. */
+        if (!request_origin_ok(req)) {
+            send_text_c(c, cfd, "403 Forbidden", "text/plain", "forbidden\n", 10);
+            hc_close(i);
+            return;
+        }
         const char *k = strstr(req, "Sec-WebSocket-Key:");
         if (!k) {
             hc_close(i);
@@ -906,6 +1054,20 @@ static void classify_request(zt_ctx *c, int i) {
     }
     if ((rn >= 14 && strncmp(req, "POST /api/send", 14) == 0) ||
         (rn >= 8 && strncmp(req, "POST /tx", 8) == 0)) {
+        /* ZT-004 (INVARIANTS §7): POST writes the serial line. Reject cross-site
+         * / DNS-rebound callers (Origin/Host pinning) so a page the operator
+         * visits can't push commands to the device, and — when --http-token is
+         * set — require a bearer token on top. */
+        if (!request_origin_ok(req)) {
+            send_text_c(c, cfd, "403 Forbidden", "text/plain", "forbidden\n", 10);
+            hc_close(i);
+            return;
+        }
+        if (!request_token_ok(c, req)) {
+            send_text_c(c, cfd, "401 Unauthorized", "text/plain", "unauthorized\n", 13);
+            hc_close(i);
+            return;
+        }
         const char *body = strstr(req, "\r\n\r\n");
         if (body && c->serial.fd >= 0) {
             body += 4;
@@ -992,7 +1154,11 @@ void http_tick(zt_ctx *c) {
     }
 }
 
-static void ws_frame_text(int fd, const unsigned char *buf, size_t n) {
+/* Send one WS text frame. Returns 0 on success, -1 if the peer's socket can't
+ * take the whole frame (ZT-009): the caller must then close it, because a
+ * partial frame desyncs the stream and a never-reaped dead peer exhausts the
+ * 16 connection slots (ZT-017). */
+static int ws_frame_text(int fd, const unsigned char *buf, size_t n) {
     unsigned char hdr[10];
     size_t        hl = 0;
     hdr[0]           = 0x81; /* FIN + text */
@@ -1010,51 +1176,63 @@ static void ws_frame_text(int fd, const unsigned char *buf, size_t n) {
             hdr[2 + i] = (unsigned char)((n >> (56 - i * 8)) & 0xFF);
         hl = 10;
     }
-    (void)zt_write_all(fd, hdr, hl);
-    (void)zt_write_all(fd, buf, n);
+    if (http_stream_write(fd, hdr, hl) != 0) return -1;
+    if (http_stream_write(fd, buf, n) != 0) return -1;
+    return 0;
 }
 
 void http_broadcast(zt_ctx *c, const unsigned char *buf, size_t n) {
     if (!c || !buf || n == 0) return;
-    char   b64[8192];
-    size_t chunk = n > 4096 ? 4096 : n;
-    b64enc(buf, chunk, b64);
-    char   ev[9000];
-    int    en_raw = snprintf(ev, sizeof ev, "data: %s\n\n", b64);
-    size_t en     = snprintf_len(en_raw, sizeof ev);
-    for (int i = 0; i < HC_MAX; i++) {
-        if (g_conn[i].fd < 0) continue;
-        if (g_conn[i].type == HC_SSE) {
-            ssize_t w = write(g_conn[i].fd, ev, en);
-            /* EAGAIN: kernel buffer full — drop this event rather than block.
-             * Any other error, or a short write (can't queue remainder here)
-             * means the peer is gone or stalled — close the connection. */
-            if (w < 0) {
-                if (errno != EAGAIN && errno != EWOULDBLOCK) hc_close(i);
-            } else if ((size_t)w != en)
-                hc_close(i);
-        } else if (g_conn[i].type == HC_WS) {
-            ws_frame_text(g_conn[i].fd, buf, chunk);
+    /* ZT-007: iterate the whole payload in <=4096-byte segments. The old code
+     * encoded only the first 4096 bytes once, silently dropping the rest of any
+     * RX burst from both the SSE and WS views. */
+    for (size_t off = 0; off < n; off += 4096) {
+        size_t               seglen = n - off > 4096 ? 4096 : n - off;
+        const unsigned char *seg    = buf + off;
+        char                 b64[8192];
+        b64enc(seg, seglen, b64);
+        char   ev[9000];
+        int    en_raw = snprintf(ev, sizeof ev, "data: %s\n\n", b64);
+        size_t en     = snprintf_len(en_raw, sizeof ev);
+        for (int i = 0; i < HC_MAX; i++) {
+            if (g_conn[i].fd < 0) continue;
+            if (g_conn[i].type == HC_SSE) {
+                ssize_t w = write(g_conn[i].fd, ev, en);
+                /* EAGAIN: kernel buffer full — drop this event rather than
+                 * block. Any other error, or a short write (can't queue the
+                 * remainder here), means the peer is gone or stalled — close. */
+                if (w < 0) {
+                    if (errno != EAGAIN && errno != EWOULDBLOCK) hc_close(i);
+                } else if ((size_t)w != en)
+                    hc_close(i);
+            } else if (g_conn[i].type == HC_WS) {
+                /* ZT-009/ZT-017: check the frame write and reap dead peers. */
+                if (ws_frame_text(g_conn[i].fd, seg, seglen) != 0) hc_close(i);
+            }
         }
     }
 }
 
 void http_broadcast_tx(zt_ctx *c, const unsigned char *buf, size_t n) {
     if (!c || !buf || n == 0 || c->net.http_fd < 0) return;
-    char   b64[8192];
-    size_t chunk = n > 4096 ? 4096 : n;
-    b64enc(buf, chunk, b64);
-    char   ev[9000];
-    int    en_raw = snprintf(ev, sizeof ev, "event: tx\ndata: %s\n\n", b64);
-    size_t en     = snprintf_len(en_raw, sizeof ev);
-    for (int i = 0; i < HC_MAX; i++) {
-        if (g_conn[i].fd < 0) continue;
-        if (g_conn[i].type == HC_SSE) {
-            ssize_t w = write(g_conn[i].fd, ev, en);
-            if (w < 0) {
-                if (errno != EAGAIN && errno != EWOULDBLOCK) hc_close(i);
-            } else if ((size_t)w != en)
-                hc_close(i);
+    /* ZT-007: segment the payload like http_broadcast() rather than capping the
+     * TX echo at one 4096-byte chunk. */
+    for (size_t off = 0; off < n; off += 4096) {
+        size_t seglen = n - off > 4096 ? 4096 : n - off;
+        char   b64[8192];
+        b64enc(buf + off, seglen, b64);
+        char   ev[9000];
+        int    en_raw = snprintf(ev, sizeof ev, "event: tx\ndata: %s\n\n", b64);
+        size_t en     = snprintf_len(en_raw, sizeof ev);
+        for (int i = 0; i < HC_MAX; i++) {
+            if (g_conn[i].fd < 0) continue;
+            if (g_conn[i].type == HC_SSE) {
+                ssize_t w = write(g_conn[i].fd, ev, en);
+                if (w < 0) {
+                    if (errno != EAGAIN && errno != EWOULDBLOCK) hc_close(i);
+                } else if ((size_t)w != en)
+                    hc_close(i);
+            }
         }
     }
 }

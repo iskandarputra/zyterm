@@ -50,7 +50,7 @@ called out explicitly.
 | `+` | Add a bookmark | At the current scrollback offset (`input.c:294`). Lowercase `b` is BREAK. |
 | `[` | Bookmark list | `input.c:297`. |
 | `Y` | Yank to clipboard | Selection if active, else the current line (`input.c:298`). |
-| `.` | Fuzzy finder | **Currently non-functional** (`input.c:313`) — see below. |
+| `.` | Fuzzy finder | Filter command history; `Enter` recalls, `Esc` cancels (`input.c`) — see below. |
 | `D` | Mute `<dbg>` lines | `input.c:317`. |
 | `I` | Mute `<inf>` lines | `input.c:321`. |
 | `o` `O` | Open the settings menu | 4 pages (`input.c:326`); see [Settings menu](#settings-menu-ctrla-o). |
@@ -68,14 +68,14 @@ need a serial fd are refused with a flash message: `a`, `A`, `b`, `B`
 search, copy, settings, log toggle, help) stays available so you can review and
 copy what was on screen before the unplug.
 
-### Fuzzy finder is non-functional (ZT-008)
+### Fuzzy finder (ZT-008, fixed)
 
-`Ctrl+A .` opens a fuzzy history finder, but the feature does not work today:
-its match loop scans history from an index that is always empty and the routing
-back into the input buffer is incomplete (`src/tui/fuzzy.c`). Do not rely on it.
-Tracked as **ZT-008** (with an off-by-one, **ZT-023**) in
-[KNOWN_ISSUES](../tracking/KNOWN_ISSUES.md). For history recall, use the
-`Up`/`Down` arrows instead.
+`Ctrl+A .` opens a fuzzy finder over your command history. Type to filter (a cheap
+subsequence scorer ranks matches), `Enter` recalls the selected entry into the input
+line, `Esc` cancels. Fixed in the 2026-06 hardening — the match loop now scans from
+history index 1 and `handle_stdin_chunk` routes keystrokes to it (with the off-by-one
+**ZT-023** also closed); see [KNOWN_ISSUES](../tracking/KNOWN_ISSUES.md). `Up`/`Down`
+still work for sequential history recall.
 
 ---
 

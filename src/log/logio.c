@@ -37,8 +37,15 @@ void log_rotate_if_needed(zt_ctx *c) {
     snprintf(rot, sizeof rot, "%s.1", c->log.path);
     close(c->log.fd);
     c->log.fd = -1;
-    (void)rename(c->log.path, rot);
-    c->log.fd         = open(c->log.path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+    /* ZT-010: surface rotation failures instead of silently losing the log.
+     * On rename failure (ENOSPC, cross-device, …) we still reopen so the live
+     * tail keeps appending; on reopen failure the log goes quiet and we warn,
+     * so the operator isn't left believing logging is still on. */
+    if (rename(c->log.path, rot) != 0)
+        log_notice(c, "log rotate: rename %s failed: %s", c->log.path, strerror(errno));
+    c->log.fd = open(c->log.path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+    if (c->log.fd < 0)
+        log_notice(c, "log rotate: reopen %s failed: %s", c->log.path, strerror(errno));
     c->log.bytes      = 0;
     c->log.line_start = true;
 }

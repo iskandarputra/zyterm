@@ -253,7 +253,11 @@ size_t osc8_rewrite(const unsigned char *in, size_t n, unsigned char *out, size_
                    in[i] != '<' && in[i] != '>')
                 i++;
             url_len = i - start;
-            if (o + url_len + 32 >= cap) break;
+            /* ZT-019 (INVARIANTS §5): the URL is emitted twice — once inside
+             * the OSC 8 target ("\x1b]8;;<url>\x1b\\") and again as the visible
+             * link text — so the guard must reserve 2*url_len, not url_len. The
+             * old single-count bound overflowed `out` for url_len > ~18. */
+            if (o + 2 * url_len + 32 >= cap) break;
             /* prefix OSC 8 ; ; url ST */
             o += (size_t)snprintf((char *)out + o, cap - o, "\x1b]8;;%.*s\x1b\\", (int)url_len,
                                   in + start);

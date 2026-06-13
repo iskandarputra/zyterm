@@ -54,7 +54,12 @@ static bool tx_preprocess(zt_ctx *c, const unsigned char **buf, size_t *n,
     if (need_eol) {
         size_t cap = ZT_EOL_OUT_CAP(*n);
         stage1     = malloc(cap);
-        if (!stage1) return false;
+        if (!stage1) {
+            /* ZT-025: a silent drop here looks like a dead link. Tell the
+             * operator the TX was lost to OOM rather than swallowing it. */
+            set_flash(c, "TX dropped \xe2\x80\x94 out of memory");
+            return false;
+        }
         *n =
             eol_translate_out(c->proto.map_out, &c->proto.eol_state_out, *buf, *n, stage1, cap);
         *buf = stage1;
@@ -64,6 +69,7 @@ static bool tx_preprocess(zt_ctx *c, const unsigned char **buf, size_t *n,
         size_t         cap2   = (*n) * 2;
         unsigned char *stage2 = malloc(cap2 ? cap2 : 1);
         if (!stage2) {
+            set_flash(c, "TX dropped \xe2\x80\x94 out of memory"); /* ZT-025 */
             free(stage1);
             return false;
         }

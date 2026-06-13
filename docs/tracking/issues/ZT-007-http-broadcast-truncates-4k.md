@@ -3,7 +3,7 @@
 - **Severity:** 🟠 medium (the web/SSE/WS view silently drops data — it diverges
   from the terminal and the log on any burst >4096 B, with no error surfaced)
 - **Area:** net (HTTP bridge)
-- **Status:** open  (recorded 2026-06-03; not yet fixed)
+- **Status:** **fixed** 2026-06-13 on `fix/zt-001-ownership-and-ui-hangs` (recorded 2026-06-03) — see [KNOWN_ISSUES Resolved](../KNOWN_ISSUES.md#resolved)
 - **Location:** `src/net/http.c:1020`
 
 ## Root cause

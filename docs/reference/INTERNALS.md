@@ -61,10 +61,10 @@ keypad numeric, ASCII G0, SGR reset) is documented inline at `core.c:436-450`. T
 handler `sig_crash` emits the *same* string from a static buffer (§2) so an abnormal exit
 leaves the terminal in the same clean state.
 
-> Device RX bytes are written to this same terminal buffer essentially verbatim — only `\r`
-> is stripped. That is the escape-injection hazard tracked as
-> [ZT-003](../tracking/issues/ZT-003-device-rx-escape-injection.md); see §4 and
-> [INVARIANTS §6](../invariants/INVARIANTS.md). Nothing in §1 sanitizes those bytes.
+> Device RX bytes are sanitized before they reach this terminal buffer: `render_rx` rewrites ESC
+> and other C0/DEL controls to inert `cat -v` caret notation unless an explicit passthrough mode is
+> on (closed [ZT-003](../tracking/issues/ZT-003-device-rx-escape-injection.md)); see §4 and
+> [INVARIANTS §6](../invariants/INVARIANTS.md).
 
 ---
 
@@ -457,26 +457,24 @@ every RX chunk and fans out to both stream types — but they are handled asymme
   frames also corrupt the stream. Fix direction: check the write and close on error, mirroring
   SSE.
 
-> **Truncation:** `http_broadcast` only base64s the first `chunk = min(n, 4096)` bytes and
-> never loops over the remainder, so RX bursts larger than 4 KiB are silently truncated in the
-> web view — [ZT-007](../tracking/issues/ZT-007-http-broadcast-truncates-4k.md) (🟠). Fix:
-> segment in ≤4096-byte loops.
+> **Broadcast (fixed):** `http_broadcast` / `http_broadcast_tx` loop over the whole payload in
+> ≤4096-byte segments for both SSE and WS, so RX bursts larger than 4 KiB are no longer truncated
+> — closed [ZT-007](../tracking/issues/ZT-007-http-broadcast-truncates-4k.md).
 
-**Unauthenticated trust boundary.** The bridge has *no auth and no Origin/Host validation*:
+**Origin-pinned trust boundary.** The bridge validates `Host`/`Origin` and can require a token:
 
-- `POST /tx` / `POST /api/send` (`http.c:907`) writes the request body straight to the serial
-  line. Reachable cross-site via a CORS simple-request or DNS-rebind →
-  [ZT-004](../tracking/issues/ZT-004-unauth-http-tx-csrf.md) (🔴, command exec on device).
-- The WS upgrade does no Origin check, so any web page can read the live RX stream cross-origin
-  — [ZT-013](../tracking/KNOWN_ISSUES.md) (🟠).
-- `--http-cors` emits `Access-Control-Allow-Origin: *` even on state-changing routes
-  (`cors_block`, `http.c:604`).
-- The webroot/large-file path reuses the EINTR-only `zt_write_all` on these non-blocking fds,
-  truncating large files on `EAGAIN` — [ZT-011](../tracking/KNOWN_ISSUES.md)
-  (🟠), the §1 helper mismatch.
+- `POST /tx` / `POST /api/send` (`classify_request`) pin `Host`/`Origin` to a loopback literal
+  (`403` on a foreign origin / rebound host) and, with `--http-token`, require
+  `Authorization: Bearer <token>` (`401` otherwise) →
+  closed [ZT-004](../tracking/issues/ZT-004-unauth-http-tx-csrf.md).
+- The `/ws` upgrade and `/stream` SSE validate `Origin` via the same `request_origin_ok` helper →
+  closed [ZT-013](../tracking/KNOWN_ISSUES.md).
+- `--http-cors` advertises only `GET, OPTIONS` — never `POST` to `*` (`cors_block`).
+- One-shot responses use the bounded, EAGAIN-aware `http_write_all` (not the EINTR-only
+  `zt_write_all`), so a large `--webroot` file isn't truncated on `EAGAIN` →
+  closed [ZT-011](../tracking/KNOWN_ISSUES.md).
 
-These are the unauthenticated-local-IPC theme in [INVARIANTS §7](../invariants/INVARIANTS.md)
-and [../plans/RELIABILITY_HARDENING.md](../plans/RELIABILITY_HARDENING.md).
+These realize the local-IPC trust-boundary rules in [INVARIANTS §7](../invariants/INVARIANTS.md).
 
 ---
 

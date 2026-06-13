@@ -139,24 +139,22 @@ output stream, not a separate log file; mute them with `Ctrl+A D` / `Ctrl+A I`
 (or `--mute-dbg` / `--mute-inf`). The Prometheus `--metrics <path>` exporter
 writes to a UNIX socket you specify, not to a log file.
 
-## Why does pasted or device output sometimes change my terminal title or clipboard?
+## Can a hostile device change my terminal title or clipboard via RX?
 
-zyterm currently writes device RX to your terminal with minimal escape filtering
-(only `\r` is stripped). A hostile or buggy device can therefore emit escape
-sequences that affect your terminal (title, and OSC 52 clipboard writes). This
-is a known security gap (**ZT-003**) tracked in
-[KNOWN_ISSUES](../tracking/KNOWN_ISSUES.md). Until it is fixed, be cautious
-pointing zyterm at untrusted endpoints, and avoid exposing the HTTP bridge
-(`--http`) on untrusted networks (see ZT-004/ZT-013 there).
+Not on the default path. As of the 2026-06 hardening, device RX is filtered before it
+reaches your terminal: ESC and other control bytes are rewritten to inert `cat -v` caret
+notation (`^[`, `^G`, …), so OSC 52 clipboard writes, title injection and screen spoofs are
+neutralized while text and UTF-8 still render (**ZT-003 — fixed**). You only get raw device
+escapes if you explicitly enable a passthrough mode (`Ctrl+A G`, or the SGR-passthrough
+toggle) — so only do that for devices you trust. The HTTP bridge is likewise origin-pinned
+and optionally token-gated (`--http-token`); see ZT-004/ZT-013.
 
 ## I saw "OSC 8 hyperlinks", "fuzzy finder", or "multi-pane" mentioned — do they work?
 
-No. These appear in the UI or in older notes but are not functional today:
-
-- **OSC 8 hyperlinks** — the settings toggle flips a flag nothing reads; the
-  rewrite routine is never called. **ZT-019.**
-- **Fuzzy finder** (`Ctrl+A .`) — non-functional; use `Up`/`Down` history
-  instead. **ZT-008.**
+- **Fuzzy finder** (`Ctrl+A .`) — **works** as of the 2026-06 fix (**ZT-008**): type to
+  filter your command history, `Enter` to recall, `Esc` to cancel.
+- **OSC 8 hyperlinks** — still inert: the settings toggle flips a flag nothing reads and the
+  rewrite routine has no call site (it is now bounds-correct, **ZT-019**, but unused).
 - **Multi-pane** — a stub; not wired or keybound.
 
 All tracked in [KNOWN_ISSUES](../tracking/KNOWN_ISSUES.md). See

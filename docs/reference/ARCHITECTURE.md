@@ -27,7 +27,7 @@ shared state struct lives in `src/zt_ctx.h`.
 | `log/`     | `internal/log.h`    | Persistent log file + rotation, NDJSON emit (`log_json`), asciinema cast recording (`--rec`), the scrollback ring, and mouse-driven text selection. |
 | `proto/`   | `internal/proto.h`  | Wire/escape protocols: frame decoders + CRC (`framing`), X/Y/ZMODEM transfer, F-key macros, OSC 52 clipboard + `osc8_rewrite` (**dead**, §6), native X11 clipboard, SGR pass-through, KGDB raw pass-through, line-ending translation. |
 | `render/`  | `internal/render.h` | The RX byte-stream → screen pipeline (`render_rx`, `rx_ingest`, colorizing, hex view) and the throughput sparkline. |
-| `tui/`     | `internal/tui.h`    | Terminal UI: HUD, input bar, dialogs, search/rename overlays, settings menu, the less-style pager, and the fuzzy finder (**non-functional**, §6). |
+| `tui/`     | `internal/tui.h`    | Terminal UI: HUD, input bar, dialogs, search/rename overlays, settings menu, the less-style pager, and the fuzzy finder. |
 | `net/`     | `internal/net.h`    | Network-facing services: the HTTP/SSE/WS bridge + Prometheus `--metrics` exporter, and the detach/attach session multiplexer (local UNIX sockets). |
 | `ext/`     | `internal/ext.h`    | Optional extensions: bookmarks, `--diff`, the `--filter` subprocess, log-level mute, profiles + inotify hot-reload, event hooks, the reconnect popup loop, and `multi.c` (a **stub**, §6). |
 | `loop/`    | `internal/loop.h`   | Event-loop primitives: keyboard input parsing (`input.c`), the TX send pipeline (`send.c`), the optional `--threaded` reader (`rx_thread.c`), and the top-level run modes (`runtime.c`). |
@@ -187,8 +187,9 @@ Some code is present but **not reachable** in 1.2.0. Do not treat these as worki
 - **`osc8_rewrite()` (OSC 8 hyperlinks) — dead code.** Defined at `src/proto/osc.c:238` with
   **zero call sites**; the `Ctrl+A o` settings "OSC 8" toggle flips a flag nothing reads. It also
   carries a latent out-of-bounds write → [KNOWN_ISSUES ZT-019](../tracking/KNOWN_ISSUES.md).
-- **Fuzzy finder (`Ctrl+A .`) — non-functional.** `tui/fuzzy.c` scans history from index 0
-  (always NULL) and is not routed in `input.c` → [KNOWN_ISSUES ZT-008](../tracking/KNOWN_ISSUES.md).
+- **Fuzzy finder (`Ctrl+A .`) — functional** as of the 2026-06 fix: `tui/fuzzy.c` scans history
+  from index 1 and `input.c`'s `handle_stdin_chunk` routes keystrokes to it →
+  [KNOWN_ISSUES ZT-008](../tracking/KNOWN_ISSUES.md).
 
 For the full corrected feature truth (including in-memory-only history/bookmarks and the
 real profile path), see [FAQ.md](./FAQ.md) and the relevant ADRs.

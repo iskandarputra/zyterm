@@ -92,15 +92,17 @@ See [design/FRAMING_AND_CRC](../design/FRAMING_AND_CRC.md) for the decoder inter
 
 | Flag | Argument | Default | Behaviour |
 | --- | --- | --- | --- |
-| `--http` | `<port>` | — | Start the built-in HTTP server (HTML UI at `/`, SSE at `/stream`, WebSocket at `/ws`, `GET /api/state`, `POST /api/send`, `GET /metrics`). **⚠ Parsed with `atoi`, truncated to a `uint16`, no range validation** (`src/main.c:586`) — see [ZT-020](../tracking/KNOWN_ISSUES.md). |
-| `--webroot` | `<dir>` | — | Serve static files from `<dir>`; `..` traversal is blocked (`src/main.c:587`). |
-| `--http-cors` | — | off | Add `Access-Control-Allow-Origin: *` headers (`src/main.c:591`). |
-| `--metrics` | `<path>` | — | Open an `AF_UNIX` socket at `<path>` emitting Prometheus text (`src/main.c:582`). |
+| `--http` | `<port>` | — | Start the built-in HTTP server (HTML UI at `/`, SSE at `/stream`, WebSocket at `/ws`, `GET /api/state`, `POST /api/send`, `GET /metrics`). Port parsed with `strtol` and range-checked to 1–65535 (`src/main.c`). The bridge binds loopback only; write/stream routes pin `Host`/`Origin` to a loopback literal. |
+| `--webroot` | `<dir>` | — | Serve static files from `<dir>`; `..` traversal is blocked (`src/main.c`). |
+| `--http-cors` | — | off | Add CORS headers for **read-only** `GET`/`OPTIONS` only (`POST` is never granted to the `*` origin; see [ZT-004](../tracking/KNOWN_ISSUES.md)) (`src/main.c`). |
+| `--http-token` | `<tok>` | — | Require `Authorization: Bearer <tok>` on the state-changing routes `POST /tx` and `POST /api/send` (`401` otherwise). Without it the bridge is anonymous-but-origin-pinned and the built-in web UI still works (`src/net/http.c`). |
+| `--metrics` | `<path>` | — | Open an `AF_UNIX` socket at `<path>` emitting Prometheus text; created `0600` and peer-cred checked (`src/main.c`). |
 
-> The HTTP bridge is an **unauthenticated** local trust boundary. `POST /api/send` writes to the
-> serial line with no auth and the WS upgrade does no Origin check — see
-> [ZT-004 / ZT-013](../tracking/KNOWN_ISSUES.md) before exposing it beyond loopback. Background:
-> [design/HTTP_BRIDGE](../design/HTTP_BRIDGE.md).
+> The HTTP bridge is a loopback-only trust boundary. Its write routes (`POST /tx`,
+> `POST /api/send`) and the `/ws`+`/stream` reads pin `Host`/`Origin` to loopback, and the write
+> routes can require a bearer token via `--http-token`
+> ([ZT-004 / ZT-013](../tracking/KNOWN_ISSUES.md), fixed). Set a token before exposing it beyond
+> loopback. Background: [design/HTTP_BRIDGE](../design/HTTP_BRIDGE.md).
 
 ## Sessions & integration
 
@@ -111,8 +113,9 @@ See [design/FRAMING_AND_CRC](../design/FRAMING_AND_CRC.md) for the decoder inter
 | `--filter` | `<cmd>` | — | Pipe RX through `sh -c <cmd>` before display, e.g. `--filter 'grep -v noise'` (`src/main.c:578`, `:749`). |
 | `--diff` | `<a> <b>` | — | Diff two capture files and exit; consumes the next positional arg as `<b>` (`src/main.c:619`). See [modes](#exit--non-interactive-modes). |
 
-> The detach socket is `/tmp/zyterm.<name>.sock` with default umask and no peer-credential check —
-> a local trust boundary; see [ZT-012](../tracking/KNOWN_ISSUES.md).
+> The detach socket lives under `$XDG_RUNTIME_DIR` (falling back to `/tmp` only when that is unset),
+> is created `0600`, and rejects attachers whose uid isn't yours via `SO_PEERCRED`
+> (see [ZT-012](../tracking/KNOWN_ISSUES.md)).
 
 ## Clipboard
 

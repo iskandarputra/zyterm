@@ -10,7 +10,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`--http-token <tok>`.** When set, the HTTP bridge requires
+  `Authorization: Bearer <tok>` on the state-changing routes `POST /tx` and
+  `POST /api/send` (`401` otherwise). Without it the bridge stays
+  anonymous-but-origin-pinned, so the built-in web UI keeps working. (ZT-004)
+
+### Security
+- **Unauthenticated `POST /tx` → device command execution (ZT-004).** Any web
+  page the operator visited could push bytes to the serial line cross-site
+  (CORS simple request) or via DNS rebinding. The write routes now pin
+  `Host`/`Origin` to a loopback literal and, with `--http-token`, require a
+  bearer token; `cors_block` no longer advertises `POST` to `*`. (`src/net/http.c`)
+- **Hostile device RX could drive the operator's terminal (ZT-003).** Device
+  output was echoed verbatim (only `\r` stripped), so a device could write the
+  operator's clipboard (OSC 52), set the title, or spoof the screen. ESC and
+  other C0/DEL controls are now neutralized to inert `cat -v` caret notation on
+  the default render path; raw escapes need the explicit `passthrough` /
+  `sgr_passthrough` opt-in. (`src/render/render.c`)
+- **WebSocket / SSE read the live RX stream cross-origin (ZT-013).** The `/ws`
+  upgrade and `/stream` now validate `Origin`/`Host` before streaming.
+- **Local IPC sockets were world-reachable (ZT-012, ZT-028).** The detach
+  socket moves to `$XDG_RUNTIME_DIR`, both the detach and metrics sockets are
+  created `0600`, and each verifies the peer's uid via `SO_PEERCRED`.
+  (`src/net/session.c`, `src/net/metrics.c`)
+
 ### Fixed
+- **Web view truncated RX bursts at 4 KiB (ZT-007).** SSE/WS broadcast now
+  iterates the whole payload in ≤4096-byte segments. (`src/net/http.c`)
+- **Fuzzy finder was entirely non-functional (ZT-008).** It scanned history
+  from index 0 (always NULL) and keystrokes were never routed to it; it now
+  scans from index 1 and `handle_stdin_chunk()` drives it. (`src/tui/fuzzy.c`,
+  `src/loop/input.c`)
+- **Dead WebSocket peers leaked connection slots (ZT-009, ZT-017).** A failed
+  frame write is detected and the peer closed, so 16 ungraceful disconnects no
+  longer DoS the bridge. (`src/net/http.c`)
+- **Silent failures hardened:** log-rotation `rename`/`open` errors now warn
+  (ZT-010); a non-blocking metrics scraper can't stall the loop (ZT-024); a
+  flow-controlled `--webroot` transfer isn't truncated on `EAGAIN` (ZT-011); a
+  signal no longer drops filter bytes (ZT-015); an OOM TX flashes "TX dropped"
+  (ZT-025); a hung-up serial port is drained before reconnect (ZT-027).
+- **Memory/bounds correctness:** the X11 clipboard worker NULL-checks its
+  allocation (ZT-014); `osc8_rewrite`'s bound reserves the doubled URL length
+  (ZT-019); `encode_cobs` reserves the true COBS worst case (ZT-021); a
+  zero-length LENPFX frame dispatches without swallowing the next byte (ZT-022);
+  the fuzzy selection clamp leaves NUL room (ZT-023).
+- **`--http` port is range-validated** with `strtol` (1–65535) instead of an
+  unchecked `atoi` (ZT-020). (`src/main.c`)
+- **Early-return memory leaks consolidated (ZT-018).** `--replay`/`--attach`/
+  `--diff`/`-h`/`-V`/`--profile-save` free every parse-owned field via a single
+  `cleanup_ctx()` helper. (`src/main.c`)
 - **Heap corruption on profile hot-reload / USB replug (ZT-001, ZT-002).**
   `c->serial.device` was sometimes a borrowed `argv` pointer yet was
   `free()`d as if heap-owned — by `profile_load()` on an inotify reload and
@@ -38,12 +87,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   live at the repository root.
 
 ### Known issues
-- A source-review audit (recorded 2026-06-03) catalogued **28 defects**
-  (6 since fixed — see **Fixed** above), tracked in
-  `docs/tracking/KNOWN_ISSUES.md`. These span pointer-ownership,
-  the unauthenticated local-IPC trust boundary, hostile device RX echoed
-  verbatim, and a handful of advertised-but-dead code paths (OSC 8
-  hyperlinks, the epoll/splice fast path, the fuzzy finder, multi-pane).
+- A source-review audit (recorded 2026-06-03) catalogued **28 defects**, all
+  now fixed on this branch — see **Security** and **Fixed** above and the full
+  Resolved table in `docs/tracking/KNOWN_ISSUES.md`. The remaining
+  advertised-but-dead paths (OSC 8 hyperlinks, the epoll/splice fast path,
+  multi-pane) are tracked in `docs/tracking/STATUS.md`, not as defects.
 
 ## [1.2.0] — 2026-05-23
 

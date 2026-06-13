@@ -329,9 +329,21 @@ static void reject_selection(zt_sel_request_t *req) {
 }
 
 static void handle_selection_request(zt_sel_request_t *req) {
+    /* ZT-014 (INVARIANTS §1): split the alloc from the memcpy and NULL-check
+     * it. The old `memcpy(malloc(g.len), …)` dereferenced a NULL on OOM and
+     * crashed the whole process from this X11 worker thread. snap_len stays 0
+     * unless the copy actually succeeds, so the reply path below rejects
+     * cleanly instead of sending garbage. */
     pthread_mutex_lock(&g.mu);
-    char  *snap_buf = g.buf ? memcpy(malloc(g.len), g.buf, g.len) : NULL;
-    size_t snap_len = g.len;
+    char  *snap_buf = NULL;
+    size_t snap_len = 0;
+    if (g.buf && g.len) {
+        snap_buf = malloc(g.len);
+        if (snap_buf) {
+            memcpy(snap_buf, g.buf, g.len);
+            snap_len = g.len;
+        }
+    }
     pthread_mutex_unlock(&g.mu);
 
     if (req->target == g.atoms[A_TARGETS]) {

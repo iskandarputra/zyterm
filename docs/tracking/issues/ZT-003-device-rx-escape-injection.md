@@ -3,7 +3,7 @@
 - **Severity:** 🔴 high (a hostile/compromised device can drive the operator's terminal — clipboard
   hijack, title injection, screen spoofing)
 - **Area:** render (RX pipeline) / security
-- **Status:** open  (recorded 2026-06-03; not yet fixed)
+- **Status:** **fixed** 2026-06-13 on `fix/zt-001-ownership-and-ui-hangs` (recorded 2026-06-03) — see [KNOWN_ISSUES Resolved](../KNOWN_ISSUES.md#resolved)
 - **Location:** `src/render/render.c:93` (the verbatim `ob_write` in `emit_colored_line`),
   reached from `render_rx` (`src/render/render.c:224`, byte loop ~248–288)
 

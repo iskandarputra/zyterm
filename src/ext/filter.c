@@ -119,11 +119,16 @@ void filter_feed(zt_ctx *c, const unsigned char *buf, size_t n) {
     size_t               left = n;
     while (left > 0) {
         ssize_t w = write(c->ext.filter_stdin_fd, p, left);
-        if (w <= 0) {
-            if (errno == EAGAIN || errno == EINTR) break;
+        if (w < 0) {
+            /* ZT-015: EINTR is a spurious interrupt — retry, don't drop the
+             * rest of the chunk. Only EAGAIN (pipe full) is a real "drop and
+             * move on"; anything else means the filter died. */
+            if (errno == EINTR) continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
             filter_stop(c);
             return;
         }
+        if (w == 0) break; /* nothing written, no error — avoid a busy spin */
         p += w;
         left -= (size_t)w;
     }

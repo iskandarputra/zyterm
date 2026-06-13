@@ -199,8 +199,8 @@ when you touch them.
 
 ## 8. Security
 
-Local-machine surfaces — the unauthenticated loopback HTTP bridge, the detach socket, and the
-`--metrics` socket — are real attack surface. Do **not** file public issues for them. Read and
-follow [SECURITY.md](SECURITY.md); the known instances are tracked as `security` rows in
-[docs/tracking/KNOWN_ISSUES.md](docs/tracking/KNOWN_ISSUES.md) with fix directions in
-[docs/plans/RELIABILITY_HARDENING.md](docs/plans/RELIABILITY_HARDENING.md).
+Local-machine surfaces — the loopback HTTP bridge, the detach socket, and the `--metrics` socket
+— are real attack surface (now origin-pinned / 0600 + peer-cred; the bridge writes can be
+token-gated with `--http-token`). Do **not** file public issues for new findings. Read and follow
+[SECURITY.md](SECURITY.md); the audited instances are closed in the Resolved table of
+[docs/tracking/KNOWN_ISSUES.md](docs/tracking/KNOWN_ISSUES.md).

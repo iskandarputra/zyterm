@@ -30,6 +30,16 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+/* ZT-028 / ZT-024 (INVARIANTS §7): the metrics socket is a local-IPC trust
+ * boundary. Reject any peer whose uid differs from ours — defence in depth on
+ * top of the 0600 socket perms, and the real guarantee under a loose umask. */
+static bool metrics_peer_is_self(int fd) {
+    struct ucred cr;
+    socklen_t    len = sizeof cr;
+    if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cr, &len) != 0) return false;
+    return cr.uid == geteuid();
+}
+
 int metrics_start(zt_ctx *c, const char *path) {
     if (!c || !path || c->net.metrics_fd >= 0) return -1;
     int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
@@ -38,7 +48,12 @@ int metrics_start(zt_ctx *c, const char *path) {
     addr.sun_family         = AF_UNIX;
     strncpy(addr.sun_path, path, sizeof addr.sun_path - 1);
     unlink(path);
-    if (bind(fd, (struct sockaddr *)&addr, sizeof addr) != 0) {
+    /* ZT-028: create the socket node 0600 (owner-only) regardless of the
+     * inherited umask, so another local user can't connect and scrape. */
+    mode_t old_umask = umask(0177);
+    int    brc       = bind(fd, (struct sockaddr *)&addr, sizeof addr);
+    umask(old_umask);
+    if (brc != 0) {
         close(fd);
         return -1;
     }
@@ -99,11 +114,18 @@ static void write_snapshot(zt_ctx *c, int cfd) {
 void metrics_tick(zt_ctx *c) {
     if (!c || c->net.metrics_fd < 0) return;
     while (1) {
-        int cfd = accept4(c->net.metrics_fd, NULL, NULL, SOCK_CLOEXEC);
+        /* ZT-024 (INVARIANTS §3): SOCK_NONBLOCK so a non-draining scraper can
+         * never stall the loop — write_snapshot()'s zt_write_all() returns on
+         * EAGAIN and we just drop the client. */
+        int cfd = accept4(c->net.metrics_fd, NULL, NULL, SOCK_CLOEXEC | SOCK_NONBLOCK);
         if (cfd < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) break;
             if (errno == EINTR) continue;
             break;
+        }
+        if (!metrics_peer_is_self(cfd)) { /* ZT-028 */
+            close(cfd);
+            continue;
         }
         write_snapshot(c, cfd);
         close(cfd);

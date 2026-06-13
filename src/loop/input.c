@@ -833,6 +833,22 @@ void handle_stdin_chunk(zt_ctx *c, const unsigned char *buf, size_t n) {
         return;
     }
 
+    /* ── Fuzzy-finder keystrokes (Ctrl+A .) ────────────────────────────
+     * ZT-008: Ctrl+A . entered fuzzy mode but no route forwarded keystrokes
+     * to fuzzy_handle(), so typing/Enter/Esc did nothing and the overlay was
+     * stuck. Route here; on commit/cancel repaint the base UI + input bar. */
+    if (c->tui.fuzzy_mode) {
+        for (size_t i = 0; i < n; i++)
+            fuzzy_handle(c, buf[i]);
+        if (c->tui.fuzzy_mode) {
+            fuzzy_draw(c);
+        } else {
+            apply_layout(c);
+            c->tui.ui_dirty = true;
+        }
+        return;
+    }
+
     /* Rename-log keystrokes: route to the rename bar. */
     if (c->tui.rename_mode) {
         for (size_t i = 0; i < n; i++) {

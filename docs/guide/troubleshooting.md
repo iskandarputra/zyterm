@@ -156,10 +156,10 @@ If echo is off but the screen otherwise looks fine, `stty sane` alone usually fi
 ## The browser bridge isn't reachable / isn't safe to expose
 
 The `--http` bridge binds to **loopback only** (`127.0.0.1`), so it's not reachable from
-another machine by design — use `http://127.0.0.1:<port>/`. It is also
-**unauthenticated**, and `POST /tx` can drive the device from any local page; do not
-forward the port or add `--http-cors` on an untrusted machine. See the full
-[security note](recipes.md#the-http-browser-view) and [SECURITY.md](../../SECURITY.md).
+another machine by design — use `http://127.0.0.1:<port>/`. The write routes pin
+`Host`/`Origin` to loopback (so a cross-site page or DNS-rebound host can't drive the device),
+and you can require a bearer token with `--http-token <tok>` before forwarding the port. See the
+full [security note](recipes.md) and [SECURITY.md](../../SECURITY.md).
 
 ---
 
@@ -170,7 +170,7 @@ If you're hitting a dead end, it may be one of these rather than a misconfigurat
 
 | You tried…                                  | Status                                                      |
 |---------------------------------------------|-------------------------------------------------------------|
-| `Ctrl+A .` fuzzy finder                     | non-functional ([ZT-008](../tracking/KNOWN_ISSUES.md))      |
+| `Ctrl+A .` fuzzy finder                     | **works** as of the 2026-06 fix ([ZT-008](../tracking/KNOWN_ISSUES.md)) |
 | The `Ctrl+A o` "OSC 8 hyperlinks" toggle    | dead — the flag is read by nothing ([ZT-019](../tracking/KNOWN_ISSUES.md)) |
 | `rfc2217://` URLs                           | not implemented; use ser2net raw + `tcp://` ([ADR-0005](../decisions/0005-rfc2217-deferred.md)) |
 | Multi-pane / split view                     | stubbed; not wired or keybound                              |

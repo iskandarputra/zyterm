@@ -3,7 +3,7 @@
 - **Severity:** 🔴 high (any web page the operator visits can send arbitrary bytes to the device →
   remote command execution on the target)
 - **Area:** net (HTTP bridge) / security
-- **Status:** open  (recorded 2026-06-03; not yet fixed)
+- **Status:** **fixed** 2026-06-13 on `fix/zt-001-ownership-and-ui-hangs` (recorded 2026-06-03) — see [KNOWN_ISSUES Resolved](../KNOWN_ISSUES.md#resolved)
 - **Location:** `src/net/http.c:907` (`POST /api/send` / `POST /tx` in `classify_request`),
   `src/loop/send.c:109` (`direct_send`)
 

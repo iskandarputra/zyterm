@@ -175,7 +175,9 @@ static void usage(const char *a0) {
     help_cont(fp, tty, "GET /stream = SSE, GET /ws = WebSocket,");
     help_cont(fp, tty, "GET /api/state, POST /api/send, GET /metrics");
     help_row(fp, tty, NULL, "--webroot", "<dir>", "serve static files from <dir> (.. blocked)");
-    help_row(fp, tty, NULL, "--http-cors", "", "add Access-Control-Allow-Origin: * headers");
+    help_row(fp, tty, NULL, "--http-cors", "", "CORS headers for GET/OPTIONS (read-only)");
+    help_row(fp, tty, NULL, "--http-token", "<tok>",
+             "require Bearer <tok> on POST /tx, /api/send");
     help_row(fp, tty, NULL, "--metrics", "<path>", "AF_UNIX socket emitting Prometheus text");
     fputc('\n', fp);
 
@@ -302,6 +304,29 @@ static void ensure_stdin_fd(void) {
     }
 }
 
+/* Free every heap field the option parse may have allocated on @c, plus
+ * scrollback and history. Safe at any early-return point — unset fields are
+ * NULL and free(NULL) is a no-op. Consolidates the cleanup the --replay /
+ * --attach / --diff / -h / -V / --profile-save early returns previously did
+ * only partially, leaking the rest under embedded reuse (ZT-018, INVARIANTS §1). */
+static void cleanup_ctx(zt_ctx *c) {
+    scrollback_free(c);
+    history_free(c);
+    for (int i = 0; i < c->log.watch_count; i++)
+        free(c->log.watch[i]);
+    for (int i = 0; i < ZT_MACRO_COUNT; i++)
+        free(c->ext.macros[i]);
+    for (int i = 0; i < c->log.bookmark_count; i++)
+        free(c->log.bookmark_notes[i]);
+    hooks_free(c);
+    free(c->ext.filter_cmd);
+    free(c->net.metrics_path);
+    free(c->net.session_name);
+    free(c->net.http_webroot);
+    free(c->net.http_token);
+    free((void *)c->serial.device);
+}
+
 int zyterm_main(int argc, char **argv) {
     zt_trace("zyterm_main: enter argc=%d argv0=%s", argc, argv && argv[0] ? argv[0] : "(null)");
     /* reset globals & getopt in case we're re-entered from zy */
@@ -383,6 +408,7 @@ int zyterm_main(int argc, char **argv) {
         OPT_HTTP,
         OPT_WEBROOT,
         OPT_HTTP_CORS,
+        OPT_HTTP_TOKEN,
         OPT_DETACH,
         OPT_ATTACH,
         OPT_PROFILE,
@@ -432,6 +458,7 @@ int zyterm_main(int argc, char **argv) {
         {"http", required_argument, NULL, OPT_HTTP},
         {"webroot", required_argument, NULL, OPT_WEBROOT},
         {"http-cors", no_argument, NULL, OPT_HTTP_CORS},
+        {"http-token", required_argument, NULL, OPT_HTTP_TOKEN},
         {"detach", required_argument, NULL, OPT_DETACH},
         {"attach", required_argument, NULL, OPT_ATTACH},
         {"profile", required_argument, NULL, OPT_PROFILE},
@@ -583,19 +610,32 @@ int zyterm_main(int argc, char **argv) {
             free(c.net.metrics_path);
             c.net.metrics_path = strdup(optarg);
             break;
-        case OPT_HTTP: c.net.http_port = atoi(optarg); break;
+        case OPT_HTTP: {
+            /* ZT-020 (INVARIANTS §7): range-validate the port instead of an
+             * atoi() that silently truncated to uint16 / accepted garbage. */
+            char *end = NULL;
+            long  pv  = strtol(optarg, &end, 10);
+            if (end == optarg || *end != '\0' || pv < 1 || pv > 65535)
+                zt_die("zyterm: --http port must be 1-65535");
+            c.net.http_port = (int)pv;
+            break;
+        }
         case OPT_WEBROOT:
             free(c.net.http_webroot);
             c.net.http_webroot = strdup(optarg);
             break;
         case OPT_HTTP_CORS: c.net.http_cors = true; break;
+        case OPT_HTTP_TOKEN:
+            free(c.net.http_token);
+            c.net.http_token = strdup(optarg);
+            break;
         case OPT_DETACH:
             free(c.net.session_name);
             c.net.session_name = strdup(optarg);
             break;
         case OPT_ATTACH: {
             int rc = session_attach(optarg);
-            scrollback_free(&c);
+            cleanup_ctx(&c);
             return rc;
         }
         case OPT_PROFILE:
@@ -621,7 +661,7 @@ int zyterm_main(int argc, char **argv) {
             if (optind >= argc) zt_die("zyterm: --diff needs two file args");
             const char *b  = argv[optind++];
             int         rc = diff_run(a, b);
-            scrollback_free(&c);
+            cleanup_ctx(&c);
             return rc;
         }
         case OPT_MAP_OUT:
@@ -654,15 +694,15 @@ int zyterm_main(int argc, char **argv) {
             break;
         case 'V':
             printf("zyterm " ZT_VERSION "\n");
-            scrollback_free(&c);
+            cleanup_ctx(&c);
             return 0;
         case 'h':
             usage(argv[0]);
-            scrollback_free(&c);
+            cleanup_ctx(&c);
             return 0;
         default:
             usage(argv[0]);
-            scrollback_free(&c);
+            cleanup_ctx(&c);
             return 2;
         }
     }
@@ -678,7 +718,7 @@ int zyterm_main(int argc, char **argv) {
                     strerror(errno));
         else
             fprintf(stderr, "zyterm: saved profile '%s'\n", profile_save_name);
-        scrollback_free(&c);
+        cleanup_ctx(&c);
         return rc == 0 ? 0 : 1;
     }
 
@@ -693,12 +733,10 @@ int zyterm_main(int argc, char **argv) {
         install_signals();
         int rc = run_replay(&c);
         if (c.log.fd >= 0) close(c.log.fd);
-        scrollback_free(&c);
-        history_free(&c);
-        for (int i = 0; i < c.log.watch_count; i++)
-            free(c.log.watch[i]);
-        for (int i = 0; i < ZT_MACRO_COUNT; i++)
-            free(c.ext.macros[i]);
+        /* device aliases the non-heap replay_path here — null it so cleanup_ctx
+         * doesn't free an argv pointer (the ZT-001 ownership trap). */
+        c.serial.device = NULL;
+        cleanup_ctx(&c);
         return rc;
     }
 
@@ -707,7 +745,7 @@ int zyterm_main(int argc, char **argv) {
          * present, in which case we resolve a real path before opening. */
         if (!c.serial.port_glob && !c.serial.match_vid && !c.serial.match_pid) {
             usage(argv[0]);
-            scrollback_free(&c);
+            cleanup_ctx(&c);
             return 2;
         }
         char *found = port_discover(c.serial.port_glob, c.serial.match_vid, c.serial.match_pid);
@@ -852,6 +890,7 @@ int zyterm_main(int argc, char **argv) {
     free(c.net.metrics_path);
     free(c.net.session_name);
     free(c.net.http_webroot);
+    free(c.net.http_token);
     free((void *)c.serial.device); /* heap-owned on every path that reaches here (ZT-001) */
     return rc;
 }

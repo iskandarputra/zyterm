@@ -37,9 +37,11 @@ once) or never-heap (and never freed) — never both depending on the code path.
 - **`c->serial.device` must be single-owned.** It is read in `zt_ctx` as `const char *device`
   (`src/zt_ctx.h:171`) and is set on different paths from the positional `argv[optind]` (non-heap),
   from a profile `device=` key (heap), and from port discovery (heap). Any `free()` of this field
-  is only safe if every writer `strdup`s. Until that holds, `free` paths corrupt the heap.
-  - `where`: `src/main.c:717` (positional assignment), `src/ext/profile.c:93`
-    (`free((void*)c->serial.device)` on inotify reload), `src/serial/port_discover.c:171`
+  is only safe if every writer `strdup`s — which now holds: `main.c` duplicates the positional
+  `argv` device and teardown frees it once, so the `profile.c` / `port_discover.c` `free()`+`strdup()`
+  sites operate on heap memory.
+  - `where`: `src/main.c` (positional assignment `strdup`s), `src/ext/profile.c`
+    (`free((void*)c->serial.device)` on inotify reload), `src/serial/port_discover.c`
     (free on first reconnect when a glob resolves a different path).
   - Paid for by [ZT-001](../tracking/issues/ZT-001-profile-load-frees-argv-device.md) and
     [ZT-002](../tracking/issues/ZT-002-port-rediscover-frees-argv-device.md) (free-of-`argv` → abort),
@@ -52,15 +54,16 @@ once) or never-heap (and never freed) — never both depending on the code path.
   cleanup label is preferred over scattered returns.
   - `where`: `src/loop/rx_thread.c:114-172` is the model — `rx_thread_start` frees `r->buf`, `r`,
     the dup fd, and the wake pipe on each of its failure branches.
-  - The counter-example we must not repeat: `src/main.c:696`/`:717` early returns for
-    `--replay`/`--attach`/`--diff`/`-h`/`-V` leak `filter_cmd` / `metrics_path` / `session_name` /
-    `http_webroot` / hooks. Harmless on `exit()`, but a real leak under embedded reuse
-    ([ZT-018](../tracking/KNOWN_ISSUES.md)).
+  - Enforced for the early-return paths by a single `cleanup_ctx()` helper that frees every
+    parse-owned field (`filter_cmd` / `metrics_path` / `session_name` / `http_webroot` /
+    `http_token` / hooks / device); `--replay`/`--attach`/`--diff`/`-h`/`-V`/`--profile-save` all
+    call it (replay nulls its non-heap `device` alias first). Closed
+    [ZT-018](../tracking/KNOWN_ISSUES.md).
 
 - **Allocation results are NULL-checked before use** — including in worker threads, where an
   unchecked allocation crashes the whole process.
-  - `where`: `src/proto/clipboard.c:333` (`memcpy(malloc(g.len), …)` with no NULL check in the X11
-    worker). Paid for by [ZT-014](../tracking/KNOWN_ISSUES.md).
+  - `where`: `src/proto/clipboard.c` (`handle_selection_request` splits the alloc from the copy and
+    NULL-checks it; `snap_len` stays 0 on OOM). Closed [ZT-014](../tracking/KNOWN_ISSUES.md).
 
 - **`zt_ctx` field ownership follows its tier comment.** Opaque `void *` impl fields
   (`spsc_impl`, `http_impl`, `hooks`) are owned solely by their defining module; ctx consumers
@@ -120,30 +123,30 @@ deadline or is non-blocking, and never depends on a remote peer or child coopera
 
 - **No blocking `waitpid` on a loop tick.** Reaping a child must use `WNOHANG` and escalate
   (SIGTERM → SIGKILL) rather than block on a child that ignores the signal.
-  - `where`: `src/ext/filter.c:86` (`filter_stop`'s blocking `waitpid(…, 0)`).
-    Paid for by [ZT-006](../tracking/issues/ZT-006-filter-stop-blocking-waitpid.md).
+  - `where`: `src/ext/filter.c` (`filter_stop` reaps `WNOHANG` with a grace window then `SIGKILL`).
+    Closed [ZT-006](../tracking/issues/ZT-006-filter-stop-blocking-waitpid.md).
 
 - **Every `poll()`-driven wait has an overall deadline.** TX trickle/flow-control loops must bound
   total time and surface a "TX stalled" flash rather than spin or hang forever under stuck flow
   control.
-  - `where`: `src/loop/send.c:128` (TX `poll()` loop), `~:96` (trickle). Paid for by
-    [ZT-026](../tracking/KNOWN_ISSUES.md).
+  - `where`: `src/loop/send.c` (`direct_send`/`trickle_send` bound the EAGAIN retry with
+    `ZT_TX_STALL_DEADLINE_S`). Closed [ZT-026](../tracking/KNOWN_ISSUES.md).
 
 - **No blocking client fds in the loop.** Sockets the loop services (metrics, HTTP) must be created
   `SOCK_NONBLOCK`; a non-draining client must be dropped on `EAGAIN`, never stall the tick.
-  - `where`: `src/net/metrics.c:102` (`metrics_tick` accepts a blocking client fd — missing
-    `SOCK_NONBLOCK`). Paid for by [ZT-024](../tracking/KNOWN_ISSUES.md).
+  - `where`: `src/net/metrics.c` (`metrics_tick` accepts with `SOCK_NONBLOCK`; the write helper
+    drops on `EAGAIN`). Closed [ZT-024](../tracking/KNOWN_ISSUES.md).
 
 - **`poll()` must watch a live fd.** When a serial reopen fails the loop must drive reconnect, not
   leave `serial.fd == -1` in the poll set where it is silently ignored while the HUD still shows
   "connected".
-  - `where`: `src/loop/input.c:130` (failed `Ctrl+A A` autobaud leaves `fd == -1`).
-    Paid for by [ZT-005](../tracking/KNOWN_ISSUES.md).
+  - `where`: `src/loop/input.c` (a failed `Ctrl+A A` autobaud drives the reconnect flow like
+    `Ctrl+A r`). Closed [ZT-005](../tracking/KNOWN_ISSUES.md).
 
 - **HUP paths drain like POLLIN paths.** A `POLLHUP` must read until empty before reconnecting, so
   buffered RX is not lost across a disconnect.
-  - `where`: `src/loop/runtime.c:156` (non-threaded POLLHUP reads once).
-    Paid for by [ZT-027](../tracking/KNOWN_ISSUES.md).
+  - `where`: `src/loop/runtime.c` (the non-threaded `POLLHUP` path drains in a loop like POLLIN).
+    Closed [ZT-027](../tracking/KNOWN_ISSUES.md).
 
 ---
 
@@ -207,13 +210,14 @@ accumulator is fixed-size, so **every write into a decoder buffer is bounded** a
 
 - **Capacity checks must count the true worst case.** COBS overhead is `n + n/254 + 2`; a bound that
   undercounts it is a latent overflow even if the current caller oversizes its buffer.
-  - `where`: `src/proto/framing.c:241` (`encode_cobs` cap check undercounts).
-    Paid for by [ZT-021](../tracking/KNOWN_ISSUES.md).
+  - `where`: `src/proto/framing.c` (`encode_cobs` reserves `n + n/254 + 2`).
+    Closed [ZT-021](../tracking/KNOWN_ISSUES.md).
 
 - **Zero-length frames dispatch immediately.** A LENPFX frame with `len16_need == 0` must be
   emitted at once; consuming the next byte as payload desyncs the whole stream.
-  - `where`: `src/proto/framing.c:199`; state fields `len16_*` at `src/zt_ctx.h:363-365`.
-    Paid for by [ZT-022](../tracking/KNOWN_ISSUES.md).
+  - `where`: `src/proto/framing.c` (`feed_len16` dispatches on header completion when
+    `len16_need == 0`); state fields `len16_*` at `src/zt_ctx.h`.
+    Closed [ZT-022](../tracking/KNOWN_ISSUES.md).
 
 - **All per-decoder accumulator state lives in `zt_ctx.proto`, not file-static, so it can be
   reset.** `framing_reset()` must clear `escape`, `cobs_pending`, `len16_lenb/have/need` on every
@@ -221,12 +225,11 @@ accumulator is fixed-size, so **every write into a decoder buffer is bounded** a
   statics for exactly this reason.
   - `where`: `src/zt_ctx.h:351-365` and the rationale comment at `:355-361`.
 
-- **OSC-8 rewrite must stay disabled until it is bounds-correct.** `osc8_rewrite` writes each URL
-  twice past its bounds check (OOB when `url_len > ~18`). It currently has **zero call sites**, so
-  it is latent — wiring it in without fixing the guard reintroduces an OOB write.
-  - `where`: `src/proto/osc.c:256`. Tracked as [ZT-019](../tracking/KNOWN_ISSUES.md); see also the
-    "dead code, do not advertise" note in
-    [`tracking/KNOWN_ISSUES.md`](../tracking/KNOWN_ISSUES.md).
+- **OSC-8 rewrite stays disabled (dead code), but is now bounds-correct.** `osc8_rewrite` emits each
+  URL twice (target + visible text); its guard now reserves `2*url_len`, closing the prior OOB write
+  for `url_len > ~18`. It still has **zero call sites** — do not advertise it as a feature.
+  - `where`: `src/proto/osc.c`. Closed [ZT-019](../tracking/KNOWN_ISSUES.md); see also the
+    "dead code, do not advertise" note in [`tracking/STATUS.md`](../tracking/STATUS.md).
 
 ---
 
@@ -237,17 +240,18 @@ or drive OSC 52 clipboard writes. Device RX is **untrusted**. The rule: **device
 able to inject escape sequences into the operator's terminal** unless the operator explicitly opted
 into raw passthrough.
 
-- **Device RX is filtered before it reaches the operator terminal.** Today the render path strips
-  only `\r`, passing ESC/CSI/OSC through verbatim — that is the bug. The invariant we are moving to
-  is default-deny of dangerous escapes (OSC 52 clipboard, title set, etc.) on the normal render
-  path.
-  - `where`: `src/render/render.c:93` (`render_rx`, ~248-288). Paid for by
-    [ZT-003](../tracking/issues/ZT-003-device-rx-escape-injection.md).
+- **Device RX is filtered before it reaches the operator terminal.** The render path default-denies
+  dangerous escapes: ESC and other C0/DEL controls are rewritten to inert `cat -v` caret notation
+  (`^[`, `^G`, …) before they enter `c->log.line`; `\t` and UTF-8 high bytes pass; `\r`/`\n` are
+  handled separately. Only the explicit `passthrough` / `sgr_passthrough` opt-ins emit device
+  escapes unmediated.
+  - `where`: `src/render/render.c` (`rx_line_putc` + the `raw_ok` gate in `render_rx`'s byte loop).
+    Closed [ZT-003](../tracking/issues/ZT-003-device-rx-escape-injection.md).
 
 - **Dangerous OSC sequences are default-deny.** A device must not silently write the operator's
   clipboard (OSC 52) or set the terminal title via emitted RX. Allowing them requires an explicit
-  operator toggle, not a default.
-  - `where`: render path `src/render/render.c:93`; clipboard module `src/proto/clipboard.c`.
+  operator toggle, not a default — enforced by the caret-notation filter above.
+  - `where`: render path `src/render/render.c`; clipboard module `src/proto/clipboard.c`.
     See [ZT-003](../tracking/issues/ZT-003-device-rx-escape-injection.md).
 
 - **SGR and KGDB/raw passthrough are explicit, gated modes.** When the operator enables
@@ -272,42 +276,44 @@ reachable cross-site (CORS simple-request, DNS rebind) and a `/tmp` socket is st
 any local user under a loose umask. See [`SECURITY.md`](../../SECURITY.md) and
 [`design/HTTP_BRIDGE.md`](../design/HTTP_BRIDGE.md).
 
-- **Loopback ≠ trusted: mutating HTTP endpoints require authentication.** `POST /tx` and
-  `/api/send` write a line to the serial device and must require a bearer token plus
-  Origin/Host validation — never reachable by an unauthenticated cross-site simple request.
-  - `where`: `src/net/http.c:907`. Paid for by
+- **Loopback ≠ trusted: mutating HTTP endpoints are origin-pinned (and optionally token-gated).**
+  `POST /tx` and `/api/send` write a line to the serial device. They require `Host`/`Origin` to be a
+  loopback literal (rejecting cross-site simple requests and DNS-rebound hosts), and — when
+  `--http-token` is set — a matching `Authorization: Bearer` token. A foreign origin gets `403`; a
+  missing/bad token gets `401`.
+  - `where`: `request_origin_ok` / `request_token_ok` in `src/net/http.c`. Closed
     [ZT-004](../tracking/issues/ZT-004-unauth-http-tx-csrf.md).
 
-- **No wildcard CORS on state-changing routes.** `--http-cors` must not emit `Access-Control-Allow-
-  Origin: *` for routes that mutate device state; an allowlist is required.
-  - `where`: `src/net/http.c` CORS emission (flag `http_cors`, `src/zt_ctx.h:339`).
+- **No wildcard CORS on state-changing routes.** `--http-cors` advertises only `GET, OPTIONS`;
+  `POST` is never granted to the `*` origin.
+  - `where`: `cors_block` in `src/net/http.c` (flag `http_cors`, `src/zt_ctx.h`).
     See [ZT-004](../tracking/issues/ZT-004-unauth-http-tx-csrf.md).
 
-- **WebSocket upgrades validate Origin (and carry a token).** The live RX stream is sensitive; any
-  origin must not be able to open a WS and read device output cross-origin.
-  - `where`: `src/net/http.c:861` (WS upgrade does no Origin check).
-    Paid for by [ZT-013](../tracking/KNOWN_ISSUES.md).
+- **WebSocket upgrades and the SSE stream validate Origin.** The live RX stream is sensitive; no
+  foreign origin may open a `/ws` or `/stream` and read device output cross-origin.
+  - `where`: the `request_origin_ok` gate on the `GET /ws` and `GET /stream` branches in
+    `src/net/http.c`. Closed [ZT-013](../tracking/KNOWN_ISSUES.md).
 
 - **IPC sockets are created with restrictive permissions and peer-cred checks.** The detach session
-  socket and the metrics socket must live in `$XDG_RUNTIME_DIR` (0700) with a 0600 socket, and
-  verify `SO_PEERCRED` — not a default-umask socket under `/tmp`.
-  - `where`: `src/net/session.c:48` (`/tmp/zyterm.<name>.sock`, default umask, no peer-cred) —
-    [ZT-012](../tracking/KNOWN_ISSUES.md); `src/net/metrics.c:39` (metrics socket without
-    restrictive perms) — [ZT-028](../tracking/KNOWN_ISSUES.md).
+  socket lives under `$XDG_RUNTIME_DIR` (0700; `/tmp` only as a last resort); both it and the
+  metrics socket are created `0600` via a scoped `umask` and verify `SO_PEERCRED` on every accept.
+  - `where`: `session_path` / `session_peer_is_self` in `src/net/session.c`
+    ([ZT-012](../tracking/KNOWN_ISSUES.md)); `metrics_start` / `metrics_peer_is_self` in
+    `src/net/metrics.c` ([ZT-028](../tracking/KNOWN_ISSUES.md)).
 
 - **Bridge writes to network fds are EAGAIN-aware and bounded, and dead peers are closed.** The
-  loop's `zt_write_all` retries only `EINTR`, so it must not be used to push large static files to
-  a non-blocking HTTP fd (truncation on `EAGAIN`); broadcast must loop over the full payload, not
-  cap at one 4096-byte segment; and a peer whose write fails must be closed, not leaked.
-  - `where`: `zt_write_all` at `src/core/core.c:187-200` misused at `src/net/http.c`
-    ([ZT-011](../tracking/KNOWN_ISSUES.md)); 4096-byte broadcast cap at `src/net/http.c:1020`
-    ([ZT-007](../tracking/issues/ZT-007-http-broadcast-truncates-4k.md)); unclosed WS peers at
-    `src/net/http.c:1036-1037` ([ZT-009](../tracking/issues/ZT-009-ws-broadcast-ignores-errors.md),
-    [ZT-017](../tracking/KNOWN_ISSUES.md)).
+  loop's `zt_write_all` retries only `EINTR`, so the bridge uses its own `http_write_all`
+  (bounded `POLLOUT` wait) for one-shot responses on the non-blocking fds; broadcast loops over the
+  full payload in ≤4096-byte segments; and a peer whose frame write fails is closed, not leaked.
+  - `where`: `http_write_all` / `http_stream_write` / `http_broadcast` / `ws_frame_text` in
+    `src/net/http.c`. Closed [ZT-011](../tracking/KNOWN_ISSUES.md),
+    [ZT-007](../tracking/issues/ZT-007-http-broadcast-truncates-4k.md),
+    [ZT-009](../tracking/issues/ZT-009-ws-broadcast-ignores-errors.md),
+    [ZT-017](../tracking/KNOWN_ISSUES.md).
 
-- **The `--http` port is parsed and range-validated.** Use `strtol` with a 1–65535 range check, not
-  `atoi` truncated to `uint16`.
-  - `where`: `src/main.c:586`. Paid for by [ZT-020](../tracking/KNOWN_ISSUES.md).
+- **The `--http` port is parsed and range-validated.** Parsed with `strtol` and range-checked to
+  1–65535 (`zt_die` on garbage/out-of-range), not `atoi` truncated to `uint16`.
+  - `where`: `src/main.c` (`OPT_HTTP`). Closed [ZT-020](../tracking/KNOWN_ISSUES.md).
 
 ---
 
@@ -389,4 +395,4 @@ pipeline. See [`ops/RELEASE.md`](../ops/RELEASE.md) and
 
 ---
 
-_Last updated: 2026-06-03._
+_Last updated: 2026-06-13._

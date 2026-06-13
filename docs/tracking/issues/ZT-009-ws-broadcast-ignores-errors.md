@@ -4,7 +4,7 @@
   broken peer; short/failed frame writes corrupt the WS bytestream and the slot
   is leaked, feeding the WS-slot-exhaustion DoS, ZT-017)
 - **Area:** net (HTTP bridge — WebSocket)
-- **Status:** open  (recorded 2026-06-03; not yet fixed)
+- **Status:** **fixed** 2026-06-13 on `fix/zt-001-ownership-and-ui-hangs` (recorded 2026-06-03) — see [KNOWN_ISSUES Resolved](../KNOWN_ISSUES.md#resolved)
 - **Location:** `src/net/http.c:1037`
 
 ## Root cause

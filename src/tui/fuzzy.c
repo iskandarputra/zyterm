@@ -58,7 +58,9 @@ bool fuzzy_handle(zt_ctx *c, unsigned char k) {
         if (sel && *sel) {
             /* copy into input buffer */
             size_t n = strlen(sel);
-            if (n > sizeof c->tui.input_buf) n = sizeof c->tui.input_buf - 1;
+            /* ZT-023: clamp with >= so a 4096-byte entry still leaves a free
+             * byte; a full-buffer memcpy left no NUL room for later consumers. */
+            if (n >= sizeof c->tui.input_buf) n = sizeof c->tui.input_buf - 1;
             memcpy(c->tui.input_buf, sel, n);
             c->tui.input_len = n;
             c->tui.cursor    = n;
@@ -74,9 +76,12 @@ bool fuzzy_handle(zt_ctx *c, unsigned char k) {
         c->tui.fuzzy_buf[c->tui.fuzzy_len++] = (char)k;
         c->tui.fuzzy_buf[c->tui.fuzzy_len]   = 0;
     }
-    /* pick best history match */
+    /* pick best history match.
+     * ZT-008: history_at() takes a 1-based "lines back" index — index 0 is
+     * always NULL, so the old `for (i = 0; …)` broke out on the first
+     * iteration and the finder never matched anything. Scan 1..64 instead. */
     int best = 0, best_score = -1;
-    for (int i = 0; i < 64; i++) {
+    for (int i = 1; i <= 64; i++) {
         const char *h = history_at(c, i);
         if (!h || !*h) break;
         int s = score(c->tui.fuzzy_buf, h);

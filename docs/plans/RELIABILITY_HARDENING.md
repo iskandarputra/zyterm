@@ -1,12 +1,17 @@
 # Reliability hardening plan
 
-Open work only. This is the prioritized fix-and-harden plan for zyterm 1.2.0 — what to
-attack, in what order, and how to verify each step. Every item references the audit defect
-IDs (`ZT-NNN`) from [tracking/KNOWN_ISSUES.md](../tracking/KNOWN_ISSUES.md) and the
-don't-regress rules in [invariants/INVARIANTS.md](../invariants/INVARIANTS.md). Nothing here
-is shipped; treat it as the backlog, not the changelog.
+> **Status (2026-06-13): COMPLETE.** All 28 audited defects (ZT-001 … ZT-028) named in the phases
+> below have shipped on branch `fix/zt-001-ownership-and-ui-hangs`. The authoritative record is now
+> the Resolved table in [tracking/KNOWN_ISSUES.md](../tracking/KNOWN_ISSUES.md) and the enforced
+> rules in [invariants/INVARIANTS.md](../invariants/INVARIANTS.md); the phases below are kept as the
+> historical plan-of-attack that was executed.
 
-_Last updated: 2026-06-03._
+This was the prioritized fix-and-harden plan for zyterm 1.2.0 — what to attack, in what order, and
+how to verify each step. Every item references the audit defect IDs (`ZT-NNN`) from
+[tracking/KNOWN_ISSUES.md](../tracking/KNOWN_ISSUES.md) and the don't-regress rules in
+[invariants/INVARIANTS.md](../invariants/INVARIANTS.md).
+
+_Last updated: 2026-06-13._
 
 ---
 

@@ -43,54 +43,44 @@ Two attacker classes matter:
 
 ## Surfaces
 
-### 1. The loopback HTTP bridge is unauthenticated — `--http`
+### 1. The loopback HTTP bridge — `--http` (origin-pinned; optional token)
 
-When `--http <port>` is set, zyterm serves a control/observability bridge. It has **no
-authentication of any kind**, and the CORS block is `Access-Control-Allow-Origin: *` on every
-route, including state-changing ones (`src/net/http.c:604`).
+When `--http <port>` is set, zyterm serves a control/observability bridge on loopback. As of the
+2026-06 hardening it is **origin-pinned**, and its write routes can additionally require a bearer
+token. The CORS block advertises only read-only `GET, OPTIONS` (`src/net/http.c`).
 
-- **`POST /tx` / `POST /api/send` writes the serial line** (`src/net/http.c:907`). The body is sent
-  verbatim to the device with no auth and no Origin/Host check. As a CORS "simple request" it is
-  reachable cross-site, and via DNS rebinding a hostile page can target the loopback port — so any
-  web page the operator visits can **execute commands on the attached device**. (**ZT-004**,
+- **`POST /tx` / `POST /api/send` writes the serial line.** Both routes now pin `Host`/`Origin` to a
+  loopback literal — a cross-site simple request (foreign `Origin`) or a DNS-rebound host (non-loopback
+  `Host`) is rejected with `403` before any byte reaches the device. When `--http-token <tok>` is set,
+  the routes also require `Authorization: Bearer <tok>` (`401` otherwise). (**ZT-004 — fixed**,
   [detail](docs/tracking/issues/ZT-004-unauth-http-tx-csrf.md).)
-  - *Reduce exposure:* do not pass `--http` on a shared or untrusted machine, or while browsing the
-    web. If you must, treat the port as fully trusted by every local process and browser tab. There
-    is no token or Origin gate to rely on yet.
+  - *Defence in depth:* set `--http-token` if you tunnel/proxy the port beyond loopback. The built-in
+    web UI is anonymous-but-same-origin, so it keeps working without a token.
 
-- **The WebSocket upgrade does no Origin check** (`src/net/http.c:861`). `GET /ws` upgrades without
-  validating `Origin`, so any site can open the socket cross-origin and **read the live RX stream**
-  — everything the device prints. (**ZT-013**.)
-  - *Reduce exposure:* same as above — keep `--http` off except on a single-user machine you fully
-    control.
+- **The WebSocket upgrade and the SSE `/stream` validate `Origin`.** `GET /ws` and `GET /stream`
+  reject a foreign origin, so a cross-origin site can no longer open the socket and read the live RX
+  stream. (**ZT-013 — fixed**.)
 
-### 2. Local IPC sockets have default permissions — `--detach` / `--metrics`
+### 2. Local IPC sockets — `--detach` / `--metrics` (0600 + peer-cred)
 
-- **Detach session socket `/tmp/zyterm.<name>.sock`** (`src/net/session.c:48`, path built at
-  `session.c:37`). It is created under the process's default umask with no `SO_PEERCRED` peer-cred
-  check, so any local user who can reach the path can connect and **inject bytes onto the serial
-  line**. (**ZT-012**.)
+- **Detach session socket.** Now created under `$XDG_RUNTIME_DIR` (per-user, mode-0700; `/tmp` only
+  if that is unset), mode `0600` via a scoped `umask`, and `session_tick()` rejects any attacher
+  whose uid isn't yours via `SO_PEERCRED`. (**ZT-012 — fixed**, `src/net/session.c`.)
 
-- **Metrics UNIX socket `--metrics <path>`** (`src/net/metrics.c:39`). Created without restrictive
-  permissions, so under a loose umask another local user can connect and read exported metrics —
-  an **information leak**. (**ZT-028**.)
-  - *Reduce exposure for both:* run zyterm under a tight umask (`umask 077`), and place the metrics
-    socket under a directory only you can read — ideally `$XDG_RUNTIME_DIR`, which is already
-    mode-0700 and per-user. Avoid world-readable locations like `/tmp` for the socket path. The
-    planned fix is an `$XDG_RUNTIME_DIR` 0700 dir + 0600 socket + peer-cred check.
+- **Metrics UNIX socket `--metrics <path>`.** Created `0600` via a scoped `umask`, and `metrics_tick`
+  rejects non-self peers via `SO_PEERCRED`. (**ZT-028 — fixed**, `src/net/metrics.c`.)
 
-### 3. A hostile device can inject terminal escape sequences via RX — always on
+### 3. A hostile device injecting terminal escapes via RX — default-denied
 
-Device output is written to the operator's terminal **verbatim** — only `\r` is stripped, with no
-ESC/OSC filtering (`src/render/render.c:93`; the RX render path strips `\r` and `\n` but passes
-everything else through, `render.c` ~248–288). A malicious or compromised device can therefore emit
-escape sequences that the operator's terminal acts on: **OSC 52 clipboard hijack** (writing the
-system clipboard), **window-title injection**, cursor and screen manipulation, and similar tricks.
-(**ZT-003**, [detail](docs/tracking/issues/ZT-003-device-rx-escape-injection.md).)
+Device RX is no longer echoed verbatim. The render path default-denies escapes: ESC and other
+C0/DEL controls are rewritten to inert `cat -v` caret notation (`^[`, `^G`, …) before reaching the
+terminal, so **OSC 52 clipboard hijack**, **window-title injection** and cursor/screen spoofs are
+neutralized. `\t` and UTF-8 pass through. Raw device escapes require the explicit, off-by-default
+`passthrough` / `sgr_passthrough` opt-in. (**ZT-003 — fixed**, `src/render/render.c`,
+[detail](docs/tracking/issues/ZT-003-device-rx-escape-injection.md).)
 
-- *Reduce exposure:* only connect to devices you trust. Do not pipe untrusted device output to
-  another terminal or scrollback you later paste from. The planned fix is to default-deny dangerous
-  escapes and gate raw passthrough explicitly.
+- *Residual risk:* if you enable a passthrough mode you are back to trusting the device's escapes —
+  only do so for devices you trust.
 
 ---
 
@@ -100,8 +90,8 @@ system clipboard), **window-title injection**, cursor and screen manipulation, a
   receiving arbitrary bytes is its purpose.
 - A local user with your privileges reading your own files or sockets. That is inside the trust
   boundary by design.
-- The HTTP bridge being reachable when **you** enabled `--http`. The issue is the *lack of auth*,
-  not the feature existing; the mitigation today is not to enable it where it can be reached.
+- The HTTP bridge being reachable when **you** enabled `--http`. It is origin-pinned and can be
+  token-gated (`--http-token`); exposing it beyond loopback is your call to make deliberately.
 
 ---
 

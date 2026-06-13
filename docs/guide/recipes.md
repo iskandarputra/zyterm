@@ -147,26 +147,24 @@ zyterm --http 8080 /dev/ttyUSB0
 The server **binds to loopback only** — `127.0.0.1` (`src/net/http.c:189`) — and logs
 `http bridge on http://127.0.0.1:<port>/`.
 
-> ### ⚠ Security: the bridge is unauthenticated
+> ### Security: the bridge is origin-pinned, and can be token-gated
 >
-> The `POST /tx` and `POST /api/send` routes write their request body straight to the
-> serial line with **no authentication and no Origin/CSRF check** (`src/net/http.c:907`).
-> Anyone who can reach the port — including a malicious web page in your browser via a
-> CORS simple-request or DNS-rebind — can execute commands on the attached device. This
-> is the project's local-IPC trust boundary.
+> The `POST /tx` and `POST /api/send` routes pin `Host`/`Origin` to a loopback literal, so a
+> cross-site simple request or a DNS-rebound host is rejected (`403`) before any byte reaches
+> the device; the `/ws` and `/stream` reads validate `Origin` too. The built-in web UI is
+> same-origin, so it keeps working. Add **`--http-token <tok>`** to additionally require
+> `Authorization: Bearer <tok>` on the write routes (`401` otherwise) — recommended whenever you
+> tunnel or proxy the port beyond loopback. `--http-cors` now advertises only read-only
+> `GET, OPTIONS`.
 >
-> Treat the bridge as a single-user, trusted-machine convenience. **Do not** expose the
-> port beyond loopback, **do not** add `--http-cors` (which sends
-> `Access-Control-Allow-Origin: *`) on a machine you don't fully trust, and don't leave
-> the bridge running unattended on a device that can do harm.
->
-> Tracked as [ZT-004](../tracking/issues/ZT-004-unauth-http-tx-csrf.md) and
-> [ZT-013](../tracking/KNOWN_ISSUES.md) (WebSocket Origin). See
-> [SECURITY.md](../../SECURITY.md), [INVARIANTS §7](../invariants/INVARIANTS.md), and
+> Fixed in the 2026-06 hardening:
+> [ZT-004](../tracking/issues/ZT-004-unauth-http-tx-csrf.md),
+> [ZT-013](../tracking/KNOWN_ISSUES.md). See [SECURITY.md](../../SECURITY.md),
+> [INVARIANTS §7](../invariants/INVARIANTS.md), and
 > [`design/HTTP_BRIDGE.md`](../design/HTTP_BRIDGE.md).
 
-`--http` currently parses the port with `atoi` and does not range-validate it
-([ZT-020](../tracking/KNOWN_ISSUES.md)); pass a sane port in `1`–`65535`.
+`--http` parses the port with `strtol` and range-checks it to `1`–`65535`
+([ZT-020](../tracking/KNOWN_ISSUES.md)).
 
 ---
 
