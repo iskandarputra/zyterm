@@ -157,10 +157,22 @@ int setup_serial(const char *path, unsigned baud, int data_bits, char parity, in
 
     int fd = open(path, O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
     if (fd < 0) zt_die("zyterm: open(%s): %s", path, strerror(errno));
-    if (!isatty(fd)) zt_die("zyterm: %s is not a TTY", path);
+    /* Close fd before every zt_die below: in embedded mode zt_die siglongjmps
+     * back to the host instead of exit()ing, so a bare die here would leak the
+     * open descriptor for the life of the long-lived host (ZT-047). Preserve
+     * errno across close() so the diagnostic stays accurate. */
+    if (!isatty(fd)) {
+        close(fd);
+        zt_die("zyterm: %s is not a TTY", path);
+    }
 
     struct termios t;
-    if (tcgetattr(fd, &t) < 0) zt_die("zyterm: tcgetattr: %s", strerror(errno));
+    if (tcgetattr(fd, &t) < 0) {
+        int e = errno;
+        close(fd);
+        errno = e;
+        zt_die("zyterm: tcgetattr: %s", strerror(errno));
+    }
     t.c_iflag &= ~(tcflag_t)(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON |
                              IXOFF | IXANY);
     t.c_oflag &= ~(tcflag_t)OPOST;
@@ -187,11 +199,25 @@ int setup_serial(const char *path, unsigned baud, int data_bits, char parity, in
     if (sp != (speed_t)-1) {
         cfsetispeed(&t, sp);
         cfsetospeed(&t, sp);
-        if (tcsetattr(fd, TCSANOW, &t) < 0) zt_die("zyterm: tcsetattr: %s", strerror(errno));
+        if (tcsetattr(fd, TCSANOW, &t) < 0) {
+            int e = errno;
+            close(fd);
+            errno = e;
+            zt_die("zyterm: tcsetattr: %s", strerror(errno));
+        }
     } else {
-        if (tcsetattr(fd, TCSANOW, &t) < 0) zt_die("zyterm: tcsetattr: %s", strerror(errno));
-        if (set_custom_baud(fd, baud) < 0)
+        if (tcsetattr(fd, TCSANOW, &t) < 0) {
+            int e = errno;
+            close(fd);
+            errno = e;
+            zt_die("zyterm: tcsetattr: %s", strerror(errno));
+        }
+        if (set_custom_baud(fd, baud) < 0) {
+            int e = errno;
+            close(fd);
+            errno = e;
             zt_die("zyterm: custom baud %u: %s", baud, strerror(errno));
+        }
     }
     (void)tcflush(fd, TCIOFLUSH);
     return fd;

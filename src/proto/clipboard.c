@@ -296,9 +296,17 @@ static struct {
 /* ─── Helpers ───────────────────────────────────────────────────────────── */
 
 static void wake_worker(void) {
-    if (g.wakefd[1] < 0) return;
-    char b = 'w';
-    while (write(g.wakefd[1], &b, 1) < 0 && errno == EINTR) {}
+    /* Hold g.mu across the write so it can't race a worker exit path that
+     * closes g.wakefd and resets it to -1 (ZT-049): we either write a valid fd
+     * or observe the -1 sentinel, never a just-closed/recycled one. The pipe is
+     * O_NONBLOCK, so the write can't block under the lock. Only the main thread
+     * calls this, so there's no re-entrant lock. */
+    pthread_mutex_lock(&g.mu);
+    if (g.wakefd[1] >= 0) {
+        char b = 'w';
+        while (write(g.wakefd[1], &b, 1) < 0 && errno == EINTR) {}
+    }
+    pthread_mutex_unlock(&g.mu);
 }
 
 static void reply_selection(zt_sel_request_t *req, zt_xcb_atom_t target, const void *data,
@@ -370,6 +378,22 @@ static void handle_selection_request(zt_sel_request_t *req) {
 
 /* ─── Worker thread ─────────────────────────────────────────────────────── */
 
+/* Close the worker wake-pipe and reset it to the -1 sentinel wake_worker()
+ * checks. Called from every worker-exit path so the fds aren't leaked on X
+ * init failure (ZT-049) and so a relaunch after a dropped connection (ZT-046)
+ * allocates a fresh pipe instead of overwriting still-open fds. Caller holds
+ * g.mu. */
+static void close_wakefd_locked(void) {
+    if (g.wakefd[0] >= 0) {
+        close(g.wakefd[0]);
+        g.wakefd[0] = -1;
+    }
+    if (g.wakefd[1] >= 0) {
+        close(g.wakefd[1]);
+        g.wakefd[1] = -1;
+    }
+}
+
 static void *worker_main(void *arg) {
     (void)arg;
 
@@ -378,6 +402,7 @@ static void *worker_main(void *arg) {
         pthread_mutex_lock(&g.mu);
         g.init_failed = true;
         g.running     = false;
+        close_wakefd_locked();
         pthread_mutex_unlock(&g.mu);
         return NULL;
     }
@@ -399,9 +424,12 @@ static void *worker_main(void *arg) {
     zt_xcb_screen_iterator_t it    = g.api.setup_roots_iterator(setup);
     if (!it.data) {
         g.api.disconnect(g.conn);
-        g.conn        = NULL;
+        g.conn = NULL;
+        pthread_mutex_lock(&g.mu);
         g.init_failed = true;
         g.running     = false;
+        close_wakefd_locked();
+        pthread_mutex_unlock(&g.mu);
         return NULL;
     }
     zt_xcb_screen_t *screen = it.data;
@@ -461,7 +489,15 @@ static void *worker_main(void *arg) {
     }
 
     g.api.disconnect(g.conn);
-    g.conn = NULL;
+    /* ZT-046: reset running (but not init_failed) so a later clipboard_native_set
+     * relaunches the worker instead of reporting a dead selection as "native X11
+     * owner" success while nothing owns the CLIPBOARD. Close the wake-pipe so the
+     * relaunch's pipe() doesn't leak these fds (ZT-049). */
+    pthread_mutex_lock(&g.mu);
+    g.conn    = NULL;
+    g.running = false;
+    close_wakefd_locked();
+    pthread_mutex_unlock(&g.mu);
     return NULL;
 }
 

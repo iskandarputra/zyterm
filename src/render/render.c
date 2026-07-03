@@ -239,16 +239,60 @@ static void rx_line_putc(zt_ctx *c, unsigned char b) {
     c->log.line[c->log.line_len++] = b;
 }
 
-/* Render one byte that is NOT part of an allowed escape: ESC/DEL and other
- * C0 controls become inert cat -v caret notation (^[, ^G, ^?); \t and
- * printable/UTF-8 bytes pass through. Shared by STRICT mode and the
- * SGR-filter's neutralized paths. (ZT-003 / INVARIANTS §6.) */
+/* Render one byte that is NOT part of an allowed escape:
+ *   - ESC/DEL and other C0 controls  → inert cat -v caret notation (^[, ^G, ^?);
+ *   - \t and printable ASCII          → pass through;
+ *   - valid UTF-8 (lead + expected continuations, tracked in proto.utf8_cont)
+ *                                      → pass through;
+ *   - a standalone C1 control (0x80-0x9F) or other stray high byte → inert
+ *     cat -v M- notation, so an 8-bit OSC/CSI/DCS introducer (0x9D/0x9B/0x90…)
+ *     can't drive a C1-honoring terminal past the escape filter (ZT-041).
+ * Shared by STRICT mode and the SGR-filter's neutralized paths.
+ * (ZT-003 / ADR-0009 / INVARIANTS §6.) */
 static void emit_inert_byte(zt_ctx *c, unsigned char b) {
     if (b == 0x1B || b == 0x7F || (b < 0x20 && b != '\t')) {
         rx_line_putc(c, '^');
         rx_line_putc(c, (unsigned char)(b == 0x7F ? '?' : b + 0x40));
-    } else {
+        c->proto.utf8_cont = 0;
+        return;
+    }
+    if (b < 0x80) { /* printable ASCII or \t */
         rx_line_putc(c, b);
+        c->proto.utf8_cont = 0;
+        return;
+    }
+    /* b >= 0x80. A continuation byte (10xxxxxx) is only legitimate when a lead
+     * byte is still expecting it; otherwise it's stray. */
+    if (c->proto.utf8_cont > 0 && (b & 0xC0) == 0x80) {
+        rx_line_putc(c, b);
+        c->proto.utf8_cont--;
+        return;
+    }
+    if ((b & 0xE0) == 0xC0) { /* 2-byte lead */
+        c->proto.utf8_cont = 1;
+        rx_line_putc(c, b);
+        return;
+    }
+    if ((b & 0xF0) == 0xE0) { /* 3-byte lead */
+        c->proto.utf8_cont = 2;
+        rx_line_putc(c, b);
+        return;
+    }
+    if ((b & 0xF8) == 0xF0) { /* 4-byte lead */
+        c->proto.utf8_cont = 3;
+        rx_line_putc(c, b);
+        return;
+    }
+    /* Stray high byte: a standalone C1 control, an unexpected continuation, or
+     * an invalid lead (0xC0/0xC1/0xF8-0xFF). Neutralize as cat -v M- notation. */
+    c->proto.utf8_cont = 0;
+    rx_line_putc(c, 'M');
+    rx_line_putc(c, '-');
+    if (b <= 0x9F) { /* C1 control → M-^X */
+        rx_line_putc(c, '^');
+        rx_line_putc(c, (unsigned char)((b - 0x80) + 0x40));
+    } else { /* 0xA0-0xFF → M-<printable> */
+        rx_line_putc(c, (unsigned char)(b - 0x80));
     }
 }
 
@@ -329,6 +373,12 @@ void render_rx(zt_ctx *c, const unsigned char *buf, size_t n) {
                 }
             }
 
+            /* Any ESC starts a fresh escape sequence: drop a pending UTF-8
+             * continuation expectation so a multibyte char truncated by an ESC
+             * can't make emit_inert_byte() later mistake a C1 introducer for a
+             * continuation byte (ZT-041). \r/\n do the same below. */
+            if (b == 0x1B) c->proto.utf8_cont = 0;
+
             /* RAW: trusted device — \r dropped, \n flushes, all else verbatim. */
             if (esc_mode == ESC_RAW) {
                 if (b == '\r') continue;
@@ -364,8 +414,12 @@ void render_rx(zt_ctx *c, const unsigned char *buf, size_t n) {
 
             /* STRICT default-deny, and SGR mode's non-sequence bytes: \r/\n
              * handled here; ESC/C0/DEL → inert caret notation; \t/printable pass. */
-            if (b == '\r') continue;
+            if (b == '\r') {
+                c->proto.utf8_cont = 0;
+                continue;
+            }
             if (b == '\n') {
+                c->proto.utf8_cont = 0;
                 flush_line(c);
                 continue;
             }

@@ -728,6 +728,55 @@ static void test_http_post_split_body(void) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 13c. HTTP route dispatch is path-anchored, not substring (ZT-039)  */
+/* ------------------------------------------------------------------ */
+static void test_http_route_anchored(void) {
+    SECTION("http route anchoring");
+    zt_ctx c;
+    ctx_init(&c);
+    int port = find_free_port();
+    if (port <= 0) {
+        ctx_free(&c);
+        return;
+    }
+    if (http_start(&c, port) != 0) {
+        ctx_free(&c);
+        return;
+    }
+    struct sockaddr_in sa = {0};
+    sa.sin_family         = AF_INET;
+    sa.sin_addr.s_addr    = htonl(INADDR_LOOPBACK);
+    sa.sin_port           = htons((uint16_t)port);
+
+    /* "GET /streamlit.html" must NOT match the /stream route (no --webroot ->
+     * 404), and must not be served as an SSE stream. Before ZT-039 the
+     * unanchored strstr(req, "GET /stream") turned it into text/event-stream. */
+    int cfd = socket(AF_INET, SOCK_STREAM, 0);
+    connect(cfd, (struct sockaddr *)&sa, sizeof sa);
+    const char *req = "GET /streamlit.html HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+    if (write(cfd, req, strlen(req)) < 0) {}
+    http_tick(&c);
+    char   resp[4096] = {0};
+    size_t total      = 0;
+    int    fl         = fcntl(cfd, F_GETFL, 0);
+    fcntl(cfd, F_SETFL, fl | O_NONBLOCK);
+    for (int i = 0; i < 30 && total < sizeof resp - 1; i++) {
+        ssize_t rr = read(cfd, resp + total, sizeof resp - 1 - total);
+        if (rr > 0)
+            total += (size_t)rr;
+        else
+            usleep(5000);
+    }
+    ASSERT(strstr(resp, "404") != NULL, "/streamlit.html is 404, not a route match (ZT-039)");
+    ASSERT(strstr(resp, "text/event-stream") == NULL,
+           "/streamlit.html not served as SSE (ZT-039)");
+    close(cfd);
+
+    http_stop(&c);
+    ctx_free(&c);
+}
+
+/* ------------------------------------------------------------------ */
 /* 14. Filter (pipe mock — uses `cat` as filter)                      */
 /* ------------------------------------------------------------------ */
 static void test_filter(void) {
@@ -1651,6 +1700,7 @@ int main(void) {
     test_pty_roundtrip();
     test_http_server();
     test_http_post_split_body();
+    test_http_route_anchored();
 
     fprintf(stderr, "\n========================================\n");
     fprintf(stderr, "%d passed, %d failed\n", g_pass, g_fail);

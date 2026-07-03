@@ -63,17 +63,27 @@ const char *tty_stats_modem_str(unsigned mask, char *buf, size_t cap) {
     return buf;
 }
 
+/* Per-tick delta of a monotonic kernel counter. Clamps a decrease to 0:
+ * after a reconnect / autobaud fd swap the freshly-enumerated device's
+ * counters restart near 0 while our baseline still holds the old device's
+ * totals, so a plain unsigned subtraction would underflow to ~UINT_MAX and
+ * flash a bogus multi-billion error count (ZT-045). A counter going backwards
+ * means "device reset" → no new errors this tick. */
+static unsigned kern_delta(unsigned cur, unsigned base) {
+    return cur >= base ? cur - base : 0;
+}
+
 void tty_stats_poll(zt_ctx *c) {
     if (!c || c->serial.fd < 0) return;
 #if defined(__linux__)
     struct serial_icounter_struct ic;
     if (ioctl(c->serial.fd, TIOCGICOUNT, &ic) == 0) {
         /* Raise a flash the first time anything goes wrong per tick. */
-        unsigned new_frame   = (unsigned)ic.frame - c->serial.kern_frame_err;
-        unsigned new_overrun = (unsigned)ic.overrun - c->serial.kern_overrun_err;
-        unsigned new_parity  = (unsigned)ic.parity - c->serial.kern_parity_err;
-        unsigned new_brk     = (unsigned)ic.brk - c->serial.kern_brk;
-        unsigned new_bufover = (unsigned)ic.buf_overrun - c->serial.kern_buf_overrun;
+        unsigned new_frame   = kern_delta((unsigned)ic.frame, c->serial.kern_frame_err);
+        unsigned new_overrun = kern_delta((unsigned)ic.overrun, c->serial.kern_overrun_err);
+        unsigned new_parity  = kern_delta((unsigned)ic.parity, c->serial.kern_parity_err);
+        unsigned new_brk     = kern_delta((unsigned)ic.brk, c->serial.kern_brk);
+        unsigned new_bufover = kern_delta((unsigned)ic.buf_overrun, c->serial.kern_buf_overrun);
         if (new_frame || new_overrun || new_parity || new_brk || new_bufover) {
             set_flash(c, "\xe2\x9a\xa0 kern: frame+%u over+%u par+%u brk+%u bufov+%u",
                       new_frame, new_overrun, new_parity, new_brk, new_bufover);

@@ -742,6 +742,10 @@ int zyterm_main(int argc, char **argv) {
 
     /* replay mode: no device needed */
     if (c.core.replay_path) {
+        /* A prior --profile may have strdup'd a device into c.serial.device;
+         * free it before aliasing the non-heap replay_path so it isn't leaked
+         * under embedded reuse (ZT-048; the ZT-016 free-before-assign twin). */
+        free((void *)c.serial.device);
         c.serial.device = c.core.replay_path;
         if (log_path) {
             c.log.path = log_path;

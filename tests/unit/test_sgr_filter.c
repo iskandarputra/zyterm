@@ -22,15 +22,15 @@
 
 static int g_pass, g_fail;
 
-#define ASSERT(cond, msg)                                                                          \
-    do {                                                                                           \
-        if (cond) {                                                                                \
-            g_pass++;                                                                              \
-            fprintf(stderr, "  ok    %s\n", (msg));                                                \
-        } else {                                                                                   \
-            g_fail++;                                                                              \
-            fprintf(stderr, "  FAIL  %s (%s:%d)\n", (msg), __FILE__, __LINE__);                    \
-        }                                                                                          \
+#define ASSERT(cond, msg)                                                                      \
+    do {                                                                                       \
+        if (cond) {                                                                            \
+            g_pass++;                                                                          \
+            fprintf(stderr, "  ok    %s\n", (msg));                                            \
+        } else {                                                                               \
+            g_fail++;                                                                          \
+            fprintf(stderr, "  FAIL  %s (%s:%d)\n", (msg), __FILE__, __LINE__);                \
+        }                                                                                      \
     } while (0)
 
 #define SECTION(name) fprintf(stderr, "\n=== %s ===\n", (name))
@@ -60,13 +60,16 @@ static size_t filter_str(zt_sgr_parser *st, const char *in, size_t n, unsigned c
             switch (sgr_feed(st, b, seq, &sl)) {
             case ZT_SGR_ACT_HOLD: goto next;
             case ZT_SGR_ACT_EMIT_SGR:
-                for (size_t k = 0; k < sl; k++) out[o++] = seq[k];
+                for (size_t k = 0; k < sl; k++)
+                    out[o++] = seq[k];
                 goto next;
             case ZT_SGR_ACT_INERT:
-                for (size_t k = 0; k < sl; k++) o += put_inert(out + o, seq[k]);
+                for (size_t k = 0; k < sl; k++)
+                    o += put_inert(out + o, seq[k]);
                 goto next;
             case ZT_SGR_ACT_REPROCESS:
-                for (size_t k = 0; k < sl; k++) o += put_inert(out + o, seq[k]);
+                for (size_t k = 0; k < sl; k++)
+                    o += put_inert(out + o, seq[k]);
                 goto reprocess;
             }
         }
@@ -155,9 +158,9 @@ static void test_sgr_split(void) {
     size_t        n1, n2;
     zt_sgr_parser st = {0};
 
-    n1 = filter_str(&st, "\x1b[1;3", 5, o);          /* chunk 1: nothing emitted yet */
+    n1               = filter_str(&st, "\x1b[1;3", 5, o); /* chunk 1: nothing emitted yet */
     ASSERT(n1 == 0, "partial SGR holds (no output mid-sequence)");
-    n2 = filter_str(&st, "3mZ", 3, o);               /* chunk 2 completes it */
+    n2 = filter_str(&st, "3mZ", 3, o); /* chunk 2 completes it */
     ASSERT(memmem(o, n2, "\x1b[1;33m", 7) != NULL, "split SGR joins to ESC[1;33m");
     ASSERT(o[n2 - 1] == 'Z', "trailing text after split SGR");
 }
@@ -181,10 +184,11 @@ static void test_sgr_malformed(void) {
     char big[210];
     big[0] = 0x1b;
     big[1] = '[';
-    for (int i = 0; i < 200; i++) big[2 + i] = '1';
-    big[202] = 'm';
+    for (int i = 0; i < 200; i++)
+        big[2 + i] = '1';
+    big[202]         = 'm';
     zt_sgr_parser st = {0};
-    n            = filter_str(&st, big, 203, o);
+    n                = filter_str(&st, big, 203, o);
     ASSERT(!has_esc(o, n), "200-digit overflow emits no verbatim SGR");
     ASSERT(st.len <= ZT_SGR_PARAM_CAP, "param buffer never overruns cap");
 }
@@ -204,14 +208,14 @@ static void test_render_rx_e2e(void) {
     SECTION("render_rx — SGR filter end-to-end (default mode)");
     zt_ctx c;
     memset(&c, 0, sizeof c);
-    c.serial.fd      = -1;
-    c.log.fd         = -1;
-    c.net.http_fd    = -1;
-    c.proto.color_on = false;           /* isolate device SGR from zyterm's own */
-    c.proto.sgr_passthrough = true;     /* the new default */
-    c.log.sb_lines   = calloc(ZT_SCROLLBACK_CAP, sizeof(char *));
+    c.serial.fd             = -1;
+    c.log.fd                = -1;
+    c.net.http_fd           = -1;
+    c.proto.color_on        = false; /* isolate device SGR from zyterm's own */
+    c.proto.sgr_passthrough = true;  /* the new default */
+    c.log.sb_lines          = calloc(ZT_SCROLLBACK_CAP, sizeof(char *));
 
-    g_rec_len = 0;
+    g_rec_len               = 0;
     ob_set_record_callback(rec_cb);
     const char *in = "\x1b[1;33mhi\x1b]52;c;QQ\x07\n";
     render_rx(&c, (const unsigned char *)in, strlen(in));
@@ -219,9 +223,43 @@ static void test_render_rx_e2e(void) {
     ob_set_record_callback(NULL);
 
     ASSERT(memmem(g_rec, g_rec_len, "\x1b[1;33m", 7) != NULL, "device SGR reaches terminal");
-    ASSERT(memmem(g_rec, g_rec_len, "\x1b]", 2) == NULL, "no raw OSC introducer reaches terminal");
-    ASSERT(memmem(g_rec, g_rec_len, "^[]52;c;QQ^G", 12) != NULL, "OSC neutralized to caret text");
+    ASSERT(memmem(g_rec, g_rec_len, "\x1b]", 2) == NULL,
+           "no raw OSC introducer reaches terminal");
+    ASSERT(memmem(g_rec, g_rec_len, "^[]52;c;QQ^G", 12) != NULL,
+           "OSC neutralized to caret text");
     ASSERT(memmem(g_rec, g_rec_len, "\x1b[0m", 4) != NULL, "bleed-containment reset emitted");
+
+    scrollback_free(&c);
+    free(c.log.sb_lines);
+}
+
+static void test_render_rx_c1(void) {
+    SECTION("render_rx — 8-bit C1 controls neutralized, UTF-8 preserved (ZT-041)");
+    zt_ctx c;
+    memset(&c, 0, sizeof c);
+    c.serial.fd             = -1;
+    c.log.fd                = -1;
+    c.net.http_fd           = -1;
+    c.proto.color_on        = false;
+    c.proto.sgr_passthrough = true; /* default mode */
+    c.log.sb_lines          = calloc(ZT_SCROLLBACK_CAP, sizeof(char *));
+
+    g_rec_len               = 0;
+    ob_set_record_callback(rec_cb);
+    /* 0x9D is the 8-bit OSC introducer; on a C1-honoring terminal the old
+     * code passed it verbatim, re-opening OSC 52 clipboard injection. A valid
+     * UTF-8 'é' (0xC3 0xA9) must still pass through untouched. */
+    const unsigned char in[] = {0x9d, '5', '2',  ';',  'c',  ';',
+                                'Q',  'Q', 0x07, 0xc3, 0xa9, '\n'};
+    render_rx(&c, in, sizeof in);
+    ob_flush();
+    ob_set_record_callback(NULL);
+
+    ASSERT(memchr(g_rec, 0x9d, g_rec_len) == NULL,
+           "no raw 8-bit C1 introducer reaches terminal");
+    ASSERT(memmem(g_rec, g_rec_len, "M-^]", 4) != NULL,
+           "C1 OSC introducer neutralized (M- form)");
+    ASSERT(memmem(g_rec, g_rec_len, "\xc3\xa9", 2) != NULL, "valid UTF-8 passes through");
 
     scrollback_free(&c);
     free(c.log.sb_lines);
@@ -234,6 +272,7 @@ int main(void) {
     test_sgr_split();
     test_sgr_malformed();
     test_render_rx_e2e();
+    test_render_rx_c1();
 
     fprintf(stderr, "\n========================================\n");
     fprintf(stderr, "%d passed, %d failed\n", g_pass, g_fail);
