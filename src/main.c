@@ -388,6 +388,11 @@ int zyterm_main(int argc, char **argv) {
     c.log.sb_lines  = calloc(ZT_SCROLLBACK_CAP, sizeof(char *));
     if (!c.log.sb_lines) zt_die("zyterm: out of memory (scrollback)");
 
+    /* Wire the RX/TX dependency-inversion sinks before any subsystem runs, so
+     * proto/ext/net modules reach render_rx and the send primitives through the
+     * ctx rather than by naming loop/render symbols (INVARIANTS §8). */
+    loop_wire_sinks(&c);
+
     enum {
         OPT_NOCOLOR = 0x1000,
         OPT_TS,

@@ -120,14 +120,11 @@ size_t expand_escapes(const char *src, char *dst, size_t cap) {
 
 /* ------------------------------ send ------------------------------------- */
 
-void trickle_send(zt_ctx *c, const unsigned char *buf, size_t n);
-void direct_send(zt_ctx *c, const unsigned char *buf, size_t n);
-
 void macro_fire(zt_ctx *c, int fkey_idx) {
     if (fkey_idx < 1 || fkey_idx > ZT_MACRO_COUNT) return;
     const char *m = c->ext.macros[fkey_idx - 1];
     if (!m || !*m) return;
     char   exp[1024];
     size_t el = expand_escapes(m, exp, sizeof exp);
-    if (el) trickle_send(c, (const unsigned char *)exp, el);
+    if (el) c->core.tx_trickle(c, (const unsigned char *)exp, el);
 }

@@ -188,7 +188,7 @@ void              zt_embed_disarm(void);
  * thread (zyterm uses a high-priority reader thread for serial I/O).
  * Signal handlers only touch the `g_*` globals above.
  */
-typedef struct {
+typedef struct zt_ctx {
     struct {
         const char *device; /**< Serial device path, e.g. `/dev/ttyUSB0`. */
         unsigned    baud;   /**< Baud rate in bps.                        */
@@ -463,6 +463,17 @@ typedef struct {
         /* replay-from-file mode */
         const char *replay_path;
         double      replay_speed;
+
+        /* Dependency-inversion sinks, set once by the loop layer via
+         * loop_wire_sinks() (src/loop/send.c). They let lower-layer modules
+         * (proto framing/macros/passthrough, ext hooks, net session/http)
+         * deliver a decoded RX line or inject device TX WITHOUT naming the
+         * loop/render symbols that implement them — so the module dependency
+         * chain stays acyclic and compiler-checkable (INVARIANTS §8). NULL
+         * until wired; the loop wires them before any subsystem runs. */
+        void (*rx_sink)(struct zt_ctx *c, const unsigned char *buf, size_t n);
+        void (*tx_direct)(struct zt_ctx *c, const unsigned char *buf, size_t n);
+        void (*tx_trickle)(struct zt_ctx *c, const unsigned char *buf, size_t n);
     } core;
 } zt_ctx;
 

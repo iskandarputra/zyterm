@@ -62,6 +62,7 @@ static void ctx_init(zt_ctx *c) {
     c->serial.stop_bits     = 1;
     c->proto.color_on       = true;
     c->log.sb_lines         = calloc(ZT_SCROLLBACK_CAP, sizeof(char *));
+    loop_wire_sinks(c); /* so send:/framing paths reach TX/RX via the ctx */
 }
 
 static void ctx_free(zt_ctx *c) {

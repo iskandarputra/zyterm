@@ -53,6 +53,6 @@ bool passthrough_handle(zt_ctx *c, const unsigned char *buf, size_t n) {
         if (state == 2) state = 0;
     }
     /* Verbatim relay to serial. */
-    if (c->serial.fd >= 0) direct_send(c, buf, n);
+    if (c->serial.fd >= 0) c->core.tx_direct(c, buf, n);
     return true;
 }

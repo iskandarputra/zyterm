@@ -127,7 +127,7 @@ void session_tick(zt_ctx *c) {
         unsigned char buf[1024];
         ssize_t       n = read(att_fds[i], buf, sizeof buf);
         if (n > 0 && c->serial.fd >= 0)
-            direct_send(c, buf, (size_t)n);
+            c->core.tx_direct(c, buf, (size_t)n);
         else if (n == 0 || (n < 0 && errno != EAGAIN)) {
             close(att_fds[i]);
             att_fds[i] = -1;

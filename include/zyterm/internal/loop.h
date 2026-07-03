@@ -28,6 +28,10 @@ void handle_stdin_chunk(zt_ctx *c, const unsigned char *buf, size_t n);
 void trickle_send(zt_ctx *c, const unsigned char *buf, size_t n);
 void direct_send(zt_ctx *c, const unsigned char *buf, size_t n);
 void flush_unsent(zt_ctx *c);
+/* Point c->core.rx_sink / tx_direct / tx_trickle at render_rx / direct_send /
+ * trickle_send. Call once from the loop layer before any subsystem runs so
+ * lower layers reach TX/RX through the ctx, not by naming these symbols. */
+void loop_wire_sinks(zt_ctx *c);
 
 /* ── loop/rx_thread.c ──────────────────────────────────────────────────── */
 int    rx_thread_start(zt_ctx *c);
