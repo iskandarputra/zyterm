@@ -47,6 +47,14 @@ jobs:
         timeout-minutes: 2
         run: make format-check
 
+      - name: Module layering check
+        if: matrix.sanitizer == 'none' && matrix.cc == 'gcc'
+        timeout-minutes: 2
+        # Enforce the dependency chain (INVARIANTS §8): narrow per-module
+        # includes + no bare up-layer externs. The compiler half of this is
+        # -Werror=implicit-function-declaration in the build below.
+        run: make layering-check
+
       - name: Build (release)
         if: matrix.sanitizer == 'none'
         timeout-minutes: 5
@@ -86,4 +94,38 @@ jobs:
         if: matrix.sanitizer == 'none' && matrix.cc == 'gcc'
         timeout-minutes: 3
         run: make lint || true
+
+  # ThreadSanitizer leg: the --threaded SPSC ring (loop/rx_thread.c) is the one
+  # place with real concurrency (hand-rolled release/acquire atomics), and ASan
+  # cannot see data races. Build the embed archive + the ring test under TSan
+  # and run it — it drives a worker thread against a pipe with a concurrent
+  # consumer, exactly the happens-before edges to check.
+  tsan:
+    name: linux / clang / thread-sanitizer
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        timeout-minutes: 2
+      - name: Install build deps
+        timeout-minutes: 5
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends build-essential clang
+      - name: Build (thread-sanitizer) + run the SPSC ring test
+        timeout-minutes: 8
+        env:
+          TSAN: "-fsanitize=thread -fno-omit-frame-pointer"
+        run: |
+          make clean
+          # Instrument the embed archive (contains rx_thread.c) with TSan first,
+          # so tests/Makefile finds it up-to-date and won't rebuild it plain.
+          CC=clang \
+          CFLAGS="-O1 -g $TSAN -Wall -Wextra -pedantic -Werror=implicit-function-declaration -std=gnu11 -D_GNU_SOURCE -Iinclude -Isrc" \
+          LDFLAGS="$TSAN" make zyterm_embed.a
+          CC=clang \
+          CFLAGS="-O1 -g $TSAN -Wall -Wextra -std=gnu11 -D_GNU_SOURCE -I../include -I../src" \
+          LDFLAGS="$TSAN" \
+          make -C tests build/unit/test_rx_ring
+          TSAN_OPTIONS="halt_on_error=1" timeout 120 ./tests/build/unit/test_rx_ring
 

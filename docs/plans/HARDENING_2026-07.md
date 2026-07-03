@@ -187,28 +187,25 @@ Correct today but O(n)-per-byte where it should be O(lines)/O(chunks).
 
 ## Phase 6 — The testability foundation (the highest-leverage structural investment)
 
-The hostile-input parsers and the lock-free ring have essentially no unit/fuzz/TSan coverage, so every
-fix above ships unguarded against regression. The root blocker is that `framing_feed` hard-calls
-`render_rx`, forcing slow socket/`usleep` integration tests.
+The hostile-input parsers and the lock-free ring had essentially no unit/fuzz/TSan coverage, so every
+fix above shipped unguarded against regression. First tranche landed 2026-07:
 
-- **The sink seam** — add a test-injectable output sink (a function pointer on `c->proto`, or an
-  overridable `render_rx`) that captures emitted bytes instead of writing the TTY. Route
-  framing/filter/xmodem output through it. This unblocks fast, deterministic unit tests and is the
-  prerequisite for everything else here. Also resolves the `proto→render` back-edge (see Phase 7).
-- **Framing round-trip + regression tests** (`tests/unit/test_framing.c`) — each mode
-  encode→feed→assert byte-identical, plus explicit ZT-021 (COBS run-marker) and ZT-022 (zero-length
-  LENPFX) cases, split-frame decode, and known-bad frames asserting `crc_err`/counter behaviour.
-- **XMODEM/YMODEM/ZMODEM tests** (`tests/integration/test_xmodem.c`) — a scripted socketpair peer for
-  send and receive, covering block sequencing, complement-byte, CRC, and the retry/timeout/CAN paths.
-- **SPSC ring test + TSan leg** — see Phase 3.
-- **Fuzzing** (`tests/fuzz/`) — libFuzzer targets for `framing_feed`, `classify_request`/`hc_pump_new`,
-  and `xmodem_receive` under `-fsanitize=fuzzer,address,undefined`, with a small seed corpus and a
-  short CI leg.
-- **HTTP parser tests** — split-body, partial-header, oversized-header (431), and no-terminator
-  (slowloris drain) cases, driving `classify_request`/`hc_pump_new` over a synthetic `hc_t` (fast,
-  no sockets). These will exercise the ZT-034/039/043/044 fixes directly.
-- **Coverage gate** — a `make coverage` target and a CI step printing per-file line coverage with a
-  ratchet baseline, so whole-file blind spots (http.c, input.c, hud.c) become visible.
+- **The sink seam — DONE.** The Phase-7 dependency-inversion sinks (`c->core.rx_sink`/`tx_direct`)
+  double as test seams: a test points them at capture buffers and exercises encode/decode with no
+  sockets and no render path. (No separate `c->proto` hook was needed.)
+- **Framing round-trip + regression tests — DONE** (`tests/unit/test_framing.c`, 21 assertions): each
+  mode encode→feed→assert byte-identical over a delimiter-heavy payload, explicit **ZT-021** (COBS
+  >254 run marker) and **ZT-022** (zero-length LENPFX no-desync) cases, CRC append/strip + mismatch
+  detection, and a split-across-feeds case.
+- **SPSC ring test + TSan leg — DONE** (`tests/unit/test_rx_ring.c`, 9 assertions): a real worker
+  drains a pipe into the ring while main drains the ring — byte-exact round-trip, a forced wrap past
+  `ZT_SPSC_CAP`, and drop-on-overflow (prefix intact, no corruption). A new **`tsan` CI job** builds
+  the embed archive + this test under `-fsanitize=thread` and runs it, checking the release/acquire
+  happens-before edges ASan can't see. The layering check also runs in CI now.
+- **Still open:** XMODEM/YMODEM/ZMODEM tests (`tests/integration/test_xmodem.c` — socketpair peer,
+  block/complement/CRC + retry/timeout/CAN); libFuzzer targets (`tests/fuzz/` for `framing_feed`,
+  `classify_request`/`hc_pump_new`, `xmodem_receive`); HTTP parser unit tests (split-body,
+  oversized-header 431, slowloris drain over a synthetic `hc_t`); and a `make coverage` ratchet gate.
 
 ---
 
