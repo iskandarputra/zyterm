@@ -474,6 +474,12 @@ typedef struct zt_ctx {
         void (*rx_sink)(struct zt_ctx *c, const unsigned char *buf, size_t n);
         void (*tx_direct)(struct zt_ctx *c, const unsigned char *buf, size_t n);
         void (*tx_trickle)(struct zt_ctx *c, const unsigned char *buf, size_t n);
+        /* Per-completed-line event dispatch (wired to hooks_on_line) so the
+         * render pipeline fires ext-layer hooks without naming them; and the
+         * local-input notifier (wired to http_notify_input) so the tui tells
+         * the net bridge about typing without an up-call. NULL until wired. */
+        void (*line_hook)(struct zt_ctx *c, const unsigned char *line, size_t len);
+        void (*input_notify)(struct zt_ctx *c);
     } core;
 } zt_ctx;
 

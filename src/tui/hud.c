@@ -292,8 +292,9 @@ void draw_input(zt_ctx *c) {
     int  mvn = snprintf(mv, sizeof mv, "\033[%d;%zuH", c->tui.rows, curs_col);
     if (mvn > 0) ob_write(mv, (size_t)mvn);
 
-    /* Push input state to HTTP peers so the web input bar stays in sync. */
-    http_notify_input(c);
+    /* Push input state to HTTP peers so the web input bar stays in sync — via
+     * the ctx sink (wired to http_notify_input) so tui doesn't name net. */
+    if (c->core.input_notify) c->core.input_notify(c);
 }
 
 void apply_layout(zt_ctx *c) {

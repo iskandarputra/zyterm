@@ -30,6 +30,80 @@
 
 /* ------------------------------ run loop --------------------------------- */
 
+/* Single RX ingestion dispatcher — one serial chunk in, fanned out to the
+ * side-channels and the decode/render pipeline. Lives in the loop layer
+ * (INVARIANTS §8) because it orchestrates modules above render — the JSONL log,
+ * the HTTP/SSE bridge, the filter subprocess, and the framer — all of which are
+ * down-calls from here:
+ *   1. Telnet IAC strip + --map-in EOL translation normalise the stream first.
+ *   2. JSONL log and HTTP broadcast see the raw normalised bytes.
+ *   3. A running --filter takes the bytes (its output re-enters via render_rx).
+ *   4. Else a configured framer decodes; else straight to render_rx.
+ * Recursion is impossible: framing.c / filter.c always deliver line content via
+ * render_rx(), never back through rx_ingest(). Only run_interactive/run_dump
+ * call this, so it's file-static. */
+static void rx_ingest(zt_ctx *c, const unsigned char *buf, size_t n) {
+    if (!c || !buf || n == 0) return;
+
+    /* Telnet IAC stripping (telnet:// transport only) — runs before EOL
+     * translation so the IAC parser sees raw wire bytes. The filter is
+     * stateful across read() chunks via c->serial.telnet_rx_st. We must
+     * copy into a writable scratch buffer because the parser strips in
+     * place. */
+    unsigned char *telnet_heap = NULL;
+    if (c->serial.telnet) {
+        unsigned char  tscratch[4096];
+        unsigned char *tb = (n <= sizeof tscratch) ? tscratch : (telnet_heap = malloc(n));
+        if (!tb) return;
+        memcpy(tb, buf, n);
+        n = telnet_rx_filter(&c->serial.telnet_rx_st, tb, n);
+        if (!n) {
+            free(telnet_heap);
+            return;
+        }
+        buf = tb;
+    }
+
+    /* Apply --map-in line-ending translation up-front so every downstream
+     * consumer (JSONL log, HTTP/SSE, filter subprocess, framer, render)
+     * sees the same normalised stream. */
+    unsigned char  scratch[4096];
+    unsigned char *heap = NULL;
+    if (c->proto.map_in != ZT_EOL_NONE) {
+        size_t         cap = ZT_EOL_OUT_CAP(n);
+        unsigned char *xb  = (cap <= sizeof scratch) ? scratch : (heap = malloc(cap));
+        if (!xb) {
+            free(telnet_heap);
+            return;
+        }
+        n   = eol_translate_in(c->proto.map_in, &c->proto.eol_state_in, buf, n, xb, cap);
+        buf = xb;
+        if (!n) {
+            free(heap);
+            free(telnet_heap);
+            return;
+        }
+    }
+
+    if (c->log.format == ZT_LOG_JSON) log_json_rx(c, buf, n);
+    if (c->net.http_fd >= 0) http_broadcast(c, buf, n);
+    if (c->ext.filter_pid > 0) {
+        filter_feed(c, buf, n);
+        free(heap);
+        free(telnet_heap);
+        return;
+    }
+    if (c->proto.mode != ZT_FRAME_RAW) {
+        framing_feed(c, buf, n);
+        free(heap);
+        free(telnet_heap);
+        return;
+    }
+    render_rx(c, buf, n);
+    free(heap);
+    free(telnet_heap);
+}
+
 /* Top-of-screen masthead. Reflects the live link state: a green "connected"
  * line normally, an amber "waiting for <device>" line when we booted with the
  * device absent (c->tui.disconnected). Brackets the write in DECRC/DECSC so it

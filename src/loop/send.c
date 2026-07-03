@@ -182,7 +182,9 @@ void flush_unsent(zt_ctx *c) {
  * loop layer, which may legitimately name render_rx and the send primitives. */
 void loop_wire_sinks(zt_ctx *c) {
     if (!c) return;
-    c->core.rx_sink    = render_rx;
-    c->core.tx_direct  = direct_send;
-    c->core.tx_trickle = trickle_send;
+    c->core.rx_sink      = render_rx;
+    c->core.tx_direct    = direct_send;
+    c->core.tx_trickle   = trickle_send;
+    c->core.line_hook    = hooks_on_line;
+    c->core.input_notify = http_notify_input;
 }
