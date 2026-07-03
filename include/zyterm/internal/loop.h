@@ -39,6 +39,10 @@ bool   rx_thread_is_running(zt_ctx *c);
  * a no-op when threaded mode wasn't requested. */
 void rx_thread_pause(zt_ctx *c);
 void rx_thread_unpause(zt_ctx *c);
+/* Stop an orphaned worker on the embedded fatal-exit paths (zt_die,
+ * sig_crash→host, zt_embed_reset) where the normal rx_thread_stop(&c) is
+ * skipped by the siglongjmp. MAIN-THREAD ONLY (joins + frees). ZT-033. */
+void rx_thread_embed_reset(void);
 
 /* ── loop/runtime.c ────────────────────────────────────────────────────── */
 int run_interactive(zt_ctx *c);

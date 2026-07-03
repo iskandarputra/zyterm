@@ -668,6 +668,12 @@ static void test_filter(void) {
     ASSERT(c.ext.filter_stdin_fd >= 0, "filter_stdin_fd valid");
     ASSERT(c.ext.filter_stdout_fd >= 0, "filter_stdout_fd valid");
 
+    /* ZT-032: our write end must be non-blocking so a filter that can't keep
+     * up drops bytes in filter_feed() instead of blocking the single-threaded
+     * event loop. (The child's stdin is a separate OFD and stays blocking.) */
+    int stdin_fl = fcntl(c.ext.filter_stdin_fd, F_GETFL, 0);
+    ASSERT(stdin_fl != -1 && (stdin_fl & O_NONBLOCK), "filter_stdin_fd is O_NONBLOCK (ZT-032)");
+
     int poll_fd = filter_poll_fd(&c);
     ASSERT(poll_fd >= 0, "filter_poll_fd valid");
 
@@ -843,6 +849,23 @@ static void test_fuzzy(void) {
     const char *sel = history_at(&c, c.tui.fuzzy_selected);
     ASSERT(sel && strcmp(sel, "status") == 0, "fuzzy selects matching history (ZT-008)");
     fuzzy_exit(&c);
+
+    /* ZT-031: Enter-injecting a selected line must reset sent_len — otherwise
+     * the edit-key math input_len - (sent_len + cursor) underflows to
+     * ~SIZE_MAX and memmoves over input_buf. Simulate the non-zero sent_len
+     * that local echo (or a Tab completion) leaves, inject, and assert the
+     * sent_len + cursor <= input_len invariant is restored. */
+    fuzzy_enter(&c);
+    fuzzy_handle(&c, 's');
+    fuzzy_handle(&c, 't');
+    fuzzy_handle(&c, 'a');
+    c.tui.sent_len  = 3;
+    c.tui.input_len = 3;
+    c.tui.cursor    = 0;
+    fuzzy_handle(&c, '\r'); /* Enter: inject selection "status" */
+    ASSERT(c.tui.sent_len == 0, "fuzzy Enter resets sent_len (ZT-031)");
+    ASSERT((size_t)c.tui.sent_len + (size_t)c.tui.cursor <= (size_t)c.tui.input_len,
+           "sent_len + cursor <= input_len after injection (ZT-031)");
 
     ctx_free(&c);
 }

@@ -64,6 +64,11 @@ bool fuzzy_handle(zt_ctx *c, unsigned char k) {
             memcpy(c->tui.input_buf, sel, n);
             c->tui.input_len = n;
             c->tui.cursor    = n;
+            /* The injected line is entirely unsent: reset sent_len so the
+             * edit-key math input_len - (sent_len + cursor) can't underflow
+             * into a ~SIZE_MAX memmove on the next Backspace/Ctrl+W. Mirrors
+             * load_history_into_buf() (src/loop/input.c). ZT-031. */
+            c->tui.sent_len = 0;
         }
         fuzzy_exit(c);
         return true;
