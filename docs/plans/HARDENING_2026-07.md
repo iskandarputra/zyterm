@@ -223,18 +223,20 @@ docs. Both come with a fix, so they are tracked here rather than as defects.
   `loop_wire_sinks()`); the core↔module embed-reset up-calls are gone (registry, below); and
   `reconnect.c` moved to the loop layer.
 
-  **Still open — the remaining up-calls a strict build surfaced** (compile with
-  `-Werror=implicit-function-declaration` under per-module narrow includes to reproduce the list).
-  Each must be relocated to its true layer before the narrow includes + lint can turn on:
+  A strict build (`-Werror=implicit-function-declaration` under per-module narrow includes) surfaced
+  **15 up-calls across 8 files** — far more than the review's "3 back-edges." Progress so far:
 
-  | Up-call | From (layer) | To (layer) | Fix |
-  |---|---|---|---|
-  | `set_flash` ×6 | scrollback/log, framing/osc/xmodem/proto, autobaud/tty_stats/serial | render | it's a pure "store a transient HUD string in the ctx" — move it **down to `core`** (like `zt_warn`), resolving all six at once |
-  | `log_notice` | autobaud/serial | log | same: it writes a ctx/log line — move down to `core` |
-  | `filter_feed`, `hooks_on_line`, `http_broadcast` | `render.c` `rx_ingest` | ext, net | `rx_ingest` is the byte-dispatch **orchestrator** — move it to the loop layer (it's only called from `runtime.c`), making these down-calls |
-  | `rx_thread_pause` / `rx_thread_unpause` ×2 | autobaud/serial | loop | move the pause/unpause to autobaud's two callers (`main.c`, `input.c`, both loop) so `autobaud_probe` stays serial-clean |
-  | `emit_colored_line`, `osc52_copy` ×2 | scrollback/log | render, proto | **split `scrollback.c`**: storage (the line ring) stays in `log`; the scrollback *draw* and *copy-selection* functions move to `tui` |
-  | `http_notify_input` | `hud.c`/tui | net | invert via a `c->core.input_notify` sink, or have the caller notify |
+  | Up-call | Status |
+  |---|---|
+  | `set_flash` ×6 (serial/proto/log → render) | **DONE** — moved down to `core` (pure ctx mutation, like `zt_warn`). |
+  | `log_notice` (serial → log) | **DONE** — moved down to `core` (uses only the core output buffer). |
+  | `rx_thread_pause`/`unpause` ×2 (autobaud/serial → loop) | **DONE** — `autobaud.c` relocated to the loop layer (only called from main/input). |
+  | `render_rx`, `direct_send`/`trickle_send` back-edges | **DONE** (step 2) — inverted through `c->core` sinks. |
+  | core → `session_`/`rx_thread_embed_reset` | **DONE** (step 3) — embed-reset registry. |
+  | `filter_feed`, `http_broadcast` (`render.c` `rx_ingest` → ext/net) | **open** — move `rx_ingest` to the loop layer (only called from `runtime.c`). |
+  | `hooks_on_line` (`render.c` `flush_line` → ext) | **open** — invert via a `c->core.line_hook` sink set by the loop. |
+  | `http_notify_input` (`hud.c`/tui → net) | **open** — invert via a `c->core.input_notify` sink. |
+  | `emit_colored_line`, `osc52_copy` (`scrollback.c`/log → render/proto) | **open** — **split `scrollback.c`**: the line-ring storage stays in `log`; the scrollback *draw* + *copy-selection* functions move to `tui`. Deserves its own reviewed PR. |
 
   **Then:** switch every non-`main` `.c` to its narrow module header, add `-Werror=implicit-function-declaration`
   plus a CI grep lint (no up-layer `extern`, no non-`main` umbrella include), and update
