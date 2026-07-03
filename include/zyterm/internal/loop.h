@@ -53,6 +53,11 @@ int run_interactive(zt_ctx *c);
 int run_dump(zt_ctx *c, int seconds);
 int run_replay(zt_ctx *c);
 
+/* ── loop/autobaud.c ───────────────────────────────────────────────────── */
+/* Probe common baud rates and adopt the best; pauses the reader thread around
+ * the fd swap, so it lives in the loop layer (called only from main/input). */
+int autobaud_probe(zt_ctx *c);
+
 /* ── loop/reconnect.c ──────────────────────────────────────────────────── */
 /* One reconnect attempt (re-resolve + reopen the device); returns 0 on success.
  * Declared here, not in serial.h: it orchestrates loop concerns (reader-thread

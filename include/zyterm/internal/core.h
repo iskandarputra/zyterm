@@ -35,6 +35,12 @@ void zt_trace(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
  *  idempotent. Keeps the reset wiring out of core (INVARIANTS §8). */
 void zt_register_embed_reset(void (*fn)(void));
 
+/** Flash a transient status banner in the HUD (auto-clears after ~2s). Pure ctx
+ *  mutation; lives in core so any layer can call down to it (INVARIANTS §8). */
+void set_flash(zt_ctx *c, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+/** Print a one-line notice inline in the RX stream (via the core output buffer). */
+void log_notice(zt_ctx *c, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+
 /** Loop-safe `write(2)`; retries on short writes. Returns 0 on success. */
 int zt_write_all(int fd, const void *buf, size_t n);
 

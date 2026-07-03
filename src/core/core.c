@@ -114,6 +114,38 @@ void zt_trace(const char *fmt, ...) {
     fclose(f);
 }
 
+/* Transient HUD status banner (auto-clears after ~2s). Pure ctx mutation, so it
+ * lives in core: any layer can flash a message by calling down here instead of
+ * the tui layer being reached up into (INVARIANTS §8). The HUD renders
+ * c->tui.flash. */
+__attribute__((format(printf, 2, 3))) void set_flash(zt_ctx *c, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(c->tui.flash, sizeof c->tui.flash, fmt, ap);
+    va_end(ap);
+    struct timespec t;
+    now(&t);
+    c->tui.flash_until = t;
+    c->tui.flash_until.tv_sec += 2;
+    c->tui.ui_dirty = true;
+}
+
+/* One-line notice printed inline in the RX stream via the core output buffer.
+ * Uses only ob_* (core) + a ctx flag, so it lives in core and any layer can
+ * call down to it — like zt_warn does for stderr (INVARIANTS §8). */
+__attribute__((format(printf, 2, 3))) void log_notice(zt_ctx *c, const char *fmt, ...) {
+    char    b[512];
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(b, sizeof b, fmt, ap);
+    va_end(ap);
+    if (n <= 0) return;
+    ob_cstr("\0338\033[38;5;60m\xe2\x94\x82\033[0m \033[38;5;245m");
+    ob_write(b, (size_t)n);
+    ob_cstr("\033[0m\r\n\0337");
+    c->tui.ui_dirty = true;
+}
+
 void zt_embed_reset(void) {
     zt_trace("zt_embed_reset: stdin_saved=%d ui_active=%d quit=%d winch=%d "
              "handlers_saved=will-uninstall",

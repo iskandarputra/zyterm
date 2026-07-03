@@ -31,7 +31,7 @@ void   draw_disconnect_popup(zt_ctx *c, int dots);
 void   draw_search_bar(zt_ctx *c);
 void   draw_rename_bar(zt_ctx *c);
 int    search_scrollback(zt_ctx *c, int dir);
-void   set_flash(zt_ctx *c, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+/* set_flash() moved to core.h (cross-cutting notification primitive). */
 
 /* ── tui/pager.c ───────────────────────────────────────────────────────── */
 bool pager_handle(zt_ctx *c, unsigned char k);

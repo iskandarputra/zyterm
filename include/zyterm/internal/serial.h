@@ -30,9 +30,6 @@ void        tty_stats_poll(zt_ctx *c);  /**< per HUD tick. */
 void        tty_stats_flush(zt_ctx *c); /**< TCFLSH on reconnect. */
 const char *tty_stats_modem_str(unsigned mask, char *buf, size_t cap);
 
-/* ── serial/autobaud.c ─────────────────────────────────────────────────── */
-int autobaud_probe(zt_ctx *c);
-
 /* ── serial/port_discover.c ────────────────────────────────────────────── */
 /** Probe a TTY's USB ancestor in sysfs. Returns 1 if both @c vid and @c pid
  *  match (a zero argument means "any"), 0 if no match, -1 if the device has

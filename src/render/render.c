@@ -503,15 +503,5 @@ void rx_ingest(zt_ctx *c, const unsigned char *buf, size_t n) {
     free(telnet_heap);
 }
 
-__attribute__((format(printf, 2, 3))) void log_notice(zt_ctx *c, const char *fmt, ...) {
-    char    b[512];
-    va_list ap;
-    va_start(ap, fmt);
-    int n = vsnprintf(b, sizeof b, fmt, ap);
-    va_end(ap);
-    if (n <= 0) return;
-    ob_cstr("\0338\033[38;5;60m\xe2\x94\x82\033[0m \033[38;5;245m");
-    ob_write(b, (size_t)n);
-    ob_cstr("\033[0m\r\n\0337");
-    c->tui.ui_dirty = true;
-}
+/* log_notice() moved to core.c (INVARIANTS §8 — it uses only the core output
+ * buffer + a ctx flag, so every layer can call down to it). Declared in core.h. */

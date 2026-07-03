@@ -14,12 +14,12 @@
 #include "serial.h"
 
 /* ── log/logio.c ───────────────────────────────────────────────────────── */
-void        log_rotate_if_needed(zt_ctx *c);
-void        log_write_raw(zt_ctx *c, const unsigned char *buf, size_t n);
-void        log_emit_ts(zt_ctx *c, const char *tag);
-void        log_write(zt_ctx *c, const unsigned char *buf, size_t n);
-void        log_write_tx(zt_ctx *c, const unsigned char *buf, size_t n);
-void        log_notice(zt_ctx *c, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+void log_rotate_if_needed(zt_ctx *c);
+void log_write_raw(zt_ctx *c, const unsigned char *buf, size_t n);
+void log_emit_ts(zt_ctx *c, const char *tag);
+void log_write(zt_ctx *c, const unsigned char *buf, size_t n);
+void log_write_tx(zt_ctx *c, const unsigned char *buf, size_t n);
+/* log_notice() moved to core.h (cross-cutting notification primitive). */
 int         watch_match(const zt_ctx *c, const unsigned char *line, size_t len);
 void        history_push(zt_ctx *c, const unsigned char *buf, size_t n);
 const char *history_at(zt_ctx *c, int back);

@@ -504,17 +504,8 @@ void draw_cmd_popup(zt_ctx *c) {
     ob_flush();
 }
 
-__attribute__((format(printf, 2, 3))) void set_flash(zt_ctx *c, const char *fmt, ...) {
-    va_list ap;
-    va_start(ap, fmt);
-    vsnprintf(c->tui.flash, sizeof c->tui.flash, fmt, ap);
-    va_end(ap);
-    struct timespec t;
-    now(&t);
-    c->tui.flash_until = t;
-    c->tui.flash_until.tv_sec += 2;
-    c->tui.ui_dirty = true;
-}
+/* set_flash() moved to core.c (INVARIANTS §8 — cross-cutting notification
+ * primitive callable from every layer). Declared in core.h. */
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Minicom-style settings menu  (Ctrl+A o)
