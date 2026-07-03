@@ -53,4 +53,13 @@ int run_interactive(zt_ctx *c);
 int run_dump(zt_ctx *c, int seconds);
 int run_replay(zt_ctx *c);
 
+/* ── loop/reconnect.c ──────────────────────────────────────────────────── */
+/* One reconnect attempt (re-resolve + reopen the device); returns 0 on success.
+ * Declared here, not in serial.h: it orchestrates loop concerns (reader-thread
+ * pause, framing reset) so it lives in the loop layer. */
+int reconnect_attempt(zt_ctx *c);
+/* The responsive wait-for-device loop: pauses the reader, pumps stdin for quit,
+ * rediscovers the port, and unpauses on success. */
+void run_reconnect_loop(zt_ctx *c);
+
 #endif /* ZYTERM_INTERNAL_LOOP_H_ */

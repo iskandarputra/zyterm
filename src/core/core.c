@@ -60,11 +60,30 @@ void       zt_embed_disarm(void) {
 /* Forward declaration — defined further below in this file. */
 void        uninstall_signals(void);
 static void zt_embed_reset_buffers(void);
-/* Defined in loop/rx_thread.c — stops an orphaned --threaded worker on the
- * embedded exit paths (this is an intentional up-call, like the
- * session_embed_reset() hook below; the layering cleanup is tracked
- * in plans/HARDENING_2026-07.md §7). ZT-033. */
-void rx_thread_embed_reset(void);
+
+/* ── Embed-reset registry ─────────────────────────────────────────────────
+ * Modules with per-run file-static state (net/session.c client fds, the
+ * loop/rx_thread.c worker, …) register a reset hook here via a constructor;
+ * zt_embed_reset() and the embedded zt_die() path run them all. This inverts
+ * the old up-calls (core naming session_/rx_thread_embed_reset by hand) so the
+ * module dependency chain stays acyclic and compiler-checkable (INVARIANTS §8):
+ * a module reaching DOWN to zt_register_embed_reset is legal; core reaching UP
+ * to name a module symbol was not. */
+static void (*s_embed_resets[8])(void);
+static int s_embed_reset_n;
+
+void       zt_register_embed_reset(void (*fn)(void)) {
+    if (!fn) return;
+    for (int i = 0; i < s_embed_reset_n; i++)
+        if (s_embed_resets[i] == fn) return; /* idempotent */
+    if (s_embed_reset_n < (int)(sizeof s_embed_resets / sizeof s_embed_resets[0]))
+        s_embed_resets[s_embed_reset_n++] = fn;
+}
+
+static void run_embed_resets(void) {
+    for (int i = 0; i < s_embed_reset_n; i++)
+        s_embed_resets[i]();
+}
 
 /* ── Optional embed-mode trace log ───────────────────────────────────
  * When zyterm runs as a zy builtin, fatal exits would normally take the
@@ -124,15 +143,11 @@ void zt_embed_reset(void) {
     /* Discard any leftover bytes in the render buffer so they aren't
      * spuriously emitted on the host's terminal at the next ob_flush. */
     zt_embed_reset_buffers();
-    /* Scrub file-static state in other subsystems that would otherwise
-     * persist across embedded invocations. These are no-ops if the
-     * feature wasn't used in the previous run. */
-    session_embed_reset();
-    /* Stop any --threaded worker orphaned by a fatal siglongjmp on the
-     * previous run before the host reuses zyterm_main's stack — otherwise
-     * the still-running worker writes through a stale ctx pointer (ZT-033).
-     * No-op if the worker was already joined on a clean exit. */
-    rx_thread_embed_reset();
+    /* Run every module's registered reset: scrub per-run file-static state
+     * (session client fds) and stop a --threaded worker orphaned by a prior
+     * fatal siglongjmp before the host reuses zyterm_main's stack (ZT-033).
+     * No-ops if the feature wasn't used last run. */
+    run_embed_resets();
 }
 
 /* =========================================================================
@@ -231,11 +246,11 @@ void zt_die(const char *fmt, ...) {
     zt_trace("zt_die: embedded=%d armed=%d msg=%s", zt_g_embedded, zt_g_embed_jmp_armed, msg);
     /* Embedded-in-zy: bail out to the host instead of killing the shell. */
     if (zt_g_embedded && zt_g_embed_jmp_armed) {
-        /* zt_die runs on the main thread, so stop the --threaded worker now
-         * (join + free) before we siglongjmp past zyterm_main's own
-         * rx_thread_stop(&c) — leaving it live would strand it on a dead
-         * stack ctx (ZT-033). zt_embed_reset() repeats this as a backstop. */
-        rx_thread_embed_reset();
+        /* zt_die runs on the main thread, so run the registered teardowns now
+         * (stop the --threaded worker, close session fds) before we siglongjmp
+         * past zyterm_main's own cleanup — leaving the worker live would strand
+         * it on a dead stack ctx (ZT-033). zt_embed_reset() repeats this. */
+        run_embed_resets();
         zt_g_embed_jmp_armed = false;
         siglongjmp(zt_g_embed_jmp, 1);
     }

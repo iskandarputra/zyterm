@@ -73,7 +73,4 @@ void profile_watch_tick(zt_ctx *c);
 /** Stop watching and release inotify resources. */
 void profile_watch_stop(zt_ctx *c);
 
-/* ── ext/reconnect.c ───────────────────────────────────────────────────── */
-void run_reconnect_loop(zt_ctx *c);
-
 #endif /* ZYTERM_INTERNAL_EXT_H_ */

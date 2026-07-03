@@ -24,7 +24,6 @@ int  setup_serial(const char *path, unsigned baud, int data_bits, char parity, i
 int  apply_flow(int fd, int flow);
 int  try_reopen_serial(const char *path, unsigned baud, int data_bits, char parity,
                        int stop_bits, int flow);
-int  reconnect_attempt(zt_ctx *c);
 
 /* ── serial/tty_stats.c ────────────────────────────────────────────────── */
 void        tty_stats_poll(zt_ctx *c);  /**< per HUD tick. */

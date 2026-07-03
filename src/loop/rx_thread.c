@@ -229,6 +229,12 @@ void rx_thread_embed_reset(void) {
     if (g_rx_embed_ctx) rx_thread_stop(g_rx_embed_ctx);
 }
 
+/* Self-register the reset above so core's zt_embed_reset() / zt_die() run it
+ * without naming this loop-layer symbol (INVARIANTS §8). */
+__attribute__((constructor)) static void rx_thread_register_embed_reset(void) {
+    zt_register_embed_reset(rx_thread_embed_reset);
+}
+
 size_t rx_thread_drain(zt_ctx *c, unsigned char *dst, size_t cap) {
 #if ZT_HAVE_PTHREAD
     if (!c || !c->serial.spsc_impl || !dst || cap == 0) return 0;

@@ -99,6 +99,12 @@ void       session_embed_reset(void) {
     }
 }
 
+/* Self-register the reset above so core's zt_embed_reset() runs it without
+ * naming this net-layer symbol (INVARIANTS §8). */
+__attribute__((constructor)) static void session_register_embed_reset(void) {
+    zt_register_embed_reset(session_embed_reset);
+}
+
 void session_tick(zt_ctx *c) {
     if (!c || c->net.session_fd < 0) return;
     while (1) {

@@ -30,6 +30,11 @@ void zt_die(const char *fmt, ...) __attribute__((format(printf, 1, 2), noreturn)
 /** Append a one-line trace record to `$ZYTERM_TRACE` if set. */
 void zt_trace(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 
+/** Register a per-run teardown hook, run by zt_embed_reset() and the embedded
+ *  zt_die() path. Modules with file-static state call this from a constructor;
+ *  idempotent. Keeps the reset wiring out of core (INVARIANTS §8). */
+void zt_register_embed_reset(void (*fn)(void));
+
 /** Loop-safe `write(2)`; retries on short writes. Returns 0 on success. */
 int zt_write_all(int fd, const void *buf, size_t n);
 
