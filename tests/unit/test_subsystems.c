@@ -655,6 +655,79 @@ static void test_http_server(void) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 13b. HTTP POST /tx with a body split across TCP segments (ZT-034)  */
+/* ------------------------------------------------------------------ */
+static void test_http_post_split_body(void) {
+    SECTION("http POST /tx split body");
+    zt_ctx c;
+    ctx_init(&c);
+
+    int port = find_free_port();
+    if (port <= 0) {
+        ctx_free(&c);
+        return;
+    }
+    if (http_start(&c, port) != 0) {
+        ctx_free(&c);
+        return;
+    }
+
+    /* Capture what direct_send() writes to the "device" via a pipe. */
+    int sp[2];
+    if (pipe(sp) != 0) {
+        http_stop(&c);
+        ctx_free(&c);
+        return;
+    }
+    c.serial.fd = sp[1];
+    {
+        int fl = fcntl(sp[0], F_GETFL, 0);
+        fcntl(sp[0], F_SETFL, fl | O_NONBLOCK);
+    }
+
+    int                cfd = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in sa  = {0};
+    sa.sin_family          = AF_INET;
+    sa.sin_addr.s_addr     = htonl(INADDR_LOOPBACK);
+    sa.sin_port            = htons((uint16_t)port);
+    ASSERT(connect(cfd, (struct sockaddr *)&sa, sizeof sa) == 0, "split-POST client connects");
+
+    /* Segment 1: headers only, advertising an 11-byte body. Before ZT-034 the
+     * server dispatched on "\r\n\r\n" and closed the slot, so the body that
+     * follows in segment 2 never reached the device. */
+    const char *hdr = "POST /tx HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 11\r\n\r\n";
+    if (write(cfd, hdr, strlen(hdr)) < 0) {}
+    for (int i = 0; i < 5; i++) {
+        http_tick(&c);
+        usleep(3000);
+    }
+    char    devbuf[64];
+    ssize_t got = read(sp[0], devbuf, sizeof devbuf);
+    ASSERT(got < 0 && (errno == EAGAIN || errno == EWOULDBLOCK),
+           "no device write before full body arrives (ZT-034)");
+
+    /* Segment 2: the 11-byte body. */
+    const char *bdy = "hello world";
+    if (write(cfd, bdy, strlen(bdy)) < 0) {}
+    size_t dtot = 0;
+    for (int i = 0; i < 40 && dtot < 11; i++) {
+        http_tick(&c);
+        usleep(5000);
+        ssize_t rr = read(sp[0], devbuf + dtot, sizeof devbuf - dtot);
+        if (rr > 0) dtot += (size_t)rr;
+    }
+    ASSERT(dtot == 11 && memcmp(devbuf, "hello world", 11) == 0,
+           "full 11-byte split body delivered to device (ZT-034)");
+
+    close(cfd);
+    close(sp[0]);
+    c.serial.fd = -1;
+    close(sp[1]);
+    http_stop(&c);
+    ctx_free(&c);
+}
+
+/* ------------------------------------------------------------------ */
 /* 14. Filter (pipe mock — uses `cat` as filter)                      */
 /* ------------------------------------------------------------------ */
 static void test_filter(void) {
@@ -1577,6 +1650,7 @@ int main(void) {
     /* Integration / Tier 4 */
     test_pty_roundtrip();
     test_http_server();
+    test_http_post_split_body();
 
     fprintf(stderr, "\n========================================\n");
     fprintf(stderr, "%d passed, %d failed\n", g_pass, g_fail);

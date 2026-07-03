@@ -5,7 +5,7 @@
  * Endpoints:
  *   GET /           — minimal HTML page with a live RX view
  *   GET /stream     — Server-Sent Events stream of RX bytes
- *   GET /ws         — WebSocket upgrade, RFC 6455, text frames of RX
+ *   GET /ws         — WebSocket upgrade, RFC 6455, binary frames of RX
  *   GET /metrics    — same text as metrics.c snapshot
  *   POST /tx        — write request body to the serial line
  *
@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h> /* strncasecmp for the Content-Length parse (ZT-034) */
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -967,6 +968,39 @@ static int accept_one(zt_ctx *c, int lfd) {
     return 0;
 }
 
+/* Parse a Content-Length header (case-insensitive, line-anchored) from the
+ * request header block [buf, buf+hdr_len). Returns the declared byte count,
+ * 0 when the header is absent (no body), HC_REQ_CAP+1 when it exceeds what
+ * our bounded buffer can hold, or -1 when malformed. Lets hc_pump_new() wait
+ * for the whole POST body before dispatch and classify_request() send exactly
+ * that many bytes (ZT-034). */
+static long http_content_length(const char *buf, size_t hdr_len) {
+    const char *end = buf + hdr_len;
+    const char *p   = buf;
+    while (p < end) {
+        const char *nl      = memchr(p, '\n', (size_t)(end - p));
+        size_t      linelen = nl ? (size_t)(nl - p) : (size_t)(end - p);
+        if (linelen >= 15 && strncasecmp(p, "Content-Length:", 15) == 0) {
+            const char *v  = p + 15;
+            const char *le = p + linelen;
+            while (v < le && (*v == ' ' || *v == '\t'))
+                v++;
+            long val = 0;
+            bool any = false;
+            while (v < le && *v >= '0' && *v <= '9') {
+                val = val * 10 + (*v - '0');
+                any = true;
+                if (val > HC_REQ_CAP) return HC_REQ_CAP + 1; /* too large to buffer */
+                v++;
+            }
+            return any ? val : -1;
+        }
+        if (!nl) break;
+        p = nl + 1;
+    }
+    return 0; /* no Content-Length → no body */
+}
+
 /* Promote an HC_NEW slot to HC_SSE or HC_WS for ongoing streaming, or
  * leave the connection unstored (caller closes). */
 static void classify_request(zt_ctx *c, int i) {
@@ -1072,6 +1106,11 @@ static void classify_request(zt_ctx *c, int i) {
         if (body && c->serial.fd >= 0) {
             body += 4;
             size_t blen = rn - (size_t)(body - req);
+            /* ZT-034: honor Content-Length so a pipelined or over-read tail
+             * isn't sent to the device as part of this command. hc_pump_new()
+             * has already waited for the full declared body to arrive. */
+            long clen = http_content_length(req, (size_t)(body - req));
+            if (clen > 0 && (size_t)clen < blen) blen = (size_t)clen;
             direct_send(c, (const unsigned char *)body, blen);
         }
         send_text_c(c, cfd, "204 No Content", "text/plain", "", 0);
@@ -1121,7 +1160,23 @@ static void hc_pump_new(zt_ctx *c, int i) {
         if (r > 0) {
             h->req_len += (size_t)r;
             h->req_buf[h->req_len] = '\0';
-            if (h->req_len >= 4 && memmem(h->req_buf, h->req_len, "\r\n\r\n", 4) != NULL) {
+            char *hdrend           = memmem(h->req_buf, h->req_len, "\r\n\r\n", 4);
+            if (hdrend) {
+                size_t header_len = (size_t)(hdrend - h->req_buf) + 4;
+                /* ZT-034: for POST, don't dispatch until the whole declared
+                 * body has arrived — otherwise a body split across TCP
+                 * segments is truncated/dropped while we return 204. */
+                if (h->req_len >= 5 && strncmp(h->req_buf, "POST ", 5) == 0) {
+                    long clen = http_content_length(h->req_buf, header_len);
+                    if (clen > (long)(sizeof h->req_buf - 1 - header_len)) {
+                        /* declared body can't fit our bounded request buffer */
+                        send_text_c(c, h->fd, "413 Payload Too Large", "text/plain", "", 0);
+                        hc_close(i);
+                        return;
+                    }
+                    if (clen > 0 && h->req_len - header_len < (size_t)clen)
+                        continue; /* wait for the rest of the body */
+                }
                 classify_request(c, i);
                 return;
             }
@@ -1154,14 +1209,16 @@ void http_tick(zt_ctx *c) {
     }
 }
 
-/* Send one WS text frame. Returns 0 on success, -1 if the peer's socket can't
- * take the whole frame (ZT-009): the caller must then close it, because a
- * partial frame desyncs the stream and a never-reaped dead peer exhausts the
- * 16 connection slots (ZT-017). */
-static int ws_frame_text(int fd, const unsigned char *buf, size_t n) {
+/* Send one WS binary frame. Returns 0 on success, -1 if the peer's socket
+ * can't take the whole frame (ZT-009): the caller must then close it, because
+ * a partial frame desyncs the stream and a never-reaped dead peer exhausts the
+ * 16 connection slots (ZT-017). Binary (opcode 0x2), not text: device RX is
+ * arbitrary 8-bit data, and a TEXT frame carrying a non-UTF-8 byte makes every
+ * conformant client fail the connection with close code 1007 (ZT-035). */
+static int ws_frame_binary(int fd, const unsigned char *buf, size_t n) {
     unsigned char hdr[10];
     size_t        hl = 0;
-    hdr[0]           = 0x81; /* FIN + text */
+    hdr[0]           = 0x82; /* FIN + binary */
     if (n < 126) {
         hdr[1] = (unsigned char)n;
         hl     = 2;
@@ -1207,7 +1264,7 @@ void http_broadcast(zt_ctx *c, const unsigned char *buf, size_t n) {
                     hc_close(i);
             } else if (g_conn[i].type == HC_WS) {
                 /* ZT-009/ZT-017: check the frame write and reap dead peers. */
-                if (ws_frame_text(g_conn[i].fd, seg, seglen) != 0) hc_close(i);
+                if (ws_frame_binary(g_conn[i].fd, seg, seglen) != 0) hc_close(i);
             }
         }
     }

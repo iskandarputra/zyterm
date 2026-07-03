@@ -174,6 +174,15 @@ int run_interactive(zt_ctx *c) {
         }
 
         if (pfds[0].revents & (POLLERR | POLLNVAL)) {
+            /* ZT-036: flush any bytes the --threaded worker already queued in
+             * the SPSC ring before run_reconnect_loop() frees it (no-op when
+             * not threaded). The POLLERR/POLLNVAL path drained nothing before. */
+            for (;;) {
+                size_t n = rx_thread_drain(c, rbuf, sizeof rbuf);
+                if (n == 0) break;
+                log_write(c, rbuf, n);
+                rx_ingest(c, rbuf, n);
+            }
             if (c->core.reconnect) {
                 run_reconnect_loop(c);
                 if (!zt_g_quit) continue;
@@ -201,6 +210,17 @@ int run_interactive(zt_ctx *c) {
                     if (r < 0 && errno == EINTR) continue;
                     break; /* EOF, EAGAIN, or hard error → fall through to reconnect */
                 }
+            }
+            /* ZT-036: threaded twin of the ZT-027 drain above. In --threaded
+             * mode the device's final pre-hangup burst is in the SPSC ring
+             * (the worker already read it off the fd), and run_reconnect_loop()
+             * stops the worker and frees the ring — so flush it first. No-op
+             * when not threaded (rx_thread_drain returns 0 with no ring). */
+            for (;;) {
+                size_t n = rx_thread_drain(c, rbuf, sizeof rbuf);
+                if (n == 0) break;
+                log_write(c, rbuf, n);
+                rx_ingest(c, rbuf, n);
             }
             if (c->core.reconnect) {
                 run_reconnect_loop(c);
