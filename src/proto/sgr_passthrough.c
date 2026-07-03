@@ -31,7 +31,7 @@
  * @license MIT — see LICENSE for details.
  */
 #include "zt_ctx.h"
-#include "zt_internal.h"
+#include "zyterm/internal/proto.h"
 
 /* True iff every accumulated CSI byte is a legal SGR parameter (0-9 ; :).
  * Any private-parameter marker (< = > ?) or intermediate (0x20-0x2F) fails,

@@ -40,7 +40,7 @@
  * @license MIT — see LICENSE for details.
  */
 #include "zt_ctx.h"
-#include "zt_internal.h"
+#include "zyterm/internal/proto.h"
 
 #include <dlfcn.h>
 #include <errno.h>

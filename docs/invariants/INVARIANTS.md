@@ -335,14 +335,23 @@ header-enforced dependency chain** with a single shared context object. See
 [ADR-0002](../decisions/0002-single-ctx-poll-driven-loop.md).
 
 - **The dependency chain only ever points down the layer stack:**
-  `core ← serial ← log ← proto ← render ← tui ← net ← ext ← loop`. A module never includes a
-  header above it in this chain.
-  - `where`: enforced by `include/zyterm/internal/<m>.h`, each of which includes exactly the one
-    beneath it (verified at line 15 of each header).
+  `core ← serial ← log ← proto ← render ← tui ← net ← ext ← loop`. A module never calls up the chain.
+  - `where`: **compiler-enforced** — each non-`main` `.c` includes only its own
+    `include/zyterm/internal/<m>.h` (which includes exactly the one beneath it), so a call to a
+    higher layer has no declaration in scope. `-Werror=implicit-function-declaration` (Makefile
+    `WARN`) turns that into a compile error rather than a silent link, and `make layering-check`
+    rejects any umbrella include or bare up-layer `extern` under `src/`.
+  - **Cross-layer callbacks point down, never up.** Where a lower layer must reach a higher-layer
+    primitive — proto framing → the RX line sink; proto/ext/net → the loop TX primitives; render's
+    `flush_line` → ext hooks; tui → the net input-notify — it calls through a function pointer on
+    `c->core` (`rx_sink`, `tx_direct`, `tx_trickle`, `line_hook`, `input_notify`) that the loop layer
+    wires once via `loop_wire_sinks()`. No lower module names a higher-layer symbol.
 
-- **`main.c` is the only translation unit allowed into `loop/`.** No other module includes
-  `loop.h`; the umbrella `src/zt_internal.h` includes only `loop.h`.
-  - `where`: `src/zt_internal.h` (umbrella), `src/main.c`.
+- **Only `loop/` translation units and `main.c` reach into `loop.h`.** `main.c` uses the umbrella
+  `src/zt_internal.h` (which includes only `loop.h`); the loop-layer files include `loop.h` directly
+  (it is their own module header). No lower-layer module includes it. Orchestrators that span layers
+  live in `loop/` for this reason — `runtime.c`'s `rx_ingest`, `reconnect.c`, `autobaud.c`.
+  - `where`: `src/zt_internal.h` (umbrella), `src/main.c`, `src/loop/*.c`.
 
 - **There is exactly one `zt_ctx` per process and it holds all per-process state.** Fields are
   grouped by feature tier (0–4). State is not duplicated into module-file statics where it would
@@ -358,10 +367,13 @@ header-enforced dependency chain** with a single shared context object. See
 
 - **Embedded reuse must reset all sticky state to first-call baseline.** `zt_embed_reset()`
   uninstalls signal handlers, zeroes `zt_g_quit` / `zt_g_winch` / `zt_g_ui_active` /
-  `zt_g_stdin_saved`, discards the output buffer, and calls each module's own embed-reset hook.
-  Any new file-static or sticky global a feature adds must be scrubbed here too.
-  - `where`: `src/core/core.c:93-127` (`zt_embed_reset`, including `multi_embed_reset()` /
-    `session_embed_reset()`).
+  `zt_g_stdin_saved`, discards the output buffer, and runs **every module's registered reset hook**.
+  A module with per-run file-static state self-registers a reset via a constructor calling
+  `zt_register_embed_reset()`, so core never has to name it (which would be an up-call). Any new
+  file-static a feature adds must either live in `zt_ctx` or register a reset hook.
+  - `where`: `src/core/core.c` (`zt_embed_reset` → `run_embed_resets`, and the
+    `zt_register_embed_reset` registry); `net/session.c` and `loop/rx_thread.c` register via
+    `__attribute__((constructor))`.
 
 - **The embedding surface is exactly 7 exported symbols.** `zyterm_main`, `zt_g_embedded`,
   `zt_g_embed_jmp`, `zt_g_embed_jmp_armed`, `zt_embed_disarm`, `zt_embed_reset`, `zt_trace`. Adding

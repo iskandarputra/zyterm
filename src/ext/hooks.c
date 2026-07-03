@@ -34,7 +34,7 @@
  * @license MIT — see LICENSE for details.
  */
 #include "zt_ctx.h"
-#include "zt_internal.h"
+#include "zyterm/internal/ext.h"
 
 #include <errno.h>
 #include <fcntl.h>
