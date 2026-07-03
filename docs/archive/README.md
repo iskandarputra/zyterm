@@ -43,7 +43,12 @@ claim over them.
   by module and is the origin story for the `ZT-001`…`ZT-028` defect set and the corrected
   feature truth. Read it for *context and reasoning*; for the *current* status of any finding,
   follow it through to [`tracking/KNOWN_ISSUES.md`](../tracking/KNOWN_ISSUES.md).
+- [`audit/2026-07-03-source-review.md`](audit/2026-07-03-source-review.md) — the wave-2 re-review of
+  v1.4.0 (a 47-agent, adversarially-verified pass). Origin of the `ZT-030`…`ZT-049` defect set and the
+  forward-looking work in [`plans/HARDENING_2026-07.md`](../plans/HARDENING_2026-07.md). Its central
+  finding: several wave-1 class-fixes were applied to one code path and their siblings were missed. For
+  current status, follow through to [`tracking/KNOWN_ISSUES.md`](../tracking/KNOWN_ISSUES.md).
 
 ---
 
-_Last updated: 2026-06-03._
+_Last updated: 2026-07-03._
