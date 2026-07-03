@@ -354,7 +354,6 @@ int zyterm_main(int argc, char **argv) {
     c.serial.fd            = -1;
     c.log.fd               = -1;
     c.net.http_fd          = -1;
-    c.serial.epoll_fd      = -1;
     c.ext.filter_stdin_fd  = -1;
     c.ext.filter_stdout_fd = -1;
     c.net.metrics_fd       = -1;

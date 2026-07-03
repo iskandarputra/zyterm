@@ -230,9 +230,6 @@ typedef struct {
         bool  spsc_enabled;      /**< Reader thread is on.                     */
         int   spsc_wake_pipe[2]; /**< Main wakes via eventfd-ish pipe.         */
         void *spsc_impl;         /**< Opaque — defined in rx_thread.c.         */
-
-        /* Tier 1 — epoll fd (Linux fast path) */
-        int epoll_fd; /**< Linux only; -1 otherwise.                */
     } serial;
 
     struct {

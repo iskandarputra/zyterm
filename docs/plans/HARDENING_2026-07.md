@@ -229,14 +229,14 @@ docs. Both come with a fix, so they are tracked here rather than as defects.
   bleeds between embedded runs). **Fix:** pull genuinely per-session state into `zt_ctx`; for state
   that must stay module-private (http `g_conn`, clipboard handle), replace the hard-coded resets with
   a small registry each module registers into, plus a lint mirroring the layering check.
-- **Dead code shipping in every binary** — `serial/fastio.c` (epoll+splice, 0 callers),
-  `proto/osc.c` `osc8_rewrite` (0 callers), and `ext/multi.c` (0 callers, and it reintroduces the
-  file-static session state + a blocking loop read the invariants forbid). **Fix:** delete or
-  `#ifdef`-gate all three (the `fastio` epoll/splice decision is already open in
-  [ROADMAP.md](./ROADMAP.md) and [ADR-0003](../decisions/0003-epoll-splice-fastpath-deferred.md));
-  the one real `fastio` win — `splice`ing serial→logfile on the raw-dump path — is the only piece
-  worth wiring. Also close the `profile_save`/`profile_load` round-trip gaps (`flow` is documented but
-  neither written nor parsed; watches/macros aren't persisted).
+- **Dead code shipping in every binary** — **`serial/fastio.c` and `ext/multi.c` deleted (2026-07)**:
+  both had zero callers, and `multi.c` reintroduced the file-static session state + a blocking loop
+  read the invariants forbid; the `epoll` runtime was never worth it over `--threaded`, and the one
+  real idea (`splice` serial→logfile on the raw-dump path) is noted in [ROADMAP.md](./ROADMAP.md).
+  **Still open:** `proto/osc.c` `osc8_rewrite` (0 callers, ZT-019) — its removal is entangled with
+  the user-facing "Hyperlinks (OSC 8)" settings toggle (`hud.c` row `E`, `input.c`), so it needs a
+  small settings-menu renumber to remove cleanly. Also still open: the `profile_save`/`profile_load`
+  round-trip gaps (`flow` documented but neither written nor parsed; watches/macros not persisted).
 
 ---
 

@@ -62,7 +62,7 @@ void        uninstall_signals(void);
 static void zt_embed_reset_buffers(void);
 /* Defined in loop/rx_thread.c — stops an orphaned --threaded worker on the
  * embedded exit paths (this is an intentional up-call, like the
- * multi_/session_embed_reset() hooks below; the layering cleanup is tracked
+ * session_embed_reset() hook below; the layering cleanup is tracked
  * in plans/HARDENING_2026-07.md §7). ZT-033. */
 void rx_thread_embed_reset(void);
 
@@ -127,7 +127,6 @@ void zt_embed_reset(void) {
     /* Scrub file-static state in other subsystems that would otherwise
      * persist across embedded invocations. These are no-ops if the
      * feature wasn't used in the previous run. */
-    multi_embed_reset();
     session_embed_reset();
     /* Stop any --threaded worker orphaned by a fatal siglongjmp on the
      * previous run before the host reuses zyterm_main's stack — otherwise
