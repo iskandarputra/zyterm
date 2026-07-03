@@ -3,7 +3,7 @@
 - **Severity:** 🔴 high (a live worker thread keeps writing through a stale pointer into a reused
   host stack — use-after-free / memory corruption in the long-lived `zy` builtin)
 - **Area:** loop/concurrency (embedded) / memsafety
-- **Status:** **open** — recorded 2026-07-03 (2026-07 re-review of v1.4.0). Not fixed.
+- **Status:** **fixed** 2026-07-03 on branch `fix/zt-030-033-high-severity` (recorded 2026-07-03, pending merge) — see [KNOWN_ISSUES Resolved](../KNOWN_ISSUES.md#resolved)
 - **Location:** worker `rx_thread_main` (`src/loop/rx_thread.c:65`, ring write ~`:86–89`), created
   in `rx_thread_start` (`src/loop/rx_thread.c:155`) with `arg = &c`, the stack-local `zt_ctx`
   declared in `zyterm_main` (`src/main.c:352`). The only teardown, `rx_thread_stop(&c)`

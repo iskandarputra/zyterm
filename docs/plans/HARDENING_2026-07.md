@@ -1,9 +1,13 @@
 # Reliability hardening plan — wave 2 (2026-07, v1.4.0)
 
-> **Status (2026-07-03): OPEN — not started.** This is the prioritized fix-and-harden plan for the
-> defects and engineering gaps found by the **2026-07-03 re-review** of zyterm 1.4.0. It is the
-> sequel to [RELIABILITY_HARDENING.md](./RELIABILITY_HARDENING.md) (wave 1, ZT-001…028, COMPLETE),
-> not a replacement — that file stays as the historical record of the first wave.
+> **Status (2026-07-03): defects fixed, engineering work open.** All twenty defects (ZT-030 … ZT-049)
+> in Phases 1–4 below are fixed on branch `fix/zt-030-033-high-severity` (pending merge) — see the
+> Resolved table in [tracking/KNOWN_ISSUES.md](../tracking/KNOWN_ISSUES.md). The **non-defect**
+> engineering work is still open: the `http.c` split (Phase 2), SPSC drop accounting + a TSan CI leg
+> (Phase 3), the performance hot-path work (Phase 5), the testability foundation (Phase 6), and the
+> architecture-accuracy / dead-code cleanup (Phase 7). This is the sequel to
+> [RELIABILITY_HARDENING.md](./RELIABILITY_HARDENING.md) (wave 1, ZT-001…028, COMPLETE), not a
+> replacement — that file stays as the historical record of the first wave.
 
 Every defect item references an ID (`ZT-030`…`ZT-049`) in
 [tracking/KNOWN_ISSUES.md](../tracking/KNOWN_ISSUES.md) and the don't-regress rules in

@@ -35,28 +35,41 @@ HOW TO ADD A DEFECT
 
 | ID | Sev | Area | Location | Status | What's wrong → fix direction |
 |----|-----|------|----------|--------|------------------------------|
-| [ZT-030](issues/ZT-030-profile-save-frees-argv-device.md) | 🔴 | ownership | `src/main.c:723` | open | `--profile-save <name> <DEVICE>` aliases non-heap `argv[optind]` into `c.serial.device`; `cleanup_ctx` then `free()`s it (`main.c:329`) → `free(): invalid pointer` / heap corruption. ZT-001 twin, still live on this one path → `strdup` it, or `NULL` before cleanup like the replay path (`main.c:747`). |
-| [ZT-031](issues/ZT-031-fuzzy-inject-stale-sent-len-oob.md) | 🔴 | tui/memsafety | `src/tui/fuzzy.c:65` | open | fuzzy-finder Enter injects a history line setting `input_len`/`cursor` but not `sent_len`; with local echo or after Tab (`sent_len>0`) the next Backspace/Ctrl+W computes unsigned `input_len-(sent_len+cursor)` ≈ `SIZE_MAX` → OOB `memmove` over `input_buf` → crash/`zt_ctx` corruption → set `sent_len=0` like `input.c:40`. |
-| [ZT-032](issues/ZT-032-filter-stdin-blocking-hangs-loop.md) | 🔴 | blocking-in-loop | `src/ext/filter.c:70` | open | `--filter` stdin (`in_pipe[1]`) is left blocking (no `O_NONBLOCK`), so `filter_feed`'s EAGAIN drop-branch (`:127`) is dead and a slow filter blocks `write()` in the poll loop → whole UI (incl. Ctrl+A x) hangs → `O_NONBLOCK` on `in_pipe[1]` after fork (child stdin is a separate OFD). INVARIANTS §3. |
-| [ZT-033](issues/ZT-033-rx-thread-orphaned-on-siglongjmp-uaf.md) | 🔴 | concurrency/embedded | `src/core/core.c:312` | open | embedded fatal `siglongjmp` (`zt_die`/`sig_crash`) and `zt_embed_reset` skip `rx_thread_stop`, orphaning the `--threaded` worker still writing into `zyterm_main`'s reclaimed stack → UAF in the host + dup-fd/1 MiB-ring leak → run one teardown (stop worker, close fds) on every exit path. INVARIANTS §4. |
-| ZT-034 | 🟠 | logic | `src/net/http.c:1071` | open | `POST /tx`/`/api/send` take the body only from bytes buffered when `\r\n\r\n` first appears and ignore `Content-Length`; a body split across TCP segments is truncated/dropped while returning 204 (a partial command can reach the wire) → parse `Content-Length`, accumulate the full body (cap + 413) before `direct_send`. |
-| ZT-035 | 🟠 | correctness | `src/net/http.c:1161` | open | `/ws` ships raw 8-bit serial in a TEXT frame (`hdr[0]=0x81`); any non-UTF-8 byte makes conformant browsers fail the stream (close 1007), so `/ws` is unusable for typical serial → send binary frames (`0x82`) or base64 like the SSE path. |
-| ZT-036 | 🟠 | logic | `src/loop/runtime.c:189` | open | the threaded POLLHUP/POLLERR path frees the SPSC ring without draining it (the ZT-027 drain is gated `if (!threaded)`), so the device's final RX burst is lost from log/scrollback → `rx_thread_drain` into `log_write`/`rx_ingest` before `rx_thread_stop` in both branches. |
-| ZT-037 | 🟠 | blocking-in-loop | `src/serial/transport.c:117` | open | `connect()` is synchronous (the socket is made non-blocking only afterward), so a firewalled `tcp://`/`telnet://` peer freezes the reconnect loop for the kernel connect timeout (~127 s) — quit/resize dead → non-blocking connect + `poll(POLLOUT)` with a bounded deadline. INVARIANTS §3. |
-| ZT-038 | 🟠 | logic | `src/serial/autobaud.c:52` | open | a silent/binary device scores `0.0` at every rate; the `>`/tie-break accepts monotonically higher rates, so autobaud always locks to the top rate (4 Mbaud) and returns success — suppressing the "no printable traffic" warning → require `score>0` to accept, else fail and keep the default baud. |
-| ZT-039 | ⚪ | logic | `src/net/http.c:984` | open | route dispatch runs unanchored `strstr` over the whole request buffer before the POST branch → `GET /streamlit.html` served as SSE, and a `POST /tx` whose body contains `"GET /stream"` is hijacked into an SSE upgrade (command never written) → parse the request-target and match with a path boundary; gate POST on method. |
-| ZT-040 | ⚪ | correctness | `src/log/log_json.c:70` | open | the JSONL logger escapes only the first 2048 payload bytes but writes the true full `n`, so bursts >2048 B are recorded with `b` shorter than the advertised `n` — silent, self-inconsistent loss (ZT-007 twin) → segment like `http_broadcast`, or emit a truncation marker and a matching count. |
-| ZT-041 | ⚪ | security | `src/render/render.c:247` | open | `emit_inert_byte` neutralizes only ESC/DEL/C0; C1 8-bit introducers `0x80–0x9F` pass verbatim, so on a C1-honoring terminal a raw `0x9D … 0x07` is an 8-bit OSC 52 clipboard write that bypasses the SGR filter → neutralize `0x80–0x9F` while still passing valid UTF-8 continuation bytes. _(plausible; needs a C1-honoring terminal.)_ |
-| ZT-042 | ⚪ | memsafety | `src/tui/hud.c:84` | open | `visible_len()` advances 2/3/4 bytes on a UTF-8 lead without checking the continuation bytes exist before NUL; a history entry truncated mid-glyph in `fuzzy_draw`'s 256-byte `line2` → OOB stack read → clamp the multi-byte advance at the terminator. |
-| ZT-043 | ⚪ | resource | `src/net/http.c:1147` | open | established SSE/WS fds are never polled for hangup; dead/half-open peers are reaped only on a failing broadcast write, so on an idle link 16 half-open clients exhaust `HC_MAX` and the bridge stops serving → poll `HC_SSE`/`HC_WS` for `POLLHUP` each tick and/or emit a keepalive ping. |
-| ZT-044 | ⚪ | blocking-in-loop | `src/net/http.c:195` | open | `http_write_all` resets its stall deadline on every partial write, so `HTTP_WRITE_DEADLINE_MS` bounds only a consecutive no-progress stall; a trickle-reading local client keeps the poll loop inside a ~16.7 KB response for tens of seconds → capture an absolute deadline at entry, or use a per-connection non-blocking write queue. _(plausible.)_ |
-| ZT-045 | ⚪ | integer | `src/serial/tty_stats.c:72` | open | kernel error-counter deltas use unsigned arithmetic against baselines never reset on fd swap; after reconnect the fresh device counters restart near 0, so `0 - prev` underflows to ~4.3e9 and the HUD flashes a fake fault → reset `kern_*` baselines on every (re)open, or clamp a decrease to 0. |
-| ZT-046 | ⚪ | error-handling | `src/proto/clipboard.c:460` | open | the native X11 worker's in-loop error breaks leave `g.running=true`/`g.init_failed` unset, so later `clipboard_native_set` never relaunches and reports "native X11 owner" success while nothing owns the selection → on any worker exit set `g.running=false`/reset so callers relaunch or fall through to OSC 52 / helper / file. |
-| ZT-047 | ⚪ | fd-leak | `src/serial/serial.c:160` | open | `setup_serial` calls `zt_die` on its post-open error paths without `close(fd)`; harmless under standalone `exit`, but under embedded `siglongjmp` the fd leaks per invocation → EMFILE in a long-lived host → `close(fd)` before each `zt_die`. |
-| ZT-048 | ⚪ | leak | `src/main.c:736` | open | the `--replay` branch overwrites `c.serial.device` with the replay path without freeing a prior `--profile`-supplied `strdup`'d device (the ZT-016 free-before-assign was missed here) → `free` before assign, like `main.c:762/769`. |
-| ZT-049 | ⚪ | fd-leak | `src/proto/clipboard.c:494` | open | the clipboard wake-pipe (`g.wakefd[0]/[1]`) is opened before the X worker starts; on worker init failure (`init_failed` latched) it is never closed and later calls early-return, leaking the two fds for the process lifetime → close/`-1` the pipe on any worker init-failure path. _(plausible.)_ |
+
+_None open. ZT-030 … ZT-049 are fixed on branch `fix/zt-030-033-high-severity` (three `fix:` commits, pending merge) — see **Resolved**._
 
 ## Resolved
+
+### 2026-07 wave — v1.4.0 re-review (ZT-030 … ZT-049)
+
+Fixed on branch `fix/zt-030-033-high-severity` (stacked: docs → high → medium → low). Verified with
+clean `-Werror` release + debug builds and the full test suite (unit + e2e + pty), `clang-format`
+clean; new regression tests cover the `--profile-save` crash, the fuzzy `sent_len` invariant, the
+non-blocking filter fd, the split-body `POST /tx`, path-anchored routing, and C1 neutralization.
+
+| ID | Sev | Area | Resolution |
+|----|-----|------|------------|
+| [ZT-030](issues/ZT-030-profile-save-frees-argv-device.md) | 🔴 | ownership | **Fixed** — `--profile-save` frees any prior heap device then `strdup`s `argv[optind]`, so `cleanup_ctx`'s `free` is valid. `src/main.c`. |
+| [ZT-031](issues/ZT-031-fuzzy-inject-stale-sent-len-oob.md) | 🔴 | tui/memsafety | **Fixed** — the fuzzy-finder Enter injection resets `sent_len=0`, restoring the `sent_len+cursor ≤ input_len` invariant. `src/tui/fuzzy.c`. |
+| [ZT-032](issues/ZT-032-filter-stdin-blocking-hangs-loop.md) | 🔴 | blocking-in-loop | **Fixed** — `in_pipe[1]` is set `O_NONBLOCK` after the fork, so `filter_feed` drops bytes instead of blocking the loop. `src/ext/filter.c`. |
+| [ZT-033](issues/ZT-033-rx-thread-orphaned-on-siglongjmp-uaf.md) | 🔴 | concurrency/embedded | **Fixed** — `rx_thread_embed_reset()` stops the worker from `zt_die` and `zt_embed_reset`; `sig_crash` stays async-signal-safe and relies on that reset. `src/loop/rx_thread.c`, `src/core/core.c`. |
+| ZT-034 | 🟠 | logic | **Fixed** — `POST /tx`/`/api/send` parse `Content-Length`, wait for the full body (413 if oversized) and cap the sent bytes. `src/net/http.c`. |
+| ZT-035 | 🟠 | correctness | **Fixed** — `/ws` sends binary frames (`0x82`); `ws_frame_text` → `ws_frame_binary`. `src/net/http.c`. |
+| ZT-036 | 🟠 | logic | **Fixed** — the threaded POLLHUP/POLLERR paths drain the SPSC ring into the log/render pipeline before reconnect. `src/loop/runtime.c`. |
+| ZT-037 | 🟠 | blocking-in-loop | **Fixed** — non-blocking `connect()` bounded by `poll(POLLOUT)` to `ZT_CONNECT_TIMEOUT_MS`. `src/serial/transport.c`. |
+| ZT-038 | 🟠 | logic | **Fixed** — autobaud requires a printable score ≥ `ZT_AUTOBAUD_MIN_SCORE`, else fails and keeps the default baud. `src/serial/autobaud.c`. |
+| ZT-039 | ⚪ | logic | **Fixed** — routing parses the request-target (`parse_request_line`) and matches the exact path, gating POST on the method. `src/net/http.c`. |
+| ZT-040 | ⚪ | correctness | **Fixed** — the JSONL payload is segmented into records that fit `esc`, each with an accurate `n`. `src/log/log_json.c`. |
+| ZT-041 | ⚪ | security | **Fixed** — `emit_inert_byte` tracks UTF-8 state (`proto.utf8_cont`) and neutralizes standalone C1 `0x80–0x9F` as `M-` notation. `src/render/render.c`. |
+| ZT-042 | ⚪ | memsafety | **Fixed** — `visible_len` clamps the multi-byte advance at the NUL. `src/tui/hud.c`. |
+| ZT-043 | ⚪ | resource | **Fixed** — `http_tick` polls established SSE/WS fds for hangup/EOF and reaps them. `src/net/http.c`. |
+| ZT-044 | ⚪ | blocking-in-loop | **Fixed** — `http_write_all` uses an absolute deadline captured once at entry. `src/net/http.c`. |
+| ZT-045 | ⚪ | integer | **Fixed** — `kern_delta()` clamps a decreasing kernel counter to a zero delta across fd swaps. `src/serial/tty_stats.c`. |
+| ZT-046 | ⚪ | error-handling | **Fixed** — the X11 worker resets `running=false` on exit so a later copy relaunches instead of reporting a dead selection as owned. `src/proto/clipboard.c`. |
+| ZT-047 | ⚪ | fd-leak | **Fixed** — `setup_serial` `close(fd)`s before each `zt_die` (errno preserved). `src/serial/serial.c`. |
+| ZT-048 | ⚪ | leak | **Fixed** — the `--replay` branch frees a prior `--profile` heap device before aliasing `replay_path`. `src/main.c`. |
+| ZT-049 | ⚪ | fd-leak | **Fixed** — the clipboard wake-pipe is closed on every worker-exit path; `wake_worker` is mutex-guarded. `src/proto/clipboard.c`. |
+
 
 Fixed on branch `fix/zt-001-ownership-and-ui-hangs` (stacked on the docs rebuild). Verified with a
 clean `-Werror` build + the full test suite (unit + integration + pty) under AddressSanitizer/UBSan
@@ -120,4 +133,4 @@ don't-regress rule in [INVARIANTS.md](../invariants/INVARIANTS.md):
 - **F — Advertised-but-dead code** (ZT-008, ZT-019, ZT-023): the fuzzy finder is wired and bounded;
   the OSC 8 rewrite is bounds-correct (still uncalled) → [STATUS.md](STATUS.md).
 
-_Last updated: 2026-07-03 — added ZT-030 … ZT-049 from the v1.4.0 re-review (Resolved set unchanged since 2026-06-13)._
+_Last updated: 2026-07-03 — ZT-030 … ZT-049 recorded and fixed on branch `fix/zt-030-033-high-severity`; the 2026-06 Resolved set is unchanged._
