@@ -215,20 +215,38 @@ fix above ships unguarded against regression. The root blocker is that `framing_
 Two marquee guarantees are documented but currently false; make them real (cheaply) or correct the
 docs. Both come with a fix, so they are tracked here rather than as defects.
 
-- **The "compiler-enforced" layering is not enforced.** Every `.c` includes the umbrella
-  `src/zt_internal.h` (which transitively pulls `loop.h` and thus every layer), and three back-edges
-  already exist via bare `extern`: `proto/framing.c` → `render_rx`, `proto/macros.c` → the `send`
-  primitives, `ext/hooks.c` → `direct_send`. **Fix:** have each `.c` include only its own narrow
-  module header (umbrella stays for `main.c`), add a CI lint flagging any up-layer `extern` or
-  non-`main` umbrella include, and resolve the back-edges by relocating the shared cores downward (the
-  RX sink from Phase 6 removes `proto→render`; move the encode+write send core into `proto`/`serial`
-  so `macros.c`/`hooks.c` call a same-or-lower-layer helper). Update **INVARIANTS §8** /
-  **ARCHITECTURE §2/§9** to match reality once the lint lands — until then §8 overstates enforcement.
-- **"All per-process state lives in one `zt_ctx`" is contradicted by ~20 file-statics**, of which
-  `zt_embed_reset` scrubs only two — a real cross-run bug (`proto/passthrough.c:40` KGDB `~.` state
-  bleeds between embedded runs). **Fix:** pull genuinely per-session state into `zt_ctx`; for state
-  that must stay module-private (http `g_conn`, clipboard handle), replace the hard-coded resets with
-  a small registry each module registers into, plus a lint mirroring the layering check.
+- **The "compiler-enforced" layering is not enforced — partially fixed.** Every `.c` includes the
+  umbrella `src/zt_internal.h` (which transitively pulls `loop.h` and thus every layer), so the
+  compiler never restricts a TU to its own layer. **Done (2026-07):** the bare-`extern` back-edges are
+  gone — `proto/framing.c → render_rx` and the `proto`/`ext`/`net` calls to the `send` primitives now
+  go through dependency-inversion sinks on `c->core` (`rx_sink`/`tx_direct`/`tx_trickle`, wired by
+  `loop_wire_sinks()`); the core↔module embed-reset up-calls are gone (registry, below); and
+  `reconnect.c` moved to the loop layer.
+
+  **Still open — the remaining up-calls a strict build surfaced** (compile with
+  `-Werror=implicit-function-declaration` under per-module narrow includes to reproduce the list).
+  Each must be relocated to its true layer before the narrow includes + lint can turn on:
+
+  | Up-call | From (layer) | To (layer) | Fix |
+  |---|---|---|---|
+  | `set_flash` ×6 | scrollback/log, framing/osc/xmodem/proto, autobaud/tty_stats/serial | render | it's a pure "store a transient HUD string in the ctx" — move it **down to `core`** (like `zt_warn`), resolving all six at once |
+  | `log_notice` | autobaud/serial | log | same: it writes a ctx/log line — move down to `core` |
+  | `filter_feed`, `hooks_on_line`, `http_broadcast` | `render.c` `rx_ingest` | ext, net | `rx_ingest` is the byte-dispatch **orchestrator** — move it to the loop layer (it's only called from `runtime.c`), making these down-calls |
+  | `rx_thread_pause` / `rx_thread_unpause` ×2 | autobaud/serial | loop | move the pause/unpause to autobaud's two callers (`main.c`, `input.c`, both loop) so `autobaud_probe` stays serial-clean |
+  | `emit_colored_line`, `osc52_copy` ×2 | scrollback/log | render, proto | **split `scrollback.c`**: storage (the line ring) stays in `log`; the scrollback *draw* and *copy-selection* functions move to `tui` |
+  | `http_notify_input` | `hud.c`/tui | net | invert via a `c->core.input_notify` sink, or have the caller notify |
+
+  **Then:** switch every non-`main` `.c` to its narrow module header, add `-Werror=implicit-function-declaration`
+  plus a CI grep lint (no up-layer `extern`, no non-`main` umbrella include), and update
+  **INVARIANTS §8** / **ARCHITECTURE §2/§9** to match. Until that lands, §8 overstates enforcement.
+- **"All per-process state lives in one `zt_ctx`" is contradicted by ~20 file-statics.** **Done
+  (2026-07):** the hard-coded two-entry reset list is replaced by a **registry** — modules with
+  per-run file-statics (`net/session.c`, `loop/rx_thread.c`) self-register a reset hook via a
+  constructor and `zt_embed_reset()`/`zt_die()` run the table, so core no longer names them. **Still
+  open:** pull genuinely per-session state into `zt_ctx` — notably `proto/passthrough.c`'s KGDB `~.`
+  parser `state` (a real cross-run bug: it bleeds between embedded runs) and `log/record_cast.c`'s
+  cast `t0`; register any that must stay module-private (http `g_conn`, clipboard handle) via the new
+  registry; add a lint so a new file-static must do one or the other.
 - **Dead code shipping in every binary** — **`serial/fastio.c` and `ext/multi.c` deleted (2026-07)**:
   both had zero callers, and `multi.c` reintroduced the file-static session state + a blocking loop
   read the invariants forbid; the `epoll` runtime was never worth it over `--threaded`, and the one
