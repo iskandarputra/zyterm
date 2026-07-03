@@ -69,16 +69,23 @@ void log_emit_ts(zt_ctx *c, const char *tag) {
     if (sn > 0) log_write_raw(c, (unsigned char *)s, (size_t)sn);
 }
 
-/* RX path — adds timestamp at line starts */
+/* RX path — adds timestamp at line starts. Writes one line-span per write(2)
+ * (timestamp, then everything up to and including the next '\n') rather than a
+ * write per byte — at 3 Mbaud the old byte-at-a-time path issued ~300k
+ * syscalls/s, enough to saturate a core and cause kernel RX overruns. */
 void log_write(zt_ctx *c, const unsigned char *buf, size_t n) {
     if (c->log.fd < 0 || !n) return;
-    for (size_t i = 0; i < n; i++) {
+    size_t i = 0;
+    while (i < n) {
         if (c->log.line_start) {
             log_emit_ts(c, NULL);
             c->log.line_start = false;
         }
-        log_write_raw(c, &buf[i], 1);
-        if (buf[i] == '\n') c->log.line_start = true;
+        const unsigned char *nl   = memchr(buf + i, '\n', n - i);
+        size_t               span = nl ? (size_t)(nl - (buf + i)) + 1 : n - i;
+        log_write_raw(c, buf + i, span);
+        i += span;
+        if (nl) c->log.line_start = true;
     }
     log_rotate_if_needed(c);
 }
@@ -86,13 +93,20 @@ void log_write(zt_ctx *c, const unsigned char *buf, size_t n) {
 /* TX path — logs what we send, prefixed with -> when tx_ts is on */
 void log_write_tx(zt_ctx *c, const unsigned char *buf, size_t n) {
     if (c->log.fd < 0 || !n || !c->proto.tx_ts) return;
-    for (size_t i = 0; i < n; i++) {
+    size_t i = 0;
+    while (i < n) {
         if (c->proto.tx_line_start) {
             log_emit_ts(c, " ->");
             c->proto.tx_line_start = false;
         }
-        log_write_raw(c, &buf[i], 1);
-        if (buf[i] == '\n' || buf[i] == '\r') c->proto.tx_line_start = true;
+        /* one write(2) per line-span, ending at the first '\n' or '\r'. */
+        size_t j = i;
+        while (j < n && buf[j] != '\n' && buf[j] != '\r')
+            j++;
+        size_t span = (j < n) ? (j - i + 1) : (n - i);
+        log_write_raw(c, buf + i, span);
+        i += span;
+        if (j < n) c->proto.tx_line_start = true;
     }
     log_rotate_if_needed(c);
 }

@@ -91,8 +91,13 @@ static void *rx_thread_main(void *arg) {
             size_t tail    = atomic_load_explicit(&r->tail, memory_order_acquire);
             size_t free_sp = r->cap - (head - tail);
             size_t wr      = ((size_t)n < free_sp) ? (size_t)n : free_sp;
-            for (size_t i = 0; i < wr; i++)
-                r->buf[(head + i) & (r->cap - 1)] = tmp[i];
+            /* Copy in up to two contiguous spans across the wrap (mirrors the
+             * consumer in rx_thread_drain) rather than a per-byte masked store
+             * the compiler can't vectorise. */
+            size_t off   = head & (r->cap - 1);
+            size_t first = (r->cap - off < wr) ? (r->cap - off) : wr;
+            memcpy(r->buf + off, tmp, first);
+            if (wr > first) memcpy(r->buf + 0, tmp + first, wr - first);
             atomic_store_explicit(&r->head, head + wr, memory_order_release);
             wake_main(c);
         } else if (n == 0) {
