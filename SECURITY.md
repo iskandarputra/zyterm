@@ -16,8 +16,8 @@ local-IPC trust boundary).
 
 | Version | Supported |
 |---------|-----------|
-| 1.4.0   | ✅ (current) |
-| < 1.4.0 | ❌ |
+| 1.5.0   | ✅ (current) |
+| < 1.5.0 | ❌ |
 
 Security fixes land on the current release line only. `ZT_VERSION` lives in `src/zt_ctx.h`.
 

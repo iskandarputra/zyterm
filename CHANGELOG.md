@@ -10,6 +10,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-07-04
+
+Reliability-hardening release (wave 2) plus profile round-trip completeness. A
+second multi-agent source review fixed **21 defects** (ZT-030 … ZT-050, including
+a fuzzer-discovered XMODEM-receive hang); the operator HTTP bridge was corrected
+and split into small units; and the test/CI foundation gained fuzz targets for
+every hostile-input parser, a thread-sanitizer leg, and a coverage-ratchet gate.
+No config or CLI break — 1.4.0 profiles load unchanged.
+
+### Added
+- **Profiles persist the full runtime config.** `flow` (`none`/`rtscts`/`xonxoff`),
+  the `--watch` patterns, `watch_beep`, and the F1..F12 macros now round-trip
+  through profile save/load alongside the serial/framing/log keys. (`src/ext/profile.c`)
+- **HTTP bridge robustness.** `POST /tx` waits for a `Content-Length` body split
+  across TCP segments (413 if oversized); `/ws` sends binary frames so non-UTF-8
+  device bytes no longer drop the socket; idle/half-open SSE/WS peers are reaped;
+  oversized request headers get a 431. (`src/net/http*.c`)
+
+### Changed
+- **Autobaud** requires a printable-score threshold before locking instead of
+  picking the least-bad rate, and recovers cleanly on failure. (`src/serial/autobaud.c`)
+- Device RX neutralizes standalone C1 (`0x80–0x9F`) control bytes under the same
+  default-deny policy as C0/ESC. (`src/render/render.c`, INVARIANTS §6)
+
+### Removed
+- **The inert "OSC 8 hyperlinks" settings toggle (ZT-019).** It flipped a flag
+  nothing read (the rewriter had zero call sites), so it and the dead
+  `osc8_rewrite()` were removed rather than left misreporting On/Off. The
+  Pause/Auto-reconnect settings keys are unchanged.
+
+### Fixed
+- **`--profile-save NAME /dev/tty…` crash (ZT-030)** — it freed a non-heap argv
+  pointer on exit; the device string is now heap-owned.
+- **Fuzzy-history injection out-of-bounds (ZT-031)** — the Enter path now resets
+  `sent_len`, restoring the editing invariant.
+- **`--filter` could freeze the UI (ZT-032)** — the filter child's stdin is
+  non-blocking, so a slow filter no longer blocks the event loop.
+- **Embedded `--threaded` use-after-free (ZT-033)** — every exit path now stops
+  the reader thread before the stack `zt_ctx` goes away.
+- **XMODEM receive could hang forever (ZT-050)** — a corrupt block-number
+  complement now NAKs and reads the retransmission instead of spinning the modal
+  loop (found by the new XMODEM fuzz target).
+- Plus JSONL log truncation (ZT-040), a HUD buffer clamp (ZT-042), a bounded
+  connect timeout (ZT-037), and several fd-leak / error-handling gaps
+  (ZT-045/046/047/048/049). Full list: [KNOWN_ISSUES](docs/tracking/KNOWN_ISSUES.md).
+
+### Internal
+- `net/http.c` split into six focused units behind a private header; the
+  scrollback ring recycles per-line allocations instead of malloc-per-line;
+  module layering is compiler-enforced (`make layering-check`); new libFuzzer
+  targets (framing / xmodem / http), a thread-sanitizer CI job, and a
+  `make coverage` ratchet gate (baseline 33%). Dead code (`fastio.c`, `multi.c`,
+  `osc8_rewrite`) deleted.
+
 ## [1.4.0] — 2026-06-13
 
 Device-output rendering. Device-emitted SGR colour now renders by default through
