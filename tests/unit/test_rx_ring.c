@@ -185,6 +185,8 @@ int main(void) {
             }
         ASSERT(prefix_ok,
                "drained bytes are a correct contiguous prefix (drop-tail, no corruption)");
+        ASSERT(atomic_load_explicit(&c.serial.spsc_dropped, memory_order_relaxed) > 0,
+               "overflow is accounted in spsc_dropped (not a silent drop)");
 
         rx_thread_stop(&c);
         close(p[0]);
