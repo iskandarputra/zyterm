@@ -19,8 +19,10 @@
  *     then @c rx_thread_start() — the @c rx_thread_suspend/resume helpers
  *     wrap exactly that and preserve the user-intent flag in
  *     @c spsc_enabled (owned by the CLI parser).
- *   - Shutdown: main flips the running flag (release), closes the
- *     worker's dup (so any blocking read returns EBADF), then joins.
+ *   - Shutdown: main flips the running flag (release) and clears the worker's
+ *     dup (local_fd = -1). The worker's read() is O_NONBLOCK, so it sees the
+ *     change within one loop and exits; main then joins and closes the dup
+ *     (closing before the join would race the worker's in-flight read()).
  *
  * @author  Iskandar Putra (www.iskandarputra.com)
  * @copyright Copyright (c) 2026 Iskandar Putra. All rights reserved.
@@ -184,14 +186,19 @@ void rx_thread_stop(zt_ctx *c) {
     spsc_ring_t *r = (spsc_ring_t *)c->serial.spsc_impl;
     if (!r) return;
 
-    /* Signal stop, then close the worker's dup so any in-flight read()
-     * returns EBADF promptly — without this the worker would sleep up
-     * to usleep(50ms) on the next error path before noticing. */
+    /* Signal stop and hand the worker a dead fd (local_fd = -1) so it drops out
+     * of its loop. Its fd is O_NONBLOCK (a shared OFD from the O_NONBLOCK serial
+     * fd), so read() never blocks — the worker observes running==0 / local_fd<0
+     * within one ~1 ms loop iteration and exits, letting the join return
+     * promptly. Close the dup only AFTER the join: closing it while the worker
+     * might still be inside read() on that same fd is a benign-but-real
+     * close/read data race (ThreadSanitizer flags it); once joined, the worker
+     * is gone and the close is race-free. */
     atomic_store_explicit(&r->running, 0, memory_order_release);
     int dupfd = atomic_exchange_explicit(&r->local_fd, -1, memory_order_acq_rel);
-    if (dupfd >= 0) close(dupfd);
 
     pthread_join(r->thread, NULL);
+    if (dupfd >= 0) close(dupfd);
 
     if (c->serial.spsc_wake_pipe[0] >= 0) {
         close(c->serial.spsc_wake_pipe[0]);
