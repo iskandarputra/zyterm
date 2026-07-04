@@ -10,10 +10,10 @@ binary).
 There is exactly one place the version lives:
 
 ```c
-#define ZT_VERSION "1.4.0"
+#define ZT_VERSION "1.5.0"
 ```
 
-`src/zt_ctx.h:70`. Everything else derives from it:
+`src/zt_ctx.h:71`. Everything else derives from it:
 
 - `build.sh` reads it with `get_version()` (`build.sh:42`) — a `grep -oP` on that `#define`.
 - The `.deb` `Version:` field and filename (`zyterm_<version>_<arch>.deb`) come from the same
