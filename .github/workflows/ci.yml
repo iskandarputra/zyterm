@@ -148,3 +148,22 @@ jobs:
         timeout-minutes: 3
         run: CC=clang FUZZ_SECONDS=30 make fuzz
 
+  # Coverage ratchet: rebuild the embed archive + tests under gcc --coverage,
+  # run the suite, aggregate src/ line coverage with gcov, and fail below the
+  # COVERAGE_MIN floor so a change that guts a tested path can't slip through.
+  coverage:
+    name: linux / gcc / coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        timeout-minutes: 2
+      - name: Install build deps
+        timeout-minutes: 5
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends build-essential
+      - name: Coverage gate
+        timeout-minutes: 6
+        run: make coverage
+

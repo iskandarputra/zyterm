@@ -68,7 +68,7 @@ ZSHCOMPDIR  ?= $(PREFIX)/share/zsh/site-functions
 FISHCOMPDIR ?= $(PREFIX)/share/fish/vendor_completions.d
 
 .PHONY: all clean install uninstall debug release docs lint format format-check \
-        test bench modules help check
+        test bench modules help check fuzz coverage layering-check
 
 # ── primary targets ──────────────────────────────────────────────────────────
 all: $(BIN)
@@ -140,6 +140,39 @@ fuzz:
 	        -lpthread -ldl -o build/fuzz/$$name || exit 1; \
 	    build/fuzz/$$name -max_total_time=$(FUZZ_SECONDS) -rss_limit_mb=2048 $$corpus || exit 1; \
 	done
+
+# Coverage ratchet: rebuild the embed archive + tests under gcc --coverage, run
+# the suite, and aggregate src/ line coverage via gcov (ships with gcc — no
+# gcovr/lcov needed). Fails if coverage falls below COVERAGE_MIN so a change that
+# guts a tested path can't slip through. Raise the floor as coverage grows; never
+# lower it without justification. Leaves an instrumented build behind — a plain
+# `make` rebuilds.
+COVERAGE_MIN ?= 30
+coverage:
+	@command -v gcov >/dev/null || { echo "(gcov required — it ships with gcc)"; exit 1; }
+	@$(MAKE) --no-print-directory clean
+	@CFLAGS="-O0 -g --coverage $(CSTD) -D_GNU_SOURCE $(INCS)" LDFLAGS="--coverage" \
+	    $(MAKE) --no-print-directory zyterm_embed.a
+	@CFLAGS="-O0 -g --coverage $(CSTD) -D_GNU_SOURCE $(INCS) -I../include -I../src" \
+	    LDFLAGS="--coverage" $(MAKE) --no-print-directory -C tests run >/dev/null
+	@tot=0; cov=0; \
+	for gcno in $$(find $(OBJ_DIR) -name '*.gcno'); do \
+	    d=$$(dirname "$$gcno"); base=$$(basename "$$gcno" .gcno); \
+	    rel=$${d#$(OBJ_DIR)/}; src="$(SRC_DIR)/$$rel/$$base.c"; \
+	    [ -f "$$src" ] || continue; \
+	    line=$$(gcov -n -o "$$d" "$$src" 2>/dev/null | grep -A1 -F "File '$$src'" | grep 'Lines executed'); \
+	    pct=$$(echo "$$line" | sed -E 's/Lines executed:([0-9.]+)% of ([0-9]+)/\1/'); \
+	    n=$$(echo "$$line" | sed -E 's/Lines executed:([0-9.]+)% of ([0-9]+)/\2/'); \
+	    [ -z "$$n" ] && continue; \
+	    c=$$(awk "BEGIN{printf \"%d\", ($$pct/100.0)*$$n + 0.5}"); \
+	    tot=$$((tot+n)); cov=$$((cov+c)); \
+	done; \
+	[ "$$tot" -gt 0 ] || { echo "✖ no coverage data (gcov produced nothing)"; exit 1; }; \
+	pctall=$$(awk "BEGIN{printf \"%.2f\", (100.0*$$cov/$$tot)}"); \
+	echo "── src/ line coverage: $$pctall% ($$cov/$$tot lines) — floor $(COVERAGE_MIN)% ──"; \
+	awk "BEGIN{exit !($$pctall >= $(COVERAGE_MIN))}" \
+	    || { echo "✖ below the $(COVERAGE_MIN)% floor — add tests (or lower COVERAGE_MIN with justification)"; exit 1; }; \
+	echo "✔ coverage gate passed"
 
 # Module-layering guard (INVARIANTS §8): every non-main .c must include only its
 # own narrow module header and must not reach up the chain via a bare `extern`.
