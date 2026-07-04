@@ -161,3 +161,22 @@ void cast_record_close(zt_ctx *c) {
     s_fp = NULL;
     if (c) c->log.rec_path = NULL;
 }
+
+/* Embedded-run reset: a fresh zyterm_main() in the same long-lived process must
+ * not inherit a half-open recording from the previous run. Detach the output
+ * callback, close the file, and clear the clock so the next --rec starts fresh.
+ * Registered via a constructor so core's zt_embed_reset() runs it without core
+ * naming us — modules reach DOWN to register; core never reaches up (Phase 7,
+ * INVARIANTS §8). */
+static void record_cast_embed_reset(void) {
+    if (s_fp) {
+        ob_set_record_callback(NULL);
+        fclose(s_fp);
+        s_fp = NULL;
+    }
+    s_t0 = (struct timespec){0};
+}
+
+__attribute__((constructor)) static void record_cast_register_embed_reset(void) {
+    zt_register_embed_reset(record_cast_embed_reset);
+}

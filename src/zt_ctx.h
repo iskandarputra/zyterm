@@ -412,7 +412,11 @@ typedef struct zt_ctx {
                                             line → append \033[0m at flush.    */
 
         /* Tier 2 — KGDB / raw passthrough */
-        bool passthrough; /**< Disable all line-editing + rendering.    */
+        bool passthrough;     /**< Disable all line-editing + rendering.    */
+        int  passthrough_esc; /**< "~." exit-parser state (0=line start,
+                                   1=saw '~', 2=mid-line). Lives in ctx so it
+                                   resets per embedded run instead of bleeding
+                                   across as a function-static (Phase 7). */
 
         /* Tier 4 — clipboard (OSC 52) */
         bool osc52_enabled;

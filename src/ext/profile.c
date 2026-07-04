@@ -100,6 +100,8 @@ int profile_load(zt_ctx *c, const char *name) {
             c->serial.parity = v[0];
         else if (!strcmp(k, "stop_bits"))
             c->serial.stop_bits = atoi(v);
+        else if (!strcmp(k, "flow"))
+            c->serial.flow = !strcmp(v, "rtscts") ? 1 : !strcmp(v, "xonxoff") ? 2 : 0;
         else if (!strcmp(k, "reconnect"))
             c->core.reconnect = !strcmp(v, "true");
         else if (!strcmp(k, "osc52"))
@@ -155,6 +157,10 @@ int profile_save(zt_ctx *c, const char *name) {
     fprintf(fp, "data_bits = %d\n", c->serial.data_bits);
     fprintf(fp, "parity = %c\n", c->serial.parity);
     fprintf(fp, "stop_bits = %d\n", c->serial.stop_bits);
+    fprintf(fp, "flow = %s\n",
+            c->serial.flow == 1   ? "rtscts"
+            : c->serial.flow == 2 ? "xonxoff"
+                                  : "none");
     fprintf(fp, "reconnect = %s\n", c->core.reconnect ? "true" : "false");
     fprintf(fp, "osc52 = %s\n", c->proto.osc52_enabled ? "true" : "false");
     static const char *FM[] = {"raw", "cobs", "slip", "hdlc", "lenpfx"};
