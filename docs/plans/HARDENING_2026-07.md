@@ -296,9 +296,10 @@ are handled, and the dead `osc8_rewrite` + its inert toggle are removed.
   functional keys F/G kept stable), the HUD row, and the flag are all deleted, and its unit/pty tests
   dropped. (Implementing OSC 8 for real would have to route through the device-RX escape policy,
   INVARIANTS §6 — noted for the future in ROADMAP.)
-  **`profile` round-trip: `flow` DONE (2026-07-04)** — `flow` is now written and parsed
-  (`none`/`rtscts`/`xonxoff`), guarded by a round-trip test. Still open (feature, not a bug): watches
-  and macros are not persisted across a profile save/load.
+  **`profile` round-trip — DONE (2026-07-04).** `flow` (`none`/`rtscts`/`xonxoff`), the `--watch`
+  patterns (repeatable, reset-on-reload so they don't accumulate), `watch_beep`, and the F1..F12
+  `macro<n>` bindings are all written and parsed now — the full runtime config a profile is expected
+  to capture round-trips, guarded by tests in `test_subsystems`.
 
 ---
 

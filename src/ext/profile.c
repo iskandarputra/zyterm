@@ -17,8 +17,13 @@
  *   log_format   = text|json|raw
  *   reconnect    = true|false
  *   osc52        = true|false
+ *   map_out      = none|cr|lf|crlf|cr_crlf|lf_crlf
+ *   map_in       = none|cr|lf|crlf|cr_crlf|lf_crlf
+ *   watch_beep   = true|false
+ *   watch        = <regex>          (repeatable, up to ZT_WATCH_MAX)
+ *   macro<n>     = <string>         (n = 1..12, e.g. `macro1 = AT+RST\r`)
  *
- * Unknown keys are silently preserved on save (naïve round-trip).
+ * Unknown keys are ignored on load; save rewrites the full known set.
  *
  * @author  Iskandar Putra (www.iskandarputra.com)
  * @copyright Copyright (c) 2026 Iskandar Putra. All rights reserved.
@@ -81,6 +86,10 @@ int profile_load(zt_ctx *c, const char *name) {
     profile_path(name, path, sizeof path);
     FILE *fp = fopen(path, "r");
     if (!fp) return -1;
+    /* Watches are repeatable, so the first `watch =` line of a load pass clears
+     * any existing set before appending — otherwise a profile-watch re-load
+     * (or a second profile_load) would accumulate duplicates. */
+    bool watch_cleared = false;
     char line[512];
     while (fgets(line, sizeof line, fp)) {
         char *p = trim(line);
@@ -137,6 +146,25 @@ int profile_load(zt_ctx *c, const char *name) {
             (void)eol_parse(v, &c->proto.map_out);
         } else if (!strcmp(k, "map_in")) {
             (void)eol_parse(v, &c->proto.map_in);
+        } else if (!strcmp(k, "watch_beep")) {
+            c->log.watch_beep = !strcmp(v, "true");
+        } else if (!strcmp(k, "watch")) {
+            if (!watch_cleared) {
+                for (int i = 0; i < c->log.watch_count; i++) {
+                    free(c->log.watch[i]);
+                    c->log.watch[i] = NULL;
+                }
+                c->log.watch_count = 0;
+                watch_cleared      = true;
+            }
+            if (*v && c->log.watch_count < ZT_WATCH_MAX)
+                c->log.watch[c->log.watch_count++] = strdup(v);
+        } else if (!strncmp(k, "macro", 5) && isdigit((unsigned char)k[5])) {
+            int n = atoi(k + 5);
+            if (n >= 1 && n <= ZT_MACRO_COUNT) {
+                free(c->ext.macros[n - 1]);
+                c->ext.macros[n - 1] = strdup(v);
+            }
         }
     }
     fclose(fp);
@@ -171,6 +199,14 @@ int profile_save(zt_ctx *c, const char *name) {
     fprintf(fp, "log_format = %s\n", LF[c->log.format]);
     fprintf(fp, "map_out = %s\n", eol_name(c->proto.map_out));
     fprintf(fp, "map_in = %s\n", eol_name(c->proto.map_in));
+    fprintf(fp, "watch_beep = %s\n", c->log.watch_beep ? "true" : "false");
+    /* --watch patterns (repeatable) and F1..F12 macros. Both are single-line
+     * (macros store literal \r/\n/\xNN escapes, resolved at fire time), so they
+     * round-trip through the INI value verbatim. */
+    for (int i = 0; i < c->log.watch_count; i++)
+        if (c->log.watch[i]) fprintf(fp, "watch = %s\n", c->log.watch[i]);
+    for (int i = 0; i < ZT_MACRO_COUNT; i++)
+        if (c->ext.macros[i]) fprintf(fp, "macro%d = %s\n", i + 1, c->ext.macros[i]);
     fclose(fp);
     log_notice(c, "profile saved: %s", name);
     return 0;

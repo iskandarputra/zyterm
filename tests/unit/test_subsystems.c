@@ -1608,6 +1608,46 @@ static void test_profile_watch(void) {
         char ff[256];
         snprintf(ff, sizeof ff, "%s/utest_flow.conf", prof_dir);
         unlink(ff);
+
+        /* Watches + macros now persist too (the remaining profile round-trip
+         * gap). Save two watches and a couple of F-key macros, reload into a
+         * fresh ctx, and confirm they come back verbatim. */
+        memset(&pc, 0, sizeof pc);
+        pc.log.watch_beep  = true;
+        pc.log.watch[0]    = strdup("ERROR");
+        pc.log.watch[1]    = strdup("PANIC.*0x");
+        pc.log.watch_count = 2;
+        pc.ext.macros[0]   = strdup("AT+RST\\r"); /* F1, literal escape */
+        pc.ext.macros[11]  = strdup("boot\\n");   /* F12 */
+        ASSERT(profile_save(&pc, "utest_wm") == 0, "profile_save with watches + macros");
+
+        memset(&lc, 0, sizeof lc);
+        ASSERT(profile_load(&lc, "utest_wm") == 0, "profile_load watches + macros");
+        ASSERT(lc.log.watch_count == 2, "both watches restored");
+        ASSERT(lc.log.watch[0] && strcmp(lc.log.watch[0], "ERROR") == 0, "watch 0 verbatim");
+        ASSERT(lc.log.watch[1] && strcmp(lc.log.watch[1], "PANIC.*0x") == 0,
+               "watch 1 verbatim");
+        ASSERT(lc.log.watch_beep == true, "watch_beep round-trips");
+        ASSERT(lc.ext.macros[0] && strcmp(lc.ext.macros[0], "AT+RST\\r") == 0,
+               "F1 macro verbatim");
+        ASSERT(lc.ext.macros[11] && strcmp(lc.ext.macros[11], "boot\\n") == 0,
+               "F12 macro verbatim");
+        ASSERT(lc.ext.macros[5] == NULL, "unset macro stays NULL");
+
+        /* Re-load into the SAME ctx must not accumulate watches (the reset). */
+        ASSERT(profile_load(&lc, "utest_wm") == 0, "second profile_load");
+        ASSERT(lc.log.watch_count == 2, "re-load does not duplicate watches");
+
+        for (int i = 0; i < lc.log.watch_count; i++)
+            free(lc.log.watch[i]);
+        for (int i = 0; i < ZT_MACRO_COUNT; i++)
+            free(lc.ext.macros[i]);
+        for (int i = 0; i < pc.log.watch_count; i++)
+            free(pc.log.watch[i]);
+        for (int i = 0; i < ZT_MACRO_COUNT; i++)
+            free(pc.ext.macros[i]);
+        snprintf(ff, sizeof ff, "%s/utest_wm.conf", prof_dir);
+        unlink(ff);
     }
 
     /* Edit the file (atomic-rename style): write to a sibling tmp and
