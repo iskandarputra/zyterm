@@ -200,10 +200,14 @@ fix above shipped unguarded against regression. First tranche landed 2026-07:
   `ZT_SPSC_CAP`, and drop-on-overflow (prefix intact, no corruption). A new **`tsan` CI job** builds
   the embed archive + this test under `-fsanitize=thread` and runs it, checking the release/acquire
   happens-before edges ASan can't see. The layering check also runs in CI now.
-- **Still open:** XMODEM/YMODEM/ZMODEM tests (`tests/integration/test_xmodem.c` — socketpair peer,
-  block/complement/CRC + retry/timeout/CAN); libFuzzer targets (`tests/fuzz/` for `framing_feed`,
-  `classify_request`/`hc_pump_new`, `xmodem_receive`); HTTP parser unit tests (split-body,
-  oversized-header 431, slowloris drain over a synthetic `hc_t`); and a `make coverage` ratchet gate.
+- **XMODEM tests — DONE** (`tests/integration/test_xmodem.c`, 10 asserts): a forked socketpair peer
+  drives the engine — `xmodem_send` validated block-by-block (framing/complement/CRC/EOT + payload
+  reassembly), a NAK→retransmit recovery, a receiver-CAN abort (returns -1, no hang), and
+  `xmodem_receive` accepting a 3-block transfer with the 0x1A padding trimmed. (YMODEM/ZMODEM batch
+  headers are a follow-on.)
+- **Still open:** libFuzzer targets (`tests/fuzz/` for `framing_feed`, `classify_request`/`hc_pump_new`,
+  `xmodem_receive`); HTTP parser unit tests (oversized-header 431, slowloris drain over a synthetic
+  `hc_t` — split-body/routing already covered by the socket tests); and a `make coverage` ratchet gate.
 
 ---
 
