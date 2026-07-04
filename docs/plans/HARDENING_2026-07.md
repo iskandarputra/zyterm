@@ -167,21 +167,23 @@ Each is a known-pattern residual with a clear fix.
 
 ## Phase 5 — Performance on the RX hot path
 
-Correct today but O(n)-per-byte where it should be O(lines)/O(chunks).
+Correct today but O(n)-per-byte where it should be O(lines)/O(chunks). **Mostly DONE (2026-07):**
 
-- **`log_write` one `write(2)` per RX byte** (`src/log/logio.c:73`) — ~300k syscalls/s at 3 Mbaud with
-  a log open, enough to saturate a core and cause kernel RX overruns. **Fix:** emit at most one
-  `write`/`writev` per line-span, or a userspace buffer flushed once per chunk.
-- **`tty_stats_poll` runs 2 ioctls every loop iteration** (`src/serial/tty_stats.c:66`) instead of at
-  HUD cadence — the `t_last_stats` field it stores is never read to rate-limit. **Fix:** gate the body
-  on `t_last_stats` at HUD cadence.
-- **SPSC producer copies byte-by-byte** (`src/loop/rx_thread.c:86`) — mirror the consumer's two
-  `memcpy` spans; optionally coalesce wake-pipe writes.
-- **`http_broadcast` base64-encodes with zero clients connected** (`src/net/http.c` broadcast path,
-  guarded only by "server listening") — maintain an `HC_SSE`+`HC_WS` count and early-return before
-  `b64enc` when it is 0.
-- **Scrollback malloc/free per line** (`src/log/scrollback.c:170`) — a flat byte ring + `(offset,len)`
-  descriptors makes eviction pointer arithmetic and bounds memory to one region.
+- **`log_write` one `write(2)` per RX byte — DONE** (`src/log/logio.c`): both the RX and TX log paths
+  now emit one write per line-span (timestamp, then everything to the next `\n`) via `memchr`, turning
+  the ~300k-syscall/s storm at 3 Mbaud into O(lines). Byte-for-byte identical output, guarded by
+  `tests/unit/test_logio.c`.
+- **`tty_stats_poll` 2 ioctls every loop iteration — DONE** (`src/serial/tty_stats.c`): gated on
+  `t_last_stats` at `ZT_HUD_REFRESH_MS` cadence (the field existed for this but was never read), so it
+  fires ~2 Hz instead of thousands/s under high-baud RX.
+- **SPSC producer byte-by-byte copy — DONE** (`src/loop/rx_thread.c`): mirrors the consumer's two
+  contiguous `memcpy` spans across the wrap instead of a per-byte masked store.
+- **`http_broadcast` base64-encodes with zero clients — DONE** (`src/net/http.c`): a
+  `http_has_stream_peer()` guard early-returns from both `http_broadcast`/`http_broadcast_tx` before
+  any `b64enc` when no SSE/WS peer is connected.
+- **Scrollback malloc/free per line — still open** (`src/log/scrollback.c`): a flat byte ring +
+  `(offset,len)` descriptors would remove per-line allocator churn, but it touches every `sb_lines`
+  reader across `tui/scrollback_view.c` (draw + selection) and search — worth its own reviewed PR.
 
 ---
 

@@ -1295,8 +1295,18 @@ static int ws_frame_binary(int fd, const unsigned char *buf, size_t n) {
     return 0;
 }
 
+/* Any SSE/WS peer actually connected? A 16-slot scan is far cheaper than
+ * base64-encoding the whole RX stream at line rate for nobody — merely leaving
+ * the --http bridge on with no open tab used to pay full encode cost. */
+static bool http_has_stream_peer(void) {
+    for (int i = 0; i < HC_MAX; i++)
+        if (g_conn[i].fd >= 0 && (g_conn[i].type == HC_SSE || g_conn[i].type == HC_WS))
+            return true;
+    return false;
+}
+
 void http_broadcast(zt_ctx *c, const unsigned char *buf, size_t n) {
-    if (!c || !buf || n == 0) return;
+    if (!c || !buf || n == 0 || !http_has_stream_peer()) return;
     /* ZT-007: iterate the whole payload in <=4096-byte segments. The old code
      * encoded only the first 4096 bytes once, silently dropping the rest of any
      * RX burst from both the SSE and WS views. */
@@ -1328,7 +1338,7 @@ void http_broadcast(zt_ctx *c, const unsigned char *buf, size_t n) {
 }
 
 void http_broadcast_tx(zt_ctx *c, const unsigned char *buf, size_t n) {
-    if (!c || !buf || n == 0 || c->net.http_fd < 0) return;
+    if (!c || !buf || n == 0 || c->net.http_fd < 0 || !http_has_stream_peer()) return;
     /* ZT-007: segment the payload like http_broadcast() rather than capping the
      * TX echo at one 4096-byte chunk. */
     for (size_t off = 0; off < n; off += 4096) {

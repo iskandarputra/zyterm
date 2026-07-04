@@ -75,6 +75,14 @@ static unsigned kern_delta(unsigned cur, unsigned base) {
 
 void tty_stats_poll(zt_ctx *c) {
     if (!c || c->serial.fd < 0) return;
+    /* Rate-limit to HUD cadence. This is called on every poll-loop tick — up to
+     * thousands/s under high-baud RX — but the counters/modem lines are only
+     * shown at ~HUD refresh, and each call is two ioctls. Gate on t_last_stats
+     * (added for exactly this, but never previously read). First call runs
+     * because t_last_stats is zero-initialised → a large diff. */
+    struct timespec tnow;
+    now(&tnow);
+    if (ts_diff_sec(&tnow, &c->serial.t_last_stats) * 1000.0 < ZT_HUD_REFRESH_MS) return;
 #if defined(__linux__)
     struct serial_icounter_struct ic;
     if (ioctl(c->serial.fd, TIOCGICOUNT, &ic) == 0) {
@@ -97,7 +105,7 @@ void tty_stats_poll(zt_ctx *c) {
 #endif
     int mstat = 0;
     if (ioctl(c->serial.fd, TIOCMGET, &mstat) == 0) c->serial.modem_lines = (unsigned)mstat;
-    now(&c->serial.t_last_stats);
+    c->serial.t_last_stats = tnow;
 }
 
 void tty_stats_flush(zt_ctx *c) {
