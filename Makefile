@@ -121,6 +121,19 @@ lint:
 	    --suppress=missingIncludeSystem $(INCS) $(SRC_DIR)/ \
 	    || echo "(cppcheck missing — apt install cppcheck)"
 
+# libFuzzer target for the frame decoders (the untrusted device-byte parsers).
+# Requires clang. Builds every non-main source + the harness with
+# fuzzer+ASan+UBSan instrumentation and runs for FUZZ_SECONDS (default 20).
+FUZZ_SECONDS ?= 20
+fuzz:
+	@command -v clang >/dev/null || { echo "(clang required for libFuzzer)"; exit 1; }
+	@mkdir -p build/fuzz/corpus
+	clang -g -O1 -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer \
+	    -std=gnu11 -D_GNU_SOURCE $(INCS) \
+	    $(filter-out $(SRC_DIR)/main.c,$(SOURCES)) tests/fuzz/fuzz_framing.c \
+	    -lpthread -ldl -o build/fuzz/fuzz_framing
+	build/fuzz/fuzz_framing -max_total_time=$(FUZZ_SECONDS) -rss_limit_mb=2048 build/fuzz/corpus
+
 # Module-layering guard (INVARIANTS §8): every non-main .c must include only its
 # own narrow module header and must not reach up the chain via a bare `extern`.
 # Together with -Werror=implicit-function-declaration this keeps the layering
