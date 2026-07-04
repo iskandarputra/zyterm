@@ -116,25 +116,21 @@ slots; a slow reader cannot exceed the total deadline. (These are the parser tes
 
 ## Phase 3 — Threaded / SPSC data-loss and the missing concurrency verification
 
-The `--threaded` SPSC path is a second-class citizen: a correctness gap plus zero concurrency testing.
+The `--threaded` SPSC path was a second-class citizen: a correctness gap plus zero concurrency
+testing. **DONE (2026-07):**
 
-- **ZT-036** 🟠 — the threaded POLLHUP/POLLERR path frees the ring without draining
-  (`src/loop/runtime.c:189`; the ZT-027 drain is gated `if (!threaded)`), so the device's final RX
-  burst is lost. **Fix:** loop `rx_thread_drain` into `log_write`/`rx_ingest` before `rx_thread_stop`
-  in both branches (or have `rx_thread_stop` flush the ring into the pipeline instead of discarding).
-- **SPSC drop accounting** — the producer silently drops the tail under backpressure
-  (`src/loop/rx_thread.c:84–88`) with no counter/flash/metric. **Fix:** an atomic
-  `rx_dropped_bytes_total`, surfaced in the HUD and Prometheus. *(This was already listed in
-  [RELIABILITY_HARDENING.md](./RELIABILITY_HARDENING.md) Phase 6 "SPSC backpressure + drop
-  accounting" and is re-confirmed still open.)*
-- **Concurrency tests + TSan** — no test moves a byte through the ring (only lifecycle is exercised,
-  `tests/unit/test_subsystems.c`), and CI has no ThreadSanitizer. **Fix:** a producer/consumer ring
-  test (write 256 KiB through a pipe, drain in a loop, assert byte-exact ordering incl. a wrap and an
-  overflow-drop case) and a `-fsanitize=thread` CI leg that runs it. *(Also a re-confirmation of
-  wave-1 Phase 6 "ThreadSanitizer CI job", which did not land.)*
+- **ZT-036** 🟠 — **fixed** (in the defect wave, PR #13): the threaded POLLHUP/POLLERR path now drains
+  the ring into `log_write`/`rx_ingest` before `rx_thread_stop`, so the device's final RX burst isn't
+  lost.
+- **SPSC drop accounting — DONE:** the producer now records the tail it drops when the ring is full in
+  an atomic `c->serial.spsc_dropped`, surfaced as the Prometheus `zyterm_rx_dropped_bytes_total`
+  counter and a rate-limited HUD flash (`tty_stats_poll`), so backpressure loss is visible, not
+  silent. The overflow case in the ring test asserts it's non-zero.
+- **Concurrency tests + TSan — DONE** (PR #15): `tests/unit/test_rx_ring.c` moves bytes through the
+  ring with a real worker (byte-exact + wrap + overflow-drop) and a `-fsanitize=thread` CI job runs
+  it.
 
-INVARIANTS §4 (reader thread & fd lifecycle) should be updated to state the drop policy honestly once
-accounting exists.
+INVARIANTS §4 already states the drop policy; it's now backed by the counter + test.
 
 ---
 

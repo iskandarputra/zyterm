@@ -83,6 +83,17 @@ void tty_stats_poll(zt_ctx *c) {
     struct timespec tnow;
     now(&tnow);
     if (ts_diff_sec(&tnow, &c->serial.t_last_stats) * 1000.0 < ZT_HUD_REFRESH_MS) return;
+
+    /* Surface --threaded ring drops (INVARIANTS §4): flash once per new batch,
+     * rate-limited to this HUD-cadence poll. The running total lives in the
+     * Prometheus zyterm_rx_dropped_bytes_total counter. */
+    unsigned long long dropped =
+        atomic_load_explicit(&c->serial.spsc_dropped, memory_order_relaxed);
+    if (dropped > c->serial.spsc_dropped_seen) {
+        set_flash(c, "\xe2\x9a\xa0 RX ring dropped %llu bytes (reader behind)",
+                  dropped - c->serial.spsc_dropped_seen);
+        c->serial.spsc_dropped_seen = dropped;
+    }
 #if defined(__linux__)
     struct serial_icounter_struct ic;
     if (ioctl(c->serial.fd, TIOCGICOUNT, &ic) == 0) {

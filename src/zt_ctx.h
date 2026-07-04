@@ -20,6 +20,7 @@
 #endif
 
 #include <signal.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -230,6 +231,12 @@ typedef struct zt_ctx {
         bool  spsc_enabled;      /**< Reader thread is on.                     */
         int   spsc_wake_pipe[2]; /**< Main wakes via eventfd-ish pipe.         */
         void *spsc_impl;         /**< Opaque — defined in rx_thread.c.         */
+        /* Bytes the --threaded worker dropped because the ring was full (reader
+         * behind). Written by the worker (relaxed atomic), read by the main
+         * thread for the HUD/metrics; spsc_dropped_seen is the main-thread
+         * high-water mark used to flash only on a new drop. */
+        _Atomic unsigned long long spsc_dropped;
+        unsigned long long         spsc_dropped_seen;
     } serial;
 
     struct {

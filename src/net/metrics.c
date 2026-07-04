@@ -103,11 +103,17 @@ static void write_snapshot(zt_ctx *c, int cfd) {
                        "zyterm_kern_frame_err_total %llu\n"
                        "# HELP zyterm_kern_overrun_err_total Kernel-reported overruns\n"
                        "# TYPE zyterm_kern_overrun_err_total counter\n"
-                       "zyterm_kern_overrun_err_total %llu\n",
+                       "zyterm_kern_overrun_err_total %llu\n"
+                       "# HELP zyterm_rx_dropped_bytes_total RX bytes dropped by the "
+                       "--threaded ring when the reader fell behind\n"
+                       "# TYPE zyterm_rx_dropped_bytes_total counter\n"
+                       "zyterm_rx_dropped_bytes_total %llu\n",
                       (unsigned long long)c->core.rx_bytes, (unsigned long long)c->core.tx_bytes,
                       (unsigned long long)c->core.rx_lines, (unsigned long long)c->proto.crc_err,
                       (unsigned long long)c->serial.kern_frame_err,
-                      (unsigned long long)c->serial.kern_overrun_err);
+                      (unsigned long long)c->serial.kern_overrun_err,
+                      (unsigned long long)atomic_load_explicit(&c->serial.spsc_dropped,
+                                                               memory_order_relaxed));
     if (n > 0) (void)zt_write_all(cfd, buf, (size_t)n);
 }
 

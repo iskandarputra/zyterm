@@ -91,6 +91,10 @@ static void *rx_thread_main(void *arg) {
             size_t tail    = atomic_load_explicit(&r->tail, memory_order_acquire);
             size_t free_sp = r->cap - (head - tail);
             size_t wr      = ((size_t)n < free_sp) ? (size_t)n : free_sp;
+            if (wr < (size_t)n) /* ring full: account the dropped tail (INVARIANTS §4) */
+                atomic_fetch_add_explicit(&c->serial.spsc_dropped,
+                                          (unsigned long long)((size_t)n - wr),
+                                          memory_order_relaxed);
             /* Copy in up to two contiguous spans across the wrap (mirrors the
              * consumer in rx_thread_drain) rather than a per-byte masked store
              * the compiler can't vectorise. */
