@@ -54,6 +54,12 @@ typedef struct {
     _Atomic int    local_fd; /**< private dup of serial fd; owned here */
 } spsc_ring_t;
 
+/* Active ctx for rx_thread_embed_reset() — set on a successful start,
+ * cleared on stop. Lets the embedded fatal-exit paths (which have no
+ * handle to zyterm_main's stack-local zt_ctx) stop the worker. Main-thread
+ * access only. See rx_thread_embed_reset(). ZT-033. */
+static zt_ctx *g_rx_embed_ctx = NULL;
+
 #if ZT_HAVE_PTHREAD
 static void wake_main(zt_ctx *c) {
     if (!c || c->serial.spsc_wake_pipe[1] < 0) return;
@@ -164,6 +170,7 @@ int rx_thread_start(zt_ctx *c) {
         free(r);
         return -1;
     }
+    g_rx_embed_ctx = c;
     return 0;
 #else
     (void)c;
@@ -197,12 +204,29 @@ void rx_thread_stop(zt_ctx *c) {
     free(r->buf);
     free(r);
     c->serial.spsc_impl = NULL;
+    g_rx_embed_ctx      = NULL;
     /* NOTE: spsc_enabled is user intent (set by --threaded). We must
      * not clear it here, otherwise rx_thread_resume() after a paired
      * suspend would skip the restart. */
 #else
     (void)c;
 #endif
+}
+
+/* Stop an orphaned worker from a fatal/embedded exit path — zt_die(),
+ * sig_crash()→host, or zt_embed_reset() — where zyterm_main's normal
+ * rx_thread_stop(&c) is skipped by the siglongjmp back to the host. The
+ * worker holds a pointer to zyterm_main's stack-local zt_ctx; if it keeps
+ * running while the host reuses that stack for the next run it writes
+ * through a stale pointer (use-after-free), and its dup fd + 1 MiB ring
+ * leak. See ZT-033 / INVARIANTS §4.
+ *
+ * MAIN-THREAD ONLY: this joins the worker and frees the ring, which are
+ * not async-signal-safe — sig_crash() must NOT call it and instead relies
+ * on the host invoking zt_embed_reset() before the next zyterm_main().
+ * Idempotent: rx_thread_stop() nulls g_rx_embed_ctx and spsc_impl. */
+void rx_thread_embed_reset(void) {
+    if (g_rx_embed_ctx) rx_thread_stop(g_rx_embed_ctx);
 }
 
 size_t rx_thread_drain(zt_ctx *c, unsigned char *dst, size_t cap) {

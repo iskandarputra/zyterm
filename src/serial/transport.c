@@ -38,11 +38,20 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+/* Upper bound on a single connect() attempt. A blocking connect to a
+ * firewalled peer (SYNs silently dropped) would otherwise hang for the
+ * whole kernel timeout (~127s), freezing the reconnect loop and the UI
+ * (ZT-037, INVARIANTS §3). Bounded polling keeps the loop responsive;
+ * a timed-out attempt returns ETIMEDOUT, which reconnect treats as a
+ * transient error and retries. */
+#define ZT_CONNECT_TIMEOUT_MS 2000
 
 /* ── URL parsing ──────────────────────────────────────────────────────── */
 
@@ -109,13 +118,34 @@ int transport_open(const char *url, bool *out_telnet) {
     int fd         = -1;
     int last_errno = 0;
     for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
-        fd = socket(ai->ai_family, ai->ai_socktype | SOCK_CLOEXEC, ai->ai_protocol);
+        /* Non-blocking connect (SOCK_NONBLOCK up front, not fcntl'd after)
+         * so a dead/firewalled peer is bounded to ZT_CONNECT_TIMEOUT_MS
+         * instead of the ~127s kernel timeout. The fd stays non-blocking,
+         * which is what the caller expects anyway. ZT-037. */
+        fd = socket(ai->ai_family, ai->ai_socktype | SOCK_CLOEXEC | SOCK_NONBLOCK,
+                    ai->ai_protocol);
         if (fd < 0) {
             last_errno = errno;
             continue;
         }
-        if (connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) break;
-        last_errno = errno;
+        if (connect(fd, ai->ai_addr, ai->ai_addrlen) == 0)
+            break; /* immediate (e.g. loopback) */
+        if (errno == EINPROGRESS) {
+            struct pollfd pc = {.fd = fd, .events = POLLOUT};
+            int           pr = poll(&pc, 1, ZT_CONNECT_TIMEOUT_MS);
+            if (pr > 0 && (pc.revents & POLLOUT)) {
+                int       soerr = 0;
+                socklen_t slen  = sizeof soerr;
+                if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &slen) == 0 && soerr == 0)
+                    break; /* connection established */
+                last_errno = soerr ? soerr : ECONNREFUSED;
+            } else {
+                /* pr == 0 → timed out; pr < 0 → poll error (e.g. EINTR). */
+                last_errno = (pr == 0) ? ETIMEDOUT : errno;
+            }
+        } else {
+            last_errno = errno;
+        }
         close(fd);
         fd = -1;
     }

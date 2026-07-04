@@ -246,6 +246,46 @@ static void test_e2e_bad_match_spec_does_not_crash(const char *bin) {
 }
 
 /* ------------------------------------------------------------------ */
+static void test_e2e_profile_save_positional_device(const char *bin) {
+    SECTION("e2e: --profile-save with a positional device (ZT-030)");
+
+    /* ZT-030: `--profile-save NAME <DEVICE>` used to alias the non-heap
+     * argv device string into c.serial.device, which cleanup_ctx() then
+     * free()d — glibc aborts with "free(): invalid pointer" on exit. Assert
+     * the documented invocation writes the profile and exits cleanly. Point
+     * XDG_CONFIG_HOME/HOME at a temp dir so we don't touch the real config. */
+    char  tmpl[] = "/tmp/zyterm_zt030_XXXXXX";
+    char *dir    = mkdtemp(tmpl);
+    ASSERT(dir != NULL, "made temp config dir");
+    if (!dir) return;
+
+    pid_t zp = fork();
+    if (zp == 0) {
+        int dn = open("/dev/null", O_WRONLY);
+        dup2(dn, 1);
+        dup2(dn, 2);
+        close(dn);
+        setenv("XDG_CONFIG_HOME", dir, 1);
+        setenv("HOME", dir, 1);
+        execl(bin, "zyterm", "--profile-save", "zt030test", "/dev/ttyZT030", (char *)NULL);
+        _exit(127);
+    }
+    int status = 0;
+    waitpid(zp, &status, 0);
+    ASSERT(!WIFSIGNALED(status),
+           "profile-save with positional device did not abort (ZT-030)");
+    ASSERT(WIFEXITED(status) && WEXITSTATUS(status) == 0, "profile-save exited 0");
+
+    /* clean up the temp tree */
+    char path[256];
+    snprintf(path, sizeof path, "%s/zyterm/zt030test.conf", dir);
+    unlink(path);
+    snprintf(path, sizeof path, "%s/zyterm", dir);
+    rmdir(path);
+    rmdir(dir);
+}
+
+/* ------------------------------------------------------------------ */
 int main(void) {
     signal(SIGPIPE, SIG_IGN);
 
@@ -259,6 +299,7 @@ int main(void) {
     test_e2e_on_connect_and_disconnect(bin);
     test_e2e_on_match_dump(bin);
     test_e2e_bad_match_spec_does_not_crash(bin);
+    test_e2e_profile_save_positional_device(bin);
 
     fprintf(stderr, "\n========================================\n");
     fprintf(stderr, "%d passed, %d failed\n", g_pass, g_fail);

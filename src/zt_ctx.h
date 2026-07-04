@@ -425,6 +425,12 @@ typedef struct {
         bool   tab_echo; /**< Capturing device completion echo.        */
         size_t tab_skip;
 
+        /* UTF-8 continuation bytes still expected on the neutralized RX path,
+         * so emit_inert_byte() can pass real multibyte sequences while still
+         * neutralizing standalone C1 controls (0x80-0x9F) that would otherwise
+         * drive a C1-honoring terminal — ZT-041 / INVARIANTS §6. */
+        unsigned utf8_cont;
+
         /* Tier 1 — line-ending translation (--map-out / --map-in). */
         zt_eol_map   map_out;
         zt_eol_map   map_in;

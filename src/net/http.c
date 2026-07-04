@@ -5,7 +5,7 @@
  * Endpoints:
  *   GET /           — minimal HTML page with a live RX view
  *   GET /stream     — Server-Sent Events stream of RX bytes
- *   GET /ws         — WebSocket upgrade, RFC 6455, text frames of RX
+ *   GET /ws         — WebSocket upgrade, RFC 6455, binary frames of RX
  *   GET /metrics    — same text as metrics.c snapshot
  *   POST /tx        — write request body to the serial line
  *
@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h> /* strncasecmp for the Content-Length parse (ZT-034) */
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -184,15 +185,20 @@ static void hc_close(int i) {
  * with an overall deadline so a stalled peer can't hang the loop (§3). */
 #define HTTP_WRITE_DEADLINE_MS 2000
 static int http_write_all(int fd, const void *buf, size_t n) {
-    const unsigned char *p         = (const unsigned char *)buf;
-    size_t               rem       = n;
-    int                  waited_ms = 0;
+    const unsigned char *p   = (const unsigned char *)buf;
+    size_t               rem = n;
+    /* Absolute deadline captured once at entry (ZT-044): the old per-write
+     * reset meant a client draining a slow trickle — each read landing inside
+     * the 250 ms poll window — kept resetting the timer and held the loop here
+     * for the whole (up to ~16.7 KB) response. Bound total wall time regardless
+     * of incremental progress so the single-threaded loop stays responsive. */
+    struct timespec start;
+    now(&start);
     while (rem > 0) {
         ssize_t w = write(fd, p, rem);
         if (w > 0) {
             p += (size_t)w;
             rem -= (size_t)w;
-            waited_ms = 0;
             continue;
         }
         if (w == 0) return -1;
@@ -204,10 +210,10 @@ static int http_write_all(int fd, const void *buf, size_t n) {
             if (errno == EINTR) continue;
             return -1;
         }
-        if (pr == 0) {
-            waited_ms += 250;
-            if (waited_ms >= HTTP_WRITE_DEADLINE_MS) return -1; /* stalled peer */
-        }
+        struct timespec nowt;
+        now(&nowt);
+        if (ts_diff_sec(&nowt, &start) * 1000.0 >= HTTP_WRITE_DEADLINE_MS)
+            return -1; /* stalled */
     }
     return 0;
 }
@@ -967,6 +973,65 @@ static int accept_one(zt_ctx *c, int lfd) {
     return 0;
 }
 
+/* Parse a Content-Length header (case-insensitive, line-anchored) from the
+ * request header block [buf, buf+hdr_len). Returns the declared byte count,
+ * 0 when the header is absent (no body), HC_REQ_CAP+1 when it exceeds what
+ * our bounded buffer can hold, or -1 when malformed. Lets hc_pump_new() wait
+ * for the whole POST body before dispatch and classify_request() send exactly
+ * that many bytes (ZT-034). */
+static long http_content_length(const char *buf, size_t hdr_len) {
+    const char *end = buf + hdr_len;
+    const char *p   = buf;
+    while (p < end) {
+        const char *nl      = memchr(p, '\n', (size_t)(end - p));
+        size_t      linelen = nl ? (size_t)(nl - p) : (size_t)(end - p);
+        if (linelen >= 15 && strncasecmp(p, "Content-Length:", 15) == 0) {
+            const char *v  = p + 15;
+            const char *le = p + linelen;
+            while (v < le && (*v == ' ' || *v == '\t'))
+                v++;
+            long val = 0;
+            bool any = false;
+            while (v < le && *v >= '0' && *v <= '9') {
+                val = val * 10 + (*v - '0');
+                any = true;
+                if (val > HC_REQ_CAP) return HC_REQ_CAP + 1; /* too large to buffer */
+                v++;
+            }
+            return any ? val : -1;
+        }
+        if (!nl) break;
+        p = nl + 1;
+    }
+    return 0; /* no Content-Length → no body */
+}
+
+/* Parse the request line's method and path (query string and HTTP version
+ * stripped) into caller buffers. Returns false on a malformed line. Routing on
+ * the parsed path instead of strstr over the whole buffer stops a webroot file
+ * like /streamlit.html being served as an SSE stream, and stops a POST /tx
+ * whose body merely contains "GET /stream" being hijacked into a stream
+ * upgrade so the command never reaches the device (ZT-039). */
+static bool parse_request_line(const char *req, char *method, size_t mcap, char *path,
+                               size_t pcap) {
+    const char *msp = strchr(req, ' ');
+    if (!msp) return false;
+    size_t ml = (size_t)(msp - req);
+    if (ml == 0 || ml >= mcap) return false;
+    memcpy(method, req, ml);
+    method[ml]      = '\0';
+
+    const char *p   = msp + 1;
+    const char *end = p;
+    while (*end && *end != ' ' && *end != '?' && *end != '\r' && *end != '\n')
+        end++;
+    size_t pl = (size_t)(end - p);
+    if (pl == 0 || pl >= pcap) return false;
+    memcpy(path, p, pl);
+    path[pl] = '\0';
+    return true;
+}
+
 /* Promote an HC_NEW slot to HC_SSE or HC_WS for ongoing streaming, or
  * leave the connection unstored (caller closes). */
 static void classify_request(zt_ctx *c, int i) {
@@ -975,13 +1040,23 @@ static void classify_request(zt_ctx *c, int i) {
     const char *req = h->req_buf;
     size_t      rn  = h->req_len;
 
-    if (rn >= 8 && strncmp(req, "OPTIONS ", 8) == 0) {
+    /* Route on the parsed request-target, not strstr over the whole buffer. */
+    char method[8], path[512];
+    if (!parse_request_line(req, method, sizeof method, path, sizeof path)) {
+        send_text_c(c, cfd, "400 Bad Request", "text/plain", "", 0);
+        hc_close(i);
+        return;
+    }
+    bool is_get  = strcmp(method, "GET") == 0;
+    bool is_post = strcmp(method, "POST") == 0;
+
+    if (strcmp(method, "OPTIONS") == 0) {
         send_preflight(c, cfd);
         hc_close(i);
         return;
     }
 
-    if (strstr(req, "GET /stream") || strstr(req, "GET /api/stream")) {
+    if (is_get && (strcmp(path, "/stream") == 0 || strcmp(path, "/api/stream") == 0)) {
         /* ZT-013: the live RX stream is sensitive — pin Origin/Host so a
          * cross-origin page can't open an EventSource and read device output. */
         if (!request_origin_ok(req)) {
@@ -999,7 +1074,7 @@ static void classify_request(zt_ctx *c, int i) {
         h->type = HC_SSE;
         return;
     }
-    if (strstr(req, "GET /ws")) {
+    if (is_get && strcmp(path, "/ws") == 0) {
         /* ZT-013 (INVARIANTS §7): validate Origin/Host before upgrading, or any
          * web page could open a WS and read the live RX stream cross-origin. */
         if (!request_origin_ok(req)) {
@@ -1032,7 +1107,7 @@ static void classify_request(zt_ctx *c, int i) {
         h->type = HC_WS;
         return;
     }
-    if (strstr(req, "GET /metrics")) {
+    if (is_get && strcmp(path, "/metrics") == 0) {
         char snap[2048];
         int  n = snprintf(
             snap, sizeof snap,
@@ -1045,15 +1120,14 @@ static void classify_request(zt_ctx *c, int i) {
         hc_close(i);
         return;
     }
-    if (strstr(req, "GET /api/state") || strstr(req, "GET /api/info")) {
+    if (is_get && (strcmp(path, "/api/state") == 0 || strcmp(path, "/api/info") == 0)) {
         char json[1024];
         build_state_json(c, json, sizeof json);
         send_json(c, cfd, json);
         hc_close(i);
         return;
     }
-    if ((rn >= 14 && strncmp(req, "POST /api/send", 14) == 0) ||
-        (rn >= 8 && strncmp(req, "POST /tx", 8) == 0)) {
+    if (is_post && (strcmp(path, "/tx") == 0 || strcmp(path, "/api/send") == 0)) {
         /* ZT-004 (INVARIANTS §7): POST writes the serial line. Reject cross-site
          * / DNS-rebound callers (Origin/Host pinning) so a page the operator
          * visits can't push commands to the device, and — when --http-token is
@@ -1072,20 +1146,18 @@ static void classify_request(zt_ctx *c, int i) {
         if (body && c->serial.fd >= 0) {
             body += 4;
             size_t blen = rn - (size_t)(body - req);
+            /* ZT-034: honor Content-Length so a pipelined or over-read tail
+             * isn't sent to the device as part of this command. hc_pump_new()
+             * has already waited for the full declared body to arrive. */
+            long clen = http_content_length(req, (size_t)(body - req));
+            if (clen > 0 && (size_t)clen < blen) blen = (size_t)clen;
             direct_send(c, (const unsigned char *)body, blen);
         }
         send_text_c(c, cfd, "204 No Content", "text/plain", "", 0);
         hc_close(i);
         return;
     }
-    if (rn >= 4 && strncmp(req, "GET ", 4) == 0) {
-        const char *url = req + 4;
-        const char *sp  = strchr(url, ' ');
-        char        path[512];
-        size_t      pn = sp ? (size_t)(sp - url) : 0;
-        if (pn >= sizeof path) pn = sizeof path - 1;
-        memcpy(path, url, pn);
-        path[pn] = '\0';
+    if (is_get) {
         if (c->net.http_webroot && serve_webroot(c, cfd, c->net.http_webroot, path)) {
             hc_close(i);
         } else if (!c->net.http_webroot &&
@@ -1121,7 +1193,23 @@ static void hc_pump_new(zt_ctx *c, int i) {
         if (r > 0) {
             h->req_len += (size_t)r;
             h->req_buf[h->req_len] = '\0';
-            if (h->req_len >= 4 && memmem(h->req_buf, h->req_len, "\r\n\r\n", 4) != NULL) {
+            char *hdrend           = memmem(h->req_buf, h->req_len, "\r\n\r\n", 4);
+            if (hdrend) {
+                size_t header_len = (size_t)(hdrend - h->req_buf) + 4;
+                /* ZT-034: for POST, don't dispatch until the whole declared
+                 * body has arrived — otherwise a body split across TCP
+                 * segments is truncated/dropped while we return 204. */
+                if (h->req_len >= 5 && strncmp(h->req_buf, "POST ", 5) == 0) {
+                    long clen = http_content_length(h->req_buf, header_len);
+                    if (clen > (long)(sizeof h->req_buf - 1 - header_len)) {
+                        /* declared body can't fit our bounded request buffer */
+                        send_text_c(c, h->fd, "413 Payload Too Large", "text/plain", "", 0);
+                        hc_close(i);
+                        return;
+                    }
+                    if (clen > 0 && h->req_len - header_len < (size_t)clen)
+                        continue; /* wait for the rest of the body */
+                }
                 classify_request(c, i);
                 return;
             }
@@ -1152,16 +1240,42 @@ void http_tick(zt_ctx *c) {
     for (int i = 0; i < HC_MAX; i++) {
         if (g_conn[i].fd >= 0 && g_conn[i].type == HC_NEW) hc_pump_new(c, i);
     }
+    /* ZT-043: reap established SSE/WS peers that have hung up. Otherwise a dead
+     * peer's slot is freed only by a failing broadcast write, so on an idle
+     * link (no RX/TX/input) 16 half-open clients exhaust HC_MAX and the bridge
+     * stops accepting. Poll each stream fd non-blocking for hangup / readable
+     * EOF and drop it. */
+    for (int i = 0; i < HC_MAX; i++) {
+        if (g_conn[i].fd < 0 || g_conn[i].type == HC_NEW) continue;
+        struct pollfd pf = {.fd = g_conn[i].fd, .events = POLLIN};
+        if (poll(&pf, 1, 0) <= 0) continue;
+        if (pf.revents & (POLLHUP | POLLERR | POLLNVAL)) {
+            hc_close(i);
+            continue;
+        }
+        if (pf.revents & POLLIN) {
+            char    b[64];
+            ssize_t r = recv(g_conn[i].fd, b, sizeof b, MSG_DONTWAIT);
+            if (r == 0)
+                hc_close(i); /* peer sent FIN (e.g. browser tab closed) */
+            else if (r < 0 && errno != EAGAIN && errno != EWOULDBLOCK)
+                hc_close(i);
+            /* r > 0: unsolicited client bytes on a server→client stream — drop
+             * them and keep the peer. */
+        }
+    }
 }
 
-/* Send one WS text frame. Returns 0 on success, -1 if the peer's socket can't
- * take the whole frame (ZT-009): the caller must then close it, because a
- * partial frame desyncs the stream and a never-reaped dead peer exhausts the
- * 16 connection slots (ZT-017). */
-static int ws_frame_text(int fd, const unsigned char *buf, size_t n) {
+/* Send one WS binary frame. Returns 0 on success, -1 if the peer's socket
+ * can't take the whole frame (ZT-009): the caller must then close it, because
+ * a partial frame desyncs the stream and a never-reaped dead peer exhausts the
+ * 16 connection slots (ZT-017). Binary (opcode 0x2), not text: device RX is
+ * arbitrary 8-bit data, and a TEXT frame carrying a non-UTF-8 byte makes every
+ * conformant client fail the connection with close code 1007 (ZT-035). */
+static int ws_frame_binary(int fd, const unsigned char *buf, size_t n) {
     unsigned char hdr[10];
     size_t        hl = 0;
-    hdr[0]           = 0x81; /* FIN + text */
+    hdr[0]           = 0x82; /* FIN + binary */
     if (n < 126) {
         hdr[1] = (unsigned char)n;
         hl     = 2;
@@ -1207,7 +1321,7 @@ void http_broadcast(zt_ctx *c, const unsigned char *buf, size_t n) {
                     hc_close(i);
             } else if (g_conn[i].type == HC_WS) {
                 /* ZT-009/ZT-017: check the frame write and reap dead peers. */
-                if (ws_frame_text(g_conn[i].fd, seg, seglen) != 0) hc_close(i);
+                if (ws_frame_binary(g_conn[i].fd, seg, seglen) != 0) hc_close(i);
             }
         }
     }

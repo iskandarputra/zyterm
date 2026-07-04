@@ -66,6 +66,13 @@ int filter_start(zt_ctx *c, const char *shell_cmd) {
     /* Non-blocking on our read end for clean draining. */
     int fl = fcntl(out_pipe[0], F_GETFL, 0);
     fcntl(out_pipe[0], F_SETFL, fl | O_NONBLOCK);
+    /* Non-blocking on our write end too, so filter_feed() drops bytes on a
+     * full pipe instead of blocking the single-threaded event loop when the
+     * filter can't keep up with device RX (ZT-032, INVARIANTS §3). The
+     * child's stdin (in_pipe[0], dup2'd to fd 0) is a separate open file
+     * description, so it stays blocking — only our end is affected. */
+    int fl_in = fcntl(in_pipe[1], F_GETFL, 0);
+    fcntl(in_pipe[1], F_SETFL, fl_in | O_NONBLOCK);
 
     c->ext.filter_stdin_fd  = in_pipe[1];
     c->ext.filter_stdout_fd = out_pipe[0];

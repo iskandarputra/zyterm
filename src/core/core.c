@@ -60,6 +60,11 @@ void       zt_embed_disarm(void) {
 /* Forward declaration — defined further below in this file. */
 void        uninstall_signals(void);
 static void zt_embed_reset_buffers(void);
+/* Defined in loop/rx_thread.c — stops an orphaned --threaded worker on the
+ * embedded exit paths (this is an intentional up-call, like the
+ * multi_/session_embed_reset() hooks below; the layering cleanup is tracked
+ * in plans/HARDENING_2026-07.md §7). ZT-033. */
+void rx_thread_embed_reset(void);
 
 /* ── Optional embed-mode trace log ───────────────────────────────────
  * When zyterm runs as a zy builtin, fatal exits would normally take the
@@ -124,6 +129,11 @@ void zt_embed_reset(void) {
      * feature wasn't used in the previous run. */
     multi_embed_reset();
     session_embed_reset();
+    /* Stop any --threaded worker orphaned by a fatal siglongjmp on the
+     * previous run before the host reuses zyterm_main's stack — otherwise
+     * the still-running worker writes through a stale ctx pointer (ZT-033).
+     * No-op if the worker was already joined on a clean exit. */
+    rx_thread_embed_reset();
 }
 
 /* =========================================================================
@@ -222,6 +232,11 @@ void zt_die(const char *fmt, ...) {
     zt_trace("zt_die: embedded=%d armed=%d msg=%s", zt_g_embedded, zt_g_embed_jmp_armed, msg);
     /* Embedded-in-zy: bail out to the host instead of killing the shell. */
     if (zt_g_embedded && zt_g_embed_jmp_armed) {
+        /* zt_die runs on the main thread, so stop the --threaded worker now
+         * (join + free) before we siglongjmp past zyterm_main's own
+         * rx_thread_stop(&c) — leaving it live would strand it on a dead
+         * stack ctx (ZT-033). zt_embed_reset() repeats this as a backstop. */
+        rx_thread_embed_reset();
         zt_g_embed_jmp_armed = false;
         siglongjmp(zt_g_embed_jmp, 1);
     }
@@ -308,6 +323,10 @@ static void sig_crash(int s) {
                                          "\033>\033(B\033[m";
     ssize_t wr __attribute__((unused)) = write(STDOUT_FILENO, cleanup, sizeof cleanup - 1);
     if (embed_recover) {
+        /* We cannot stop the --threaded worker here: pthread_join/free are
+         * not async-signal-safe (Signals invariant). The orphaned worker is
+         * reaped by zt_embed_reset() on the host side before the next
+         * zyterm_main() reuses this stack (ZT-033). */
         zt_g_embed_jmp_armed = false;
         siglongjmp(zt_g_embed_jmp, 128 + s);
     }

@@ -8,6 +8,15 @@ fixed under [ADR-0009](../decisions/0009-device-rx-sgr-only-filter.md) — see *
 defects also get a detail file under [`issues/`](issues/); the rest are tracked as board rows.
 Severity drives order, not discovery date.
 
+**2026-07-03 re-review (v1.4.0):** a second multi-agent source review (30 raw findings, adversarially
+verified → 23 kept → 20 after dedup) added **ZT-030 … ZT-049**, now open below. Its dominant theme is
+that several of the ZT-001…029 class-fixes were applied to one code path and their sibling paths were
+missed (e.g. the ZT-001 argv-free is still live on `--profile-save`; the ZT-027 drain-before-reconnect
+is gated `if (!threaded)`; the ZT-007 truncation fix never reached the JSONL logger). Fix order and the
+non-defect (arch/testability/perf) work from that pass live in
+[plans/HARDENING_2026-07.md](../plans/HARDENING_2026-07.md); the full narrative is archived at
+[archive/audit/2026-07-03-source-review.md](../archive/audit/2026-07-03-source-review.md).
+
 **Legend:** 🔴 high / critical · 🟠 medium · ⚪ low · status `open` = recorded, not yet fixed.
 
 <!--
@@ -27,9 +36,40 @@ HOW TO ADD A DEFECT
 | ID | Sev | Area | Location | Status | What's wrong → fix direction |
 |----|-----|------|----------|--------|------------------------------|
 
-_None open. All 28 audited defects are resolved below._
+_None open. ZT-030 … ZT-049 are fixed on branch `fix/zt-030-033-high-severity` (three `fix:` commits, pending merge) — see **Resolved**._
 
 ## Resolved
+
+### 2026-07 wave — v1.4.0 re-review (ZT-030 … ZT-049)
+
+Fixed on branch `fix/zt-030-033-high-severity` (stacked: docs → high → medium → low). Verified with
+clean `-Werror` release + debug builds and the full test suite (unit + e2e + pty), `clang-format`
+clean; new regression tests cover the `--profile-save` crash, the fuzzy `sent_len` invariant, the
+non-blocking filter fd, the split-body `POST /tx`, path-anchored routing, and C1 neutralization.
+
+| ID | Sev | Area | Resolution |
+|----|-----|------|------------|
+| [ZT-030](issues/ZT-030-profile-save-frees-argv-device.md) | 🔴 | ownership | **Fixed** — `--profile-save` frees any prior heap device then `strdup`s `argv[optind]`, so `cleanup_ctx`'s `free` is valid. `src/main.c`. |
+| [ZT-031](issues/ZT-031-fuzzy-inject-stale-sent-len-oob.md) | 🔴 | tui/memsafety | **Fixed** — the fuzzy-finder Enter injection resets `sent_len=0`, restoring the `sent_len+cursor ≤ input_len` invariant. `src/tui/fuzzy.c`. |
+| [ZT-032](issues/ZT-032-filter-stdin-blocking-hangs-loop.md) | 🔴 | blocking-in-loop | **Fixed** — `in_pipe[1]` is set `O_NONBLOCK` after the fork, so `filter_feed` drops bytes instead of blocking the loop. `src/ext/filter.c`. |
+| [ZT-033](issues/ZT-033-rx-thread-orphaned-on-siglongjmp-uaf.md) | 🔴 | concurrency/embedded | **Fixed** — `rx_thread_embed_reset()` stops the worker from `zt_die` and `zt_embed_reset`; `sig_crash` stays async-signal-safe and relies on that reset. `src/loop/rx_thread.c`, `src/core/core.c`. |
+| ZT-034 | 🟠 | logic | **Fixed** — `POST /tx`/`/api/send` parse `Content-Length`, wait for the full body (413 if oversized) and cap the sent bytes. `src/net/http.c`. |
+| ZT-035 | 🟠 | correctness | **Fixed** — `/ws` sends binary frames (`0x82`); `ws_frame_text` → `ws_frame_binary`. `src/net/http.c`. |
+| ZT-036 | 🟠 | logic | **Fixed** — the threaded POLLHUP/POLLERR paths drain the SPSC ring into the log/render pipeline before reconnect. `src/loop/runtime.c`. |
+| ZT-037 | 🟠 | blocking-in-loop | **Fixed** — non-blocking `connect()` bounded by `poll(POLLOUT)` to `ZT_CONNECT_TIMEOUT_MS`. `src/serial/transport.c`. |
+| ZT-038 | 🟠 | logic | **Fixed** — autobaud requires a printable score ≥ `ZT_AUTOBAUD_MIN_SCORE`, else fails and keeps the default baud. `src/serial/autobaud.c`. |
+| ZT-039 | ⚪ | logic | **Fixed** — routing parses the request-target (`parse_request_line`) and matches the exact path, gating POST on the method. `src/net/http.c`. |
+| ZT-040 | ⚪ | correctness | **Fixed** — the JSONL payload is segmented into records that fit `esc`, each with an accurate `n`. `src/log/log_json.c`. |
+| ZT-041 | ⚪ | security | **Fixed** — `emit_inert_byte` tracks UTF-8 state (`proto.utf8_cont`) and neutralizes standalone C1 `0x80–0x9F` as `M-` notation. `src/render/render.c`. |
+| ZT-042 | ⚪ | memsafety | **Fixed** — `visible_len` clamps the multi-byte advance at the NUL. `src/tui/hud.c`. |
+| ZT-043 | ⚪ | resource | **Fixed** — `http_tick` polls established SSE/WS fds for hangup/EOF and reaps them. `src/net/http.c`. |
+| ZT-044 | ⚪ | blocking-in-loop | **Fixed** — `http_write_all` uses an absolute deadline captured once at entry. `src/net/http.c`. |
+| ZT-045 | ⚪ | integer | **Fixed** — `kern_delta()` clamps a decreasing kernel counter to a zero delta across fd swaps. `src/serial/tty_stats.c`. |
+| ZT-046 | ⚪ | error-handling | **Fixed** — the X11 worker resets `running=false` on exit so a later copy relaunches instead of reporting a dead selection as owned. `src/proto/clipboard.c`. |
+| ZT-047 | ⚪ | fd-leak | **Fixed** — `setup_serial` `close(fd)`s before each `zt_die` (errno preserved). `src/serial/serial.c`. |
+| ZT-048 | ⚪ | leak | **Fixed** — the `--replay` branch frees a prior `--profile` heap device before aliasing `replay_path`. `src/main.c`. |
+| ZT-049 | ⚪ | fd-leak | **Fixed** — the clipboard wake-pipe is closed on every worker-exit path; `wake_worker` is mutex-guarded. `src/proto/clipboard.c`. |
+
 
 Fixed on branch `fix/zt-001-ownership-and-ui-hangs` (stacked on the docs rebuild). Verified with a
 clean `-Werror` build + the full test suite (unit + integration + pty) under AddressSanitizer/UBSan
@@ -93,4 +133,4 @@ don't-regress rule in [INVARIANTS.md](../invariants/INVARIANTS.md):
 - **F — Advertised-but-dead code** (ZT-008, ZT-019, ZT-023): the fuzzy finder is wired and bounded;
   the OSC 8 rewrite is bounds-correct (still uncalled) → [STATUS.md](STATUS.md).
 
-_Last updated: 2026-06-13._
+_Last updated: 2026-07-03 — ZT-030 … ZT-049 recorded and fixed on branch `fix/zt-030-033-high-severity`; the 2026-06 Resolved set is unchanged._

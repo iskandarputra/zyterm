@@ -79,15 +79,17 @@ int visible_len(const char *s) {
             n++;
             s++;
         } else {
-            /* UTF-8 continuation: count lead byte as 1 cell, skip continuations. */
+            /* UTF-8 lead byte: count as 1 cell, then skip its continuation
+             * bytes — but stop at NUL so a sequence truncated mid-glyph (e.g.
+             * by an snprintf into a fixed buffer) can't step past the
+             * terminator into an out-of-bounds read (ZT-042). */
             n++;
-            if ((ch & 0xE0) == 0xC0)
-                s += 2;
-            else if ((ch & 0xF0) == 0xE0)
-                s += 3;
-            else if ((ch & 0xF8) == 0xF0)
-                s += 4;
-            else
+            int seq = ((ch & 0xE0) == 0xC0)   ? 2
+                      : ((ch & 0xF0) == 0xE0) ? 3
+                      : ((ch & 0xF8) == 0xF0) ? 4
+                                              : 1;
+            s++; /* consume the lead byte */
+            for (int k = 1; k < seq && *s; k++)
                 s++;
         }
     }

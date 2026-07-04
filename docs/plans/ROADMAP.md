@@ -8,7 +8,14 @@ you want to know what works *today*, read [reference/](../reference/) and
 Each item notes rough **impact** (how much it changes what zyterm can do) and **effort** (build
 cost), and grounds itself in the code that already exists. Nothing here is a commitment.
 
-_Last updated: 2026-06-03._
+The **2026-07-03 re-review** (v1.4.0) re-affirmed several items already here — DTR/RTS + auto-reset
+recipes, the capture-group expect engine + `--extract`, `--send-file` pacing, `rfc2217://`, and
+persistent history — and added four net-new ones: **interactive replay controls**, a
+**`--plain`/accessible mode**, **expanded observability**, and an **auto-loaded base config with
+device-keyed profiles**. Fix/hardening work from that pass is in
+[HARDENING_2026-07.md](./HARDENING_2026-07.md).
+
+_Last updated: 2026-07-03._
 
 ---
 
@@ -64,6 +71,40 @@ byte-by-byte with an inter-byte delay (`trickle_send`, `src/loop/send.c:79`, usi
 indicator, for hardware that can't keep up with line-rate paste. Distinct from the binary
 transfer protocols (XMODEM/YMODEM/ZMODEM) which already work for framed transfers.
 
+### Interactive replay controls (pause / step / seek)
+- **Impact: medium · Effort: medium**
+
+Replay is a linear playback with only a global speed knob today (`--replay <file>`,
+`--replay-speed <x>`). The recorder (`--rec`, `src/log/record_cast.c`) already captures per-event
+timestamps, so the timing data for scrubbing exists. Give `--replay` an interactive transport:
+Space to pause/resume, arrow/`j`-`k` to step one event or one second, and a "go to +NNs" prompt that
+fast-forwards to a timestamp (reusing the scrollback/search UI in `src/tui/`). Replay opens no device,
+so all the serial-fd guards are irrelevant — this is a self-contained render-loop addition that turns
+replay from "watch it again" into a post-mortem debugger for captured sessions.
+
+### `--plain` accessible mode + consistent `NO_COLOR`
+- **Impact: medium · Effort: small**
+
+The interactive UI is inherently visual (colour-coded HUD, Unicode sparkline, cursor-addressed
+regions) and `NO_COLOR`/`TERM=dumb` are honoured only for `--help`, not the running UI. Add a
+`--plain`/accessible mode that renders RX as a flat, timestamp-prefixed line stream with no
+cursor-addressed HUD, no sparkline, and no SGR — screen-reader and pipe friendly while keeping input,
+logging, and hooks live. Honour `NO_COLOR` across the whole runtime, and offer a monochrome/
+high-contrast HUD that drops the dim-grey line-state escapes in `tty_stats_modem_str`
+(`src/serial/tty_stats.c`). Small, self-contained, and widens the audience.
+
+### Expanded observability: richer metrics + NDJSON event stream
+- **Impact: medium · Effort: medium**
+
+The Prometheus exporter emits only 6 counters (`src/net/metrics.c`) even though
+`kern_parity_err`/`kern_brk`/`kern_buf_overrun` are already tracked and never exported, and there is
+no uptime, reconnect count, `build_info`, or SPSC-drop gauge. Extend the snapshot with those counters
+(plus the `rx_dropped_bytes_total` the hardening plan adds) and a `zyterm_build_info{version=…}`
+gauge, growing/guarding `buf[2048]` so lines can't truncate. Complement it with an opt-in
+`--events <fd|file>` that emits one NDJSON object per lifecycle event (connect, disconnect, reconnect,
+match, crc_err, tx_stall) so a supervising script reacts to structured events instead of screen-
+scraping. Both reuse existing counters and the NDJSON writer — libc-only, no new deps.
+
 ---
 
 ## Mid-term: new subsystems
@@ -116,6 +157,18 @@ The planned feature: opt-in persistence (`~/.config/zyterm/history`, alongside t
 profile dir) plus **saved snippets** — named, reusable command strings the operator can recall,
 distinct from F-key macros. Superseding ADR-0006 is the right way to record the reversal if/when
 this ships.
+
+### Auto-loaded base config + device-keyed profiles
+- **Impact: medium · Effort: medium**
+
+Config only loads via an explicit `--profile <name>` (`src/main.c`); there is no auto-loaded
+`~/.config/zyterm/config.conf` applied to every run. `profile_save`/`profile_load` are also lossy and
+asymmetric — `flow` is documented in the `profile.c` header but is neither written nor parsed, so flow
+control silently fails to round-trip, and watches/macros/hooks aren't persisted at all. The plan: (1)
+auto-load `config.conf` as base defaults with CLI flags overriding, reusing the existing INI parser;
+(2) allow a profile to be keyed to a device path so a known adapter auto-selects its settings on
+connect; (3) close the round-trip gaps (persist `flow`, watches, macros). All of it stays libc-only
+INI under the dir `profile.c` already manages. Pairs with the persistent-history work above.
 
 ### Finish `rfc2217://`
 - **Impact: medium · Effort: medium**

@@ -11,8 +11,8 @@ tracks feature/work state, not correctness.
 This board records *state*, not the detailed work. Where the work itself lives:
 
 - Feature direction and future epics → [ROADMAP.md](../plans/ROADMAP.md).
-- Fix order, perf, testing, and security-posture hardening → [RELIABILITY_HARDENING.md](../plans/RELIABILITY_HARDENING.md).
-- Confirmed defects (with severity, location, and fix direction) → [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+- Fix order, perf, testing, and security-posture hardening → [RELIABILITY_HARDENING.md](../plans/RELIABILITY_HARDENING.md) (wave 1, ZT-001…028, COMPLETE) and [HARDENING_2026-07.md](../plans/HARDENING_2026-07.md) (wave 2 — ZT-030…049 defects fixed on branch; arch/testability/perf work still open).
+- Confirmed defects (with severity, location, and fix direction) → [KNOWN_ISSUES.md](KNOWN_ISSUES.md) — **ZT-030 … ZT-049 fixed** on branch `fix/zt-030-033-high-severity` (pending merge); none open.
 
 ## Shipped
 
@@ -60,4 +60,4 @@ functionality and never re-advertised in the README. Latent bugs in the dead pat
 | Multi-pane | 🟡 | `multi_render()` is a no-op stub (`src/ext/multi.c`); not wired, not keybound, not discoverable. Real multi-pane is on the [ROADMAP](../plans/ROADMAP.md). |
 | In-memory history & bookmarks | ⏸ | History and bookmarks are in-memory only and lost on exit; no `~/.zyterm_history` / `~/.zyterm/bookmarks` file is written → [ADR-0006](../decisions/0006-in-memory-history-and-bookmarks.md). |
 
-_Last updated: 2026-06-03._
+_Last updated: 2026-07-03._

@@ -66,13 +66,25 @@ static void emit(zt_ctx *c, const char *dir, const unsigned char *buf, size_t n)
     if (!c || c->log.fd < 0 || c->log.format != ZT_LOG_JSON) return;
     char ts[40];
     iso_ts(ts);
-    char esc[8192];
-    json_escape(buf, n > 2048 ? 2048 : n, esc, sizeof esc);
-    char line[8400];
-    int  len =
-        snprintf(line, sizeof line, "{\"ts\":\"%s\",\"dir\":\"%s\",\"n\":%zu,\"b\":\"%s\"}\n",
-                 ts, dir, n, esc);
-    if (len > 0) (void)zt_write_all(c->log.fd, line, (size_t)len);
+    /* Segment the payload so a burst larger than one record's escape buffer is
+     * logged in full across multiple NDJSON records, instead of truncating "b"
+     * to 2048 bytes while "n" still reported the full length (ZT-040 — the
+     * JSONL twin of the ZT-007 http_broadcast fix). A 1024-byte source chunk
+     * cannot overflow esc[8192] even in the 6x worst case (all "\u00xx"), so
+     * json_escape never truncates internally and each record's "n" matches its
+     * "b". All segments share the read's single timestamp. */
+    size_t off = 0;
+    do {
+        size_t seg = n - off > 1024 ? 1024 : n - off;
+        char   esc[8192];
+        json_escape(buf + off, seg, esc, sizeof esc);
+        char line[8400];
+        int  len = snprintf(line, sizeof line,
+                            "{\"ts\":\"%s\",\"dir\":\"%s\",\"n\":%zu,\"b\":\"%s\"}\n", ts, dir,
+                            seg, esc);
+        if (len > 0) (void)zt_write_all(c->log.fd, line, (size_t)len);
+        off += seg;
+    } while (off < n);
 }
 
 void log_json_rx(zt_ctx *c, const unsigned char *buf, size_t n) {

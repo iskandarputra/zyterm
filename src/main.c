@@ -720,7 +720,16 @@ int zyterm_main(int argc, char **argv) {
      * before touching the serial device. <DEVICE> is optional here —
      * if given it's saved as part of the profile. */
     if (profile_save_name) {
-        if (optind < argc) c.serial.device = argv[optind];
+        if (optind < argc) {
+            /* Own the device string here too: cleanup_ctx() below free()s
+             * c.serial.device, so aliasing the non-heap argv[optind] would
+             * free an argv pointer — the ZT-001 ownership trap, still live
+             * on this one path (ZT-030). Free any heap copy a prior
+             * --profile set (ZT-016), then strdup so the free is valid. */
+            free((void *)c.serial.device);
+            c.serial.device = strdup(argv[optind]);
+            if (!c.serial.device) zt_die("zyterm: out of memory (device)");
+        }
         int rc = profile_save(&c, profile_save_name);
         if (rc != 0)
             fprintf(stderr, "zyterm: --profile-save %s: %s\n", profile_save_name,
@@ -733,6 +742,10 @@ int zyterm_main(int argc, char **argv) {
 
     /* replay mode: no device needed */
     if (c.core.replay_path) {
+        /* A prior --profile may have strdup'd a device into c.serial.device;
+         * free it before aliasing the non-heap replay_path so it isn't leaked
+         * under embedded reuse (ZT-048; the ZT-016 free-before-assign twin). */
+        free((void *)c.serial.device);
         c.serial.device = c.core.replay_path;
         if (log_path) {
             c.log.path = log_path;

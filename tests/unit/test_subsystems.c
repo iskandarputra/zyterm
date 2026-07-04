@@ -655,6 +655,128 @@ static void test_http_server(void) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 13b. HTTP POST /tx with a body split across TCP segments (ZT-034)  */
+/* ------------------------------------------------------------------ */
+static void test_http_post_split_body(void) {
+    SECTION("http POST /tx split body");
+    zt_ctx c;
+    ctx_init(&c);
+
+    int port = find_free_port();
+    if (port <= 0) {
+        ctx_free(&c);
+        return;
+    }
+    if (http_start(&c, port) != 0) {
+        ctx_free(&c);
+        return;
+    }
+
+    /* Capture what direct_send() writes to the "device" via a pipe. */
+    int sp[2];
+    if (pipe(sp) != 0) {
+        http_stop(&c);
+        ctx_free(&c);
+        return;
+    }
+    c.serial.fd = sp[1];
+    {
+        int fl = fcntl(sp[0], F_GETFL, 0);
+        fcntl(sp[0], F_SETFL, fl | O_NONBLOCK);
+    }
+
+    int                cfd = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in sa  = {0};
+    sa.sin_family          = AF_INET;
+    sa.sin_addr.s_addr     = htonl(INADDR_LOOPBACK);
+    sa.sin_port            = htons((uint16_t)port);
+    ASSERT(connect(cfd, (struct sockaddr *)&sa, sizeof sa) == 0, "split-POST client connects");
+
+    /* Segment 1: headers only, advertising an 11-byte body. Before ZT-034 the
+     * server dispatched on "\r\n\r\n" and closed the slot, so the body that
+     * follows in segment 2 never reached the device. */
+    const char *hdr = "POST /tx HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 11\r\n\r\n";
+    if (write(cfd, hdr, strlen(hdr)) < 0) {}
+    for (int i = 0; i < 5; i++) {
+        http_tick(&c);
+        usleep(3000);
+    }
+    char    devbuf[64];
+    ssize_t got = read(sp[0], devbuf, sizeof devbuf);
+    ASSERT(got < 0 && (errno == EAGAIN || errno == EWOULDBLOCK),
+           "no device write before full body arrives (ZT-034)");
+
+    /* Segment 2: the 11-byte body. */
+    const char *bdy = "hello world";
+    if (write(cfd, bdy, strlen(bdy)) < 0) {}
+    size_t dtot = 0;
+    for (int i = 0; i < 40 && dtot < 11; i++) {
+        http_tick(&c);
+        usleep(5000);
+        ssize_t rr = read(sp[0], devbuf + dtot, sizeof devbuf - dtot);
+        if (rr > 0) dtot += (size_t)rr;
+    }
+    ASSERT(dtot == 11 && memcmp(devbuf, "hello world", 11) == 0,
+           "full 11-byte split body delivered to device (ZT-034)");
+
+    close(cfd);
+    close(sp[0]);
+    c.serial.fd = -1;
+    close(sp[1]);
+    http_stop(&c);
+    ctx_free(&c);
+}
+
+/* ------------------------------------------------------------------ */
+/* 13c. HTTP route dispatch is path-anchored, not substring (ZT-039)  */
+/* ------------------------------------------------------------------ */
+static void test_http_route_anchored(void) {
+    SECTION("http route anchoring");
+    zt_ctx c;
+    ctx_init(&c);
+    int port = find_free_port();
+    if (port <= 0) {
+        ctx_free(&c);
+        return;
+    }
+    if (http_start(&c, port) != 0) {
+        ctx_free(&c);
+        return;
+    }
+    struct sockaddr_in sa = {0};
+    sa.sin_family         = AF_INET;
+    sa.sin_addr.s_addr    = htonl(INADDR_LOOPBACK);
+    sa.sin_port           = htons((uint16_t)port);
+
+    /* "GET /streamlit.html" must NOT match the /stream route (no --webroot ->
+     * 404), and must not be served as an SSE stream. Before ZT-039 the
+     * unanchored strstr(req, "GET /stream") turned it into text/event-stream. */
+    int cfd = socket(AF_INET, SOCK_STREAM, 0);
+    connect(cfd, (struct sockaddr *)&sa, sizeof sa);
+    const char *req = "GET /streamlit.html HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+    if (write(cfd, req, strlen(req)) < 0) {}
+    http_tick(&c);
+    char   resp[4096] = {0};
+    size_t total      = 0;
+    int    fl         = fcntl(cfd, F_GETFL, 0);
+    fcntl(cfd, F_SETFL, fl | O_NONBLOCK);
+    for (int i = 0; i < 30 && total < sizeof resp - 1; i++) {
+        ssize_t rr = read(cfd, resp + total, sizeof resp - 1 - total);
+        if (rr > 0)
+            total += (size_t)rr;
+        else
+            usleep(5000);
+    }
+    ASSERT(strstr(resp, "404") != NULL, "/streamlit.html is 404, not a route match (ZT-039)");
+    ASSERT(strstr(resp, "text/event-stream") == NULL,
+           "/streamlit.html not served as SSE (ZT-039)");
+    close(cfd);
+
+    http_stop(&c);
+    ctx_free(&c);
+}
+
+/* ------------------------------------------------------------------ */
 /* 14. Filter (pipe mock — uses `cat` as filter)                      */
 /* ------------------------------------------------------------------ */
 static void test_filter(void) {
@@ -667,6 +789,12 @@ static void test_filter(void) {
     ASSERT(c.ext.filter_pid > 0, "filter_pid set");
     ASSERT(c.ext.filter_stdin_fd >= 0, "filter_stdin_fd valid");
     ASSERT(c.ext.filter_stdout_fd >= 0, "filter_stdout_fd valid");
+
+    /* ZT-032: our write end must be non-blocking so a filter that can't keep
+     * up drops bytes in filter_feed() instead of blocking the single-threaded
+     * event loop. (The child's stdin is a separate OFD and stays blocking.) */
+    int stdin_fl = fcntl(c.ext.filter_stdin_fd, F_GETFL, 0);
+    ASSERT(stdin_fl != -1 && (stdin_fl & O_NONBLOCK), "filter_stdin_fd is O_NONBLOCK (ZT-032)");
 
     int poll_fd = filter_poll_fd(&c);
     ASSERT(poll_fd >= 0, "filter_poll_fd valid");
@@ -843,6 +971,23 @@ static void test_fuzzy(void) {
     const char *sel = history_at(&c, c.tui.fuzzy_selected);
     ASSERT(sel && strcmp(sel, "status") == 0, "fuzzy selects matching history (ZT-008)");
     fuzzy_exit(&c);
+
+    /* ZT-031: Enter-injecting a selected line must reset sent_len — otherwise
+     * the edit-key math input_len - (sent_len + cursor) underflows to
+     * ~SIZE_MAX and memmoves over input_buf. Simulate the non-zero sent_len
+     * that local echo (or a Tab completion) leaves, inject, and assert the
+     * sent_len + cursor <= input_len invariant is restored. */
+    fuzzy_enter(&c);
+    fuzzy_handle(&c, 's');
+    fuzzy_handle(&c, 't');
+    fuzzy_handle(&c, 'a');
+    c.tui.sent_len  = 3;
+    c.tui.input_len = 3;
+    c.tui.cursor    = 0;
+    fuzzy_handle(&c, '\r'); /* Enter: inject selection "status" */
+    ASSERT(c.tui.sent_len == 0, "fuzzy Enter resets sent_len (ZT-031)");
+    ASSERT((size_t)c.tui.sent_len + (size_t)c.tui.cursor <= (size_t)c.tui.input_len,
+           "sent_len + cursor <= input_len after injection (ZT-031)");
 
     ctx_free(&c);
 }
@@ -1554,6 +1699,8 @@ int main(void) {
     /* Integration / Tier 4 */
     test_pty_roundtrip();
     test_http_server();
+    test_http_post_split_body();
+    test_http_route_anchored();
 
     fprintf(stderr, "\n========================================\n");
     fprintf(stderr, "%d passed, %d failed\n", g_pass, g_fail);
