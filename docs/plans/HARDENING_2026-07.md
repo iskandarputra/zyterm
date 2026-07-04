@@ -1,7 +1,7 @@
 # Reliability hardening plan — wave 2 (2026-07, v1.4.0)
 
 > **Status (2026-07-03): defects fixed, engineering work open.** All twenty defects (ZT-030 … ZT-049)
-> in Phases 1–4 below are fixed on branch `fix/zt-030-033-high-severity` (pending merge) — see the
+> in Phases 1–4 below are fixed and merged to `main` — see the
 > Resolved table in [tracking/KNOWN_ISSUES.md](../tracking/KNOWN_ISSUES.md). The **non-defect**
 > engineering work is still open: the `http.c` split (Phase 2), SPSC drop accounting + a TSan CI leg
 > (Phase 3), the performance hot-path work (Phase 5), and the testability foundation (Phase 6).

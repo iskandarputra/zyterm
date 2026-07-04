@@ -4,7 +4,7 @@
   4096-byte input buffer — segfault or corruption of the enclosing `zt_ctx`, reachable from documented
   keys alone)
 - **Area:** tui/input / memsafety
-- **Status:** **fixed** 2026-07-03 on branch `fix/zt-030-033-high-severity` (recorded 2026-07-03, pending merge) — see [KNOWN_ISSUES Resolved](../KNOWN_ISSUES.md#resolved)
+- **Status:** **fixed** — merged to `main` 2026-07-04 (recorded 2026-07-03) — see [KNOWN_ISSUES Resolved](../KNOWN_ISSUES.md#resolved)
 - **Location:** `src/tui/fuzzy.c:64` (the injection `memcpy` / length + cursor assignment in
   `fuzzy_handle`'s Enter branch), which fails to reset `c->tui.sent_len`; consumed by the edit-key
   handlers in `src/loop/input.c` (`delete_before_cursor` `:800`, Ctrl+W `:1025`).

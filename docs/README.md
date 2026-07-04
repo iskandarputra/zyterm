@@ -113,7 +113,7 @@ always one of the kinds above in disguise.
 
 - [`STATUS.md`](tracking/STATUS.md) — non-defect work in flight.
 - [`KNOWN_ISSUES.md`](tracking/KNOWN_ISSUES.md) — defects `ZT-001 … ZT-049`, all resolved
-  (`ZT-030 … ZT-049` fixed on branch, pending merge); high-severity rows link into
+  (`ZT-030 … ZT-049` merged to `main`); high-severity rows link into
   [`issues/`](tracking/issues/).
 
 ### `ops/` — release
