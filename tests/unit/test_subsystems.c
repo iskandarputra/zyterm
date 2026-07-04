@@ -1606,6 +1606,31 @@ static void test_profile_watch(void) {
     profile_watch_tick(&c);
     ASSERT(true, "profile_watch_tick on idle fd is safe");
 
+    /* Phase 7: flow control now round-trips through profile save/load (it used
+     * to be documented but neither written nor parsed). Uses a separate profile
+     * name so it doesn't disturb the watch file above. */
+    {
+        zt_ctx pc;
+        memset(&pc, 0, sizeof pc);
+        pc.serial.baud = 115200;
+        pc.serial.flow = 1; /* rtscts */
+        ASSERT(profile_save(&pc, "utest_flow") == 0, "profile_save with flow=rtscts");
+        zt_ctx lc;
+        memset(&lc, 0, sizeof lc);
+        ASSERT(profile_load(&lc, "utest_flow") == 0, "profile_load reads it back");
+        ASSERT(lc.serial.flow == 1, "flow=rtscts survives the profile round-trip (Phase 7)");
+
+        pc.serial.flow = 2; /* xonxoff */
+        profile_save(&pc, "utest_flow");
+        memset(&lc, 0, sizeof lc);
+        profile_load(&lc, "utest_flow");
+        ASSERT(lc.serial.flow == 2, "flow=xonxoff round-trips too");
+
+        char ff[256];
+        snprintf(ff, sizeof ff, "%s/utest_flow.conf", prof_dir);
+        unlink(ff);
+    }
+
     /* Edit the file (atomic-rename style): write to a sibling tmp and
      * mv it over. This is what vim/helix/vscode do and is the case
      * the parent-dir watch was specifically designed for. */

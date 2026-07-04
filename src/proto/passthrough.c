@@ -36,21 +36,24 @@ void passthrough_exit(zt_ctx *c) {
 
 bool passthrough_handle(zt_ctx *c, const unsigned char *buf, size_t n) {
     if (!c || !c->proto.passthrough || !buf || n == 0) return false;
-    /* Detect "~." at start of line (after \n or the very first byte). */
-    static int state = 0; /* 0 = line start, 1 = saw '~' */
+    /* Detect "~." at start of line (after \n or the very first byte). The parser
+     * state lives in @c c->proto.passthrough_esc, not a function-static: a
+     * function-static bled across embedded runs (a fresh zyterm_main() would
+     * start mid-parse), whereas ctx state is zeroed per run (Phase 7). */
+    int *state = &c->proto.passthrough_esc; /* 0 = line start, 1 = saw '~' */
     for (size_t i = 0; i < n; i++) {
         unsigned char b = buf[i];
-        if (state == 1 && b == '.') {
+        if (*state == 1 && b == '.') {
             passthrough_exit(c);
-            state = 0;
+            *state = 0;
             return true;
         }
-        if (state == 0 && b == '~') {
-            state = 1;
+        if (*state == 0 && b == '~') {
+            *state = 1;
             continue;
         }
-        state = (b == '\n' || b == '\r') ? 0 : 2;
-        if (state == 2) state = 0;
+        *state = (b == '\n' || b == '\r') ? 0 : 2;
+        if (*state == 2) *state = 0;
     }
     /* Verbatim relay to serial. */
     if (c->serial.fd >= 0) c->core.tx_direct(c, buf, n);

@@ -279,18 +279,26 @@ of minor per-session file-static pulls and the `osc8_rewrite` removal remain.
 - **"All per-process state lives in one `zt_ctx`" — registry landed. DONE (2026-07)** for the reset
   mechanism: the hard-coded two-entry list is a **registry** — modules with per-run file-statics
   (`net/session.c`, `loop/rx_thread.c`) self-register a reset hook via a constructor, and
-  `zt_embed_reset()`/`zt_die()` run the table, so core no longer names them. **Still open (minor):**
-  pull the last genuinely-per-session file-statics into `zt_ctx` — `proto/passthrough.c`'s KGDB `~.`
-  parser `state` (a real cross-run bug: it bleeds between embedded runs) and `log/record_cast.c`'s
-  cast `t0`; add a lint so a new file-static must either live in `zt_ctx` or register a reset hook.
+  `zt_embed_reset()`/`zt_die()` run the table, so core no longer names them. **The last per-session
+  file-statics are handled now (2026-07-04):** `proto/passthrough.c`'s KGDB `~.` parser state moved
+  into `zt_ctx` (`proto.passthrough_esc`) so it resets per run instead of bleeding across embedded
+  runs, and `log/record_cast.c` self-registers a reset hook that closes a half-open recording and
+  clears its clock. (A generic "every new file-static must live in `zt_ctx` or register a reset hook"
+  lint was considered and dropped: distinguishing per-session state from legitimate const tables /
+  the registry array itself is too noisy to enforce mechanically — it's a review checklist item.)
 - **Dead code shipping in every binary** — **`serial/fastio.c` and `ext/multi.c` deleted (2026-07)**:
   both had zero callers, and `multi.c` reintroduced the file-static session state + a blocking loop
   read the invariants forbid; the `epoll` runtime was never worth it over `--threaded`, and the one
   real idea (`splice` serial→logfile on the raw-dump path) is noted in [ROADMAP.md](./ROADMAP.md).
-  **Still open:** `proto/osc.c` `osc8_rewrite` (0 callers, ZT-019) — its removal is entangled with
-  the user-facing "Hyperlinks (OSC 8)" settings toggle (`hud.c` row `E`, `input.c`), so it needs a
-  small settings-menu renumber to remove cleanly. Also still open: the `profile_save`/`profile_load`
-  round-trip gaps (`flow` documented but neither written nor parsed; watches/macros not persisted).
+  **Still open — needs a product decision:** `proto/osc.c` `osc8_rewrite` (0 callers, ZT-019) is dead,
+  and the "Hyperlinks (OSC 8)" settings toggle (`input.c` `E`, shown in `hud.c`) sets
+  `proto.hyperlinks` but nothing ever reads it — so the toggle is a **no-op that lies to the user**.
+  Resolving it is either *remove* (delete `osc8_rewrite` + the toggle + renumber the settings menu) or
+  *implement* (call `osc8_rewrite` on the render path when the flag is on). Both change user-facing
+  behaviour, so it's left for an explicit call rather than settled silently.
+  **`profile` round-trip: `flow` DONE (2026-07-04)** — `flow` is now written and parsed
+  (`none`/`rtscts`/`xonxoff`), guarded by a round-trip test. Still open (feature, not a bug): watches
+  and macros are not persisted across a profile save/load.
 
 ---
 
