@@ -80,6 +80,17 @@ not freeze the UI (Ctrl+A x still quits); an embedded SIGABRT with `--threaded` 
 
 ## Phase 2 — HTTP request-path correctness (the operator-facing bridge)
 
+> **DONE** (2026-07-04). All five behavioural fixes (ZT-034/035/039/043/044) landed in the wave-2
+> merge and are marked Fixed in `KNOWN_ISSUES.md`. The decomposition then followed on
+> `refactor/http-split`: the 1386-LOC `net/http.c` is split into six co-operating units sharing the
+> net-private `src/net/http_internal.h` — `http.c` (261 LOC: connection table, lifecycle, accept +
+> header pump, `http_tick`, write helpers), `http_routes.c` (parse + route table + response builders
+> + WS upgrade), `http_auth.c` (`request_origin_ok`/`request_token_ok`/`cors_block`, INVARIANTS §7),
+> `http_sha1.c` (SHA-1/base64/accept-key), `http_stream.c` (SSE/WS egress), and `http_asset.c` (the
+> built-in UI blob). The `http_ws`/`http_sse` seam collapsed into one `http_stream.c` because a single
+> broadcast loop writes both peer types. Verified: clean `-Werror` release+debug, `layering-check`,
+> full test suite, and a live curl/SSE/POST smoke of every route.
+
 `net/http.c` (1262 LOC) carries the trust boundary *and* the densest cluster of residual bugs. Fix the
 behaviour, then split the file so the boundary is small and testable.
 
