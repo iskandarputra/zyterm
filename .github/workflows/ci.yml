@@ -133,7 +133,7 @@ jobs:
   # a fixed buffer, exactly where the ZT-021/ZT-022-class bugs live. A short
   # coverage-guided run on every PR; a crash/leak/UB fails the job.
   fuzz:
-    name: linux / clang / libfuzzer (framing)
+    name: linux / clang / libfuzzer
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -144,8 +144,8 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends build-essential clang
-      - name: Fuzz proto/framing decoders (30s)
-        timeout-minutes: 3
+      - name: Fuzz the untrusted-input parsers (framing / xmodem / http, 30s each)
+        timeout-minutes: 8
         run: CC=clang FUZZ_SECONDS=30 make fuzz
 
   # Coverage ratchet: rebuild the embed archive + tests under gcc --coverage,

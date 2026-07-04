@@ -1,13 +1,14 @@
 # Reliability hardening plan — wave 2 (2026-07, v1.4.0)
 
-> **Status (2026-07-03): defects fixed, engineering work open.** All twenty defects (ZT-030 … ZT-049)
-> in Phases 1–4 below are fixed and merged to `main` — see the
-> Resolved table in [tracking/KNOWN_ISSUES.md](../tracking/KNOWN_ISSUES.md). The **non-defect**
-> engineering work is still open: the `http.c` split (Phase 2), SPSC drop accounting + a TSan CI leg
-> (Phase 3), the performance hot-path work (Phase 5), and the testability foundation (Phase 6).
-> **Phase 7 (architecture accuracy) is largely done** — the module layering is now compiler-enforced
-> (narrow includes + `-Werror=implicit-function-declaration` + `make layering-check`), the embed-reset
-> registry is in, and `fastio.c`/`multi.c` are deleted. This is the sequel to
+> **Status (2026-07-04): wave 2 COMPLETE.** All twenty defects (ZT-030 … ZT-049) plus the
+> fuzz-driven **ZT-050** are fixed and merged to `main` — see the Resolved table in
+> [tracking/KNOWN_ISSUES.md](../tracking/KNOWN_ISSUES.md). The **non-defect** engineering work is now
+> merged too: the `http.c` split into six units (Phase 2), SPSC drop accounting + a TSan CI leg
+> (Phase 3), the performance hot-path work incl. scrollback slot-reuse (Phase 5), and the testability
+> foundation — framing/XMODEM/HTTP fuzz targets, XMODEM/YMODEM/HTTP-edge regression tests, and a
+> `make coverage` ratchet gate (Phase 6). **Phase 7 (architecture accuracy) is done** — the module
+> layering is compiler-enforced (narrow includes + `-Werror=implicit-function-declaration` +
+> `make layering-check`), the embed-reset registry is in, and `fastio.c`/`multi.c` are deleted. This is the sequel to
 > [RELIABILITY_HARDENING.md](./RELIABILITY_HARDENING.md) (wave 1, ZT-001…028, COMPLETE), not a
 > replacement — that file stays as the historical record of the first wave.
 
@@ -18,7 +19,7 @@ plan is archived at
 [archive/audit/2026-07-03-source-review.md](../archive/audit/2026-07-03-source-review.md); features
 (as opposed to fixes) are in [ROADMAP.md](./ROADMAP.md).
 
-_Last updated: 2026-07-03._
+_Last updated: 2026-07-04 — wave 2 complete (Phases 1–7 merged; ZT-030…050 resolved)._
 
 ---
 
@@ -221,18 +222,31 @@ fix above shipped unguarded against regression. First tranche landed 2026-07:
 - **XMODEM tests — DONE** (`tests/integration/test_xmodem.c`, 10 asserts): a forked socketpair peer
   drives the engine — `xmodem_send` validated block-by-block (framing/complement/CRC/EOT + payload
   reassembly), a NAK→retransmit recovery, a receiver-CAN abort (returns -1, no hang), and
-  `xmodem_receive` accepting a 3-block transfer with the 0x1A padding trimmed. (YMODEM/ZMODEM batch
-  headers are a follow-on.)
-- **Fuzzing — framing + XMODEM receive DONE** (`tests/fuzz/fuzz_framing.c`, `tests/fuzz/fuzz_xmodem.c`,
-  `make fuzz`, + the `fuzz` CI job): coverage-guided libFuzzer targets drive `framing_feed` (mode + CRC
-  from the first two bytes) and `xmodem_receive` (fuzz bytes fed as the device stream over a half-closed
-  socketpair, SOH-primed into the block parser) under `-fsanitize=fuzzer,address,undefined`, each 30 s
-  on every PR; a crash/leak/UB fails CI. `make fuzz` auto-discovers every `tests/fuzz/fuzz_*.c`. The
-  XMODEM target immediately found **ZT-050** (a corrupt block-number complement spun the modal receive
-  loop forever) — fixed and regression-guarded in the same change.
-- **Still open:** the HTTP request-parser fuzz target + the `classify_request`/`hc_pump_new` unit tests
-  for the oversized-header 431 and 5 s slowloris-drain paths (best built on the Phase-2 split, so
-  sequenced after that PR lands); and a `make coverage` ratchet gate.
+  `xmodem_receive` accepting a 3-block transfer with the 0x1A padding trimmed. **YMODEM send is
+  covered too** (`tests/integration/test_ymodem.c`): a scripted receiver validates the block-0
+  `name\0size` header, every 1K (STX) block's number/complement/CRC, the EOT + null-block
+  end-of-batch, and the payload. (`ymodem_receive` delegates to ZMODEM/lrzsz `rz`, out of unit scope.)
+- **Fuzzing — framing + XMODEM + HTTP DONE** (`tests/fuzz/fuzz_framing.c`, `fuzz_xmodem.c`,
+  `fuzz_http.c`, `make fuzz`, + the `fuzz` CI job): coverage-guided libFuzzer targets drive
+  `framing_feed`, `xmodem_receive` (fuzz bytes fed as the device stream over a half-closed socketpair,
+  SOH-primed into the block parser), and `classify_request` (fuzz bytes placed in a connection slot's
+  request buffer; the router/parse/auth/Content-Length/WS-key paths exercised with `tx_direct` sunk to
+  a no-op) under `-fsanitize=fuzzer,address,undefined`, each 30 s on every PR; a crash/leak/UB fails
+  CI. `make fuzz` auto-discovers every `tests/fuzz/fuzz_*.c`. The XMODEM target immediately found
+  **ZT-050** (a corrupt block-number complement spun the modal receive loop forever) — fixed and
+  regression-guarded in the same change.
+- **HTTP request-pump edge tests — DONE** (`tests/integration/test_http_parser.c`): drives the real
+  `http_start`/`http_tick` over a loopback socket and asserts an oversized (>`HC_REQ_CAP`)
+  never-terminating header block is answered **431** and the slot closed, and that a stalled partial
+  request never blocks `http_tick` (the slowloris defence — the drop happens later on the
+  `HC_HEADER_TIMEOUT_S` deadline, so we assert the tick is non-blocking rather than wait 5 s).
+- **`make coverage` ratchet gate — DONE**: rebuilds the embed archive + tests under gcc `--coverage`,
+  aggregates src/ line coverage via gcov (no gcovr/lcov — libc-only ethos), and fails below
+  `COVERAGE_MIN` (default 30%; baseline 33%). A `linux / gcc / coverage` CI job enforces it.
+
+**Phase 6 is complete.** Every hostile-input parser (framing, XMODEM receive, the HTTP request line)
+has a fuzz target; the SPSC ring, both transfer engines, the logger, and the HTTP 431/slowloris edges
+have regression tests; and a coverage floor is enforced in CI.
 
 ---
 
