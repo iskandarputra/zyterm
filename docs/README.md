@@ -144,8 +144,8 @@ always one of the kinds above in disguise.
 - **Current truth only.** No hype, no "coming soon", no unverified numbers. Every code claim must
   be checkable in `src/`; prefer `file.c:line` citations.
 - **Honesty about dead code.** Stubbed, unwired, or broken features are never described as working.
-  They live in `tracking/KNOWN_ISSUES.md` or `plans/`. (For the current list of these — OSC 8
-  hyperlinks, the epoll/splice fast path, the fuzzy finder, multi-pane, `rfc2217://` — see
+  They live in `tracking/KNOWN_ISSUES.md` or `plans/`. (For the current list of these — the
+  epoll/splice fast path, multi-pane, `rfc2217://` — see
   [`tracking/KNOWN_ISSUES.md`](tracking/KNOWN_ISSUES.md) and [`plans/ROADMAP.md`](plans/ROADMAP.md).)
 - **Boards carry a stamp.** STATUS and KNOWN_ISSUES open with a one-line purpose, a
   `_Last updated:_` date, and their emoji legend.

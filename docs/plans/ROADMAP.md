@@ -197,8 +197,8 @@ self-contained addition on the dump path — not a general epoll runtime. Ration
 ## Explicitly not planned (here)
 
 Dead/broken code is **not** a roadmap item to "advertise" — the fuzzy finder
-(`Ctrl+A .`, now functional, ZT-008) and OSC 8 hyperlinks (dead `osc8_rewrite`, ZT-019 — still
-present pending a settings-menu cleanup) are repaired or removed rather than advertised; the
-`fastio.c` and `multi.c` dead units were deleted in the 2026-07 cleanup. Their status
+(`Ctrl+A .`, now functional, ZT-008) is repaired rather than advertised; the OSC 8 hyperlink
+rewriter + its inert toggle (`osc8_rewrite`, ZT-019) and the `fastio.c` / `multi.c` dead units were
+all deleted in the 2026-07 cleanup. Their status
 lives in [tracking/KNOWN_ISSUES.md](../tracking/KNOWN_ISSUES.md) and
 [tracking/STATUS.md](../tracking/STATUS.md), never in feature copy.

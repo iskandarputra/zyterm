@@ -182,9 +182,9 @@ Rules of the road:
   When it is fixed, **move** the row to "Resolved" with the fixing commit — never delete it. IDs
   are permanent; the board is the historical record.
 - **Never advertise a dead feature.** If something doesn't work, it is a KNOWN_ISSUES row or a
-  `plans/` entry, not a README bullet. (Today: OSC 8 hyperlinks, the epoll/splice fast path, the
-  fuzzy finder, and multi-pane are not wired — see KNOWN_ISSUES and
-  [docs/plans/ROADMAP.md](docs/plans/ROADMAP.md). History and bookmarks are in-memory only.)
+  `plans/` entry, not a README bullet. (Today: the epoll/splice fast path and multi-pane are not
+  wired — see KNOWN_ISSUES and [docs/plans/ROADMAP.md](docs/plans/ROADMAP.md). History and bookmarks
+  are in-memory only.)
 - **ADRs are immutable.** To change a decision, add a superseding ADR that links the old one; don't
   rewrite history.
 - **Keep docs synced in the same PR.** If you change a CLI flag, update

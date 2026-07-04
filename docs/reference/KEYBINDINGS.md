@@ -124,7 +124,6 @@ Each page binds letter keys to toggles. Keys are case-insensitive.
 | `b` | Toggle mouse capture |
 | `c` | Toggle watch-beep |
 | `d` | Toggle OSC 52 clipboard |
-| `e` | Toggle **OSC 8 hyperlinks** — **no-op today** (see below) |
 | `f` | Toggle pause |
 | `g` | Toggle reconnect |
 
@@ -135,11 +134,9 @@ Each page binds letter keys to toggles. Keys are case-insensitive.
 | `c` | Cycle log format (text/json/raw) |
 | `e` | Toggle TX timestamps |
 
-> **The "OSC 8 hyperlinks" toggle does nothing (ZT-019).** Page 3 key `e`
-> flips `c->proto.hyperlinks` (`input.c:456`), but the only consumer of that
-> flag is the HUD label (`src/tui/hud.c:643`). The rewrite routine
-> `osc8_rewrite()` (`src/proto/osc.c:238`) has **zero call sites**, so no RX
-> bytes are ever turned into hyperlinks regardless of the toggle. Tracked as
+> The "OSC 8 hyperlinks" toggle (former Page 3 key `e`) and its dead
+> `osc8_rewrite()` were **removed** in the 2026-07 cleanup — the toggle read
+> nothing, so it was retired rather than left misreporting a state. Closed as
 > **ZT-019** in [KNOWN_ISSUES](../tracking/KNOWN_ISSUES.md).
 
 ---

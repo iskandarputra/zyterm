@@ -107,22 +107,12 @@ static void test_loglevel(void) {
     ASSERT(loglevel_muted(&c, (const unsigned char *)"<err> b", 7) == false, "err never muted");
 }
 
-static void test_osc8(void) {
-    fprintf(stderr, "test: osc8\n");
-    const unsigned char in[]     = "visit https://example.com now";
-    unsigned char       out[256] = {0};
-    size_t              w        = osc8_rewrite(in, sizeof in - 1, out, sizeof out);
-    ASSERT(w >= sizeof in - 1, "osc8 output >= input");
-    ASSERT(w < sizeof out, "osc8 output fits");
-}
-
 int main(void) {
     signal(SIGPIPE, SIG_IGN);
     test_pty_roundtrip();
     test_crc();
     test_sparkline();
     test_loglevel();
-    test_osc8();
     fprintf(stderr, "\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

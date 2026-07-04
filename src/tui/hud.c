@@ -633,17 +633,16 @@ void draw_settings_page(zt_ctx *c) {
         snprintf(rb[3], sizeof rb[3],
                  " " SK("D") " " SD " " SL("OSC 52 Clipboard    : ") SV("%s"),
                  c->proto.osc52_enabled ? "On" : "Off");
+        /* (E) Hyperlinks (OSC 8) removed — the toggle was inert; osc8_rewrite
+         * had no call site (ZT-019). Pause/reconnect keep their F/G keys. */
         snprintf(rb[4], sizeof rb[4],
-                 " " SK("E") " " SD " " SL("Hyperlinks (OSC 8)  : ") SV("%s"),
-                 c->proto.hyperlinks ? "On" : "Off");
-        snprintf(rb[5], sizeof rb[5],
                  " " SK("F") " " SD " " SL("Pause               : ") SV("%s"),
                  c->core.paused ? "Yes" : "No");
-        snprintf(rb[6], sizeof rb[6],
+        snprintf(rb[5], sizeof rb[5],
                  " " SK("G") " " SD " " SL("Auto-reconnect      : ") SV("%s"),
                  c->core.reconnect ? "On" : "Off");
         body[body_n++] = "";
-        for (int i = 0; i < 7; i++)
+        for (int i = 0; i < 6; i++)
             body[body_n++] = rb[i];
         body[body_n++] = "";
         break;

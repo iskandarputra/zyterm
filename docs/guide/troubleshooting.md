@@ -171,7 +171,6 @@ If you're hitting a dead end, it may be one of these rather than a misconfigurat
 | You tried…                                  | Status                                                      |
 |---------------------------------------------|-------------------------------------------------------------|
 | `Ctrl+A .` fuzzy finder                     | **works** as of the 2026-06 fix ([ZT-008](../tracking/KNOWN_ISSUES.md)) |
-| The `Ctrl+A o` "OSC 8 hyperlinks" toggle    | dead — the flag is read by nothing ([ZT-019](../tracking/KNOWN_ISSUES.md)) |
 | `rfc2217://` URLs                           | not implemented; use ser2net raw + `tcp://` ([ADR-0005](../decisions/0005-rfc2217-deferred.md)) |
 | Multi-pane / split view                     | stubbed; not wired or keybound                              |
 | XMODEM/YMODEM/ZMODEM from the TUI           | engines exist but have no interactive trigger — embedding-API only (see [Recipes](recipes.md#file-transfer-xmodem--ymodem--zmodem)) |

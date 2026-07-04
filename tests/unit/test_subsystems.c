@@ -176,27 +176,6 @@ static void test_loglevel(void) {
 }
 
 /* ------------------------------------------------------------------ */
-/* 4. OSC 8 hyperlink rewriting (pure)                                */
-/* ------------------------------------------------------------------ */
-static void test_osc8(void) {
-    SECTION("osc8");
-    const unsigned char in[]     = "visit https://example.com now";
-    unsigned char       out[512] = {0};
-    size_t              w        = osc8_rewrite(in, sizeof in - 1, out, sizeof out);
-    ASSERT(w >= sizeof in - 1, "osc8 output >= input");
-    ASSERT(w < sizeof out, "osc8 output fits");
-    /* should contain OSC 8 escape or at minimum the original text */
-    ASSERT(strstr((char *)out, "example.com") != NULL, "osc8 preserves URL");
-
-    /* no-URL input should pass through unchanged */
-    const unsigned char plain[]   = "no links here";
-    unsigned char       pout[128] = {0};
-    size_t              pw        = osc8_rewrite(plain, sizeof plain - 1, pout, sizeof pout);
-    ASSERT(pw == sizeof plain - 1, "osc8 no-URL passthrough length");
-    ASSERT(memcmp(pout, plain, pw) == 0, "osc8 no-URL passthrough content");
-}
-
-/* ------------------------------------------------------------------ */
 /* 5. Framing name (pure)                                             */
 /* ------------------------------------------------------------------ */
 static void test_framing_name(void) {
@@ -1687,7 +1666,6 @@ int main(void) {
     test_crc();
     test_sparkline();
     test_loglevel();
-    test_osc8();
     test_framing_name();
     test_macros();
     test_ui_helpers();
