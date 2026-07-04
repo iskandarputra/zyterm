@@ -15,6 +15,7 @@
 #include "zyterm/internal/log.h"
 
 #include <ctype.h>
+#include <malloc.h> /* malloc_usable_size — grow-only slot reuse */
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
@@ -37,21 +38,34 @@
 
 void scrollback_push(zt_ctx *c) {
     if (!c->log.sb_lines || !c->log.line_len) return;
-    char *s = malloc(c->log.line_len + 1);
-    if (!s) return;
-    memcpy(s, c->log.line, c->log.line_len);
-    s[c->log.line_len] = '\0';
+    size_t need = c->log.line_len + 1;
 
-    int slot;
-    if (c->log.sb_count < ZT_SCROLLBACK_CAP) {
-        slot = (c->log.sb_head + c->log.sb_count) % ZT_SCROLLBACK_CAP;
-        c->log.sb_count++;
-    } else {
-        slot = c->log.sb_head;
-        free(c->log.sb_lines[slot]);
-        c->log.sb_head = (c->log.sb_head + 1) % ZT_SCROLLBACK_CAP;
+    /* Pick the slot this line lands in — append while filling, else recycle the
+     * oldest — but don't commit the ring pointers until the copy succeeds, so an
+     * allocation failure leaves the ring exactly as it was. */
+    bool full = c->log.sb_count >= ZT_SCROLLBACK_CAP;
+    int  slot = full ? c->log.sb_head : (c->log.sb_head + c->log.sb_count) % ZT_SCROLLBACK_CAP;
+
+    /* Reuse the slot's existing allocation when it is already large enough. The
+     * old code malloc()'d a fresh buffer for every line and free()'d it on
+     * eviction — a churn of ~one malloc+free per RX line forever. Once the ring
+     * has filled, each slot has reached its high-water length, so reuse makes
+     * the steady state allocation-free; a longer line grows the slot in place.
+     * Readers still see a NUL-terminated char* (the contract is unchanged). */
+    char *s = c->log.sb_lines[slot];
+    if (!s || malloc_usable_size(s) < need) {
+        char *ns = realloc(s, need);
+        if (!ns) return; /* OOM: drop this line, ring intact */
+        s = ns;
     }
+    memcpy(s, c->log.line, c->log.line_len);
+    s[c->log.line_len]    = '\0';
     c->log.sb_lines[slot] = s;
+
+    if (full)
+        c->log.sb_head = (c->log.sb_head + 1) % ZT_SCROLLBACK_CAP;
+    else
+        c->log.sb_count++;
 }
 
 void scrollback_free(zt_ctx *c) {

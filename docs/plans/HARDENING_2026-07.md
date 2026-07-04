@@ -188,9 +188,16 @@ Correct today but O(n)-per-byte where it should be O(lines)/O(chunks). **Mostly 
 - **`http_broadcast` base64-encodes with zero clients — DONE** (`src/net/http.c`): a
   `http_has_stream_peer()` guard early-returns from both `http_broadcast`/`http_broadcast_tx` before
   any `b64enc` when no SSE/WS peer is connected.
-- **Scrollback malloc/free per line — still open** (`src/log/scrollback.c`): a flat byte ring +
-  `(offset,len)` descriptors would remove per-line allocator churn, but it touches every `sb_lines`
-  reader across `tui/scrollback_view.c` (draw + selection) and search — worth its own reviewed PR.
+- **Scrollback malloc/free per line — DONE (2026-07-04, `perf/scrollback-arena`)** (`src/log/scrollback.c`):
+  `scrollback_push` now recycles each ring slot's existing allocation (sized via `malloc_usable_size`),
+  growing in place only for a longer line. Once the ring has filled, every slot has reached its
+  high-water length, so the steady state is allocation-free — the ~one-malloc-plus-one-free-per-RX-line
+  churn is gone. Chosen over the flat byte-ring + `(offset,len)` descriptors sketched earlier: the ring
+  would have turned every `sb_lines` reader (`tui/scrollback_view.c` draw + selection, `tui/search.c`)
+  into `(ptr,len)` and introduced dangling-pointer-on-overwrite hazards, while a fixed-stride arena
+  would balloon baseline memory to ~41 MB. Slot reuse keeps the `char*`/NUL-terminated reader contract
+  unchanged (zero reader churn) and touches only `scrollback.c`. Guarded by `tests/unit/test_scrollback.c`
+  (append/wrap/reuse/grow, ASan-clean).
 
 ---
 
