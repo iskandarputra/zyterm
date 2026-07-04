@@ -39,8 +39,7 @@ int zmodem_send(zt_ctx *c, const char *path);
 int zmodem_receive(zt_ctx *c, const char *dir);
 
 /* ── proto/osc.c ───────────────────────────────────────────────────────── */
-void   osc52_copy(zt_ctx *c, const char *buf, size_t n);
-size_t osc8_rewrite(const unsigned char *in, size_t n, unsigned char *out, size_t cap);
+void osc52_copy(zt_ctx *c, const char *buf, size_t n);
 
 /* ── proto/clipboard.c ─────────────────────────────────────────────────── */
 /** Native X11 selection-owner copy. Returns true if the data was queued

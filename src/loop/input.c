@@ -468,8 +468,7 @@ static bool settings_handle_kbd(zt_ctx *c, unsigned char k) {
     case 'C': c->log.watch_beep = !c->log.watch_beep; return true;
     case 'd':
     case 'D': c->proto.osc52_enabled = !c->proto.osc52_enabled; return true;
-    case 'e':
-    case 'E': c->proto.hyperlinks = !c->proto.hyperlinks; return true;
+    /* 'E' retired: the OSC 8 hyperlinks toggle was inert (ZT-019, removed). */
     case 'f':
     case 'F': c->core.paused = !c->core.paused; return true;
     case 'g':

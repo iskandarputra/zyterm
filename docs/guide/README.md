@@ -53,9 +53,9 @@ When you want the complete, unabridged list rather than a guided path:
 
 ## A note on honesty
 
-A handful of things you might see in menus or older write-ups do not actually
-work in 1.4.0 — the OSC 8 hyperlink toggle and an unwired epoll/splice fast path
-among them. This guide never tells you to
+A handful of things you might see in older write-ups do not actually
+work in 1.4.0 — an unwired epoll/splice fast path among them (the inert OSC 8
+hyperlink toggle was removed in the 2026-07 cleanup). This guide never tells you to
 use them as if they worked; where it matters, the relevant page links to
 [tracking/KNOWN_ISSUES.md](../tracking/KNOWN_ISSUES.md) or the
 [roadmap](../plans/ROADMAP.md) instead.

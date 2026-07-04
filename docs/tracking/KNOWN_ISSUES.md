@@ -106,7 +106,7 @@ broadcast and the fuzzy finder.
 | ZT-016 | ⚪ | leak | **Fixed** by the ZT-001 single-ownership change — the prior `--profile` device string is freed before overwrite and released once in teardown. |
 | ZT-017 | ⚪ | fd-leak | **Fixed** with ZT-009 — dead WebSocket peers are closed on the first failed frame, so ungraceful disconnects no longer exhaust the 16 slots. `src/net/http.c`. |
 | ZT-018 | ⚪ | leak | **Fixed** — a single `cleanup_ctx()` helper frees every parse-owned heap field; the `--replay`/`--attach`/`--diff`/`-h`/`-V`/`--profile-save` early returns call it (replay nulls the non-heap `device` alias first). `src/main.c`. |
-| ZT-019 | ⚪ | memsafety | **Fixed** — `osc8_rewrite`'s bounds check reserves `2*url_len` (the URL is emitted twice — target + visible text), closing the OOB write for `url_len > ~18`. Still has no call site. `src/proto/osc.c`. |
+| ZT-019 | ⚪ | memsafety / dead-code | **Fixed** — first the OOB write was closed (guard reserved `2*url_len`); then, 2026-07-04, the whole feature was **removed**: `osc8_rewrite` had no call site and the "OSC 8" settings toggle read nothing (a no-op that misreported its state), so the routine, the toggle, the `proto.hyperlinks` flag, and the osc8 tests were deleted. `src/proto/osc.c`, `src/tui/hud.c`, `src/loop/input.c`. |
 | ZT-020 | ⚪ | integer | **Fixed** — `--http` is parsed with `strtol` and range-checked to 1–65535 (`zt_die` on garbage/out-of-range) instead of an unchecked `atoi`. `src/main.c`. |
 | ZT-021 | ⚪ | integer | **Fixed** — `encode_cobs` reserves the true worst case `n + n/254 + 2` instead of `n + 2`. `src/proto/framing.c`. |
 | ZT-022 | ⚪ | logic | **Fixed** — a zero-length LENPFX frame dispatches immediately on header completion instead of consuming the next byte as payload and desyncing. `src/proto/framing.c`. |
@@ -141,6 +141,6 @@ don't-regress rule in [INVARIANTS.md](../invariants/INVARIANTS.md):
 - **E — Non-blocking fd + blocking write helper** (ZT-009, ZT-011, ZT-017): the bridge has
   EAGAIN-aware one-shot writes and closes dead peers → [INVARIANTS §5](../invariants/INVARIANTS.md), §7.
 - **F — Advertised-but-dead code** (ZT-008, ZT-019, ZT-023): the fuzzy finder is wired and bounded;
-  the OSC 8 rewrite is bounds-correct (still uncalled) → [STATUS.md](STATUS.md).
+  the OSC 8 rewrite + its inert toggle were removed (2026-07-04) → [STATUS.md](STATUS.md).
 
 _Last updated: 2026-07-04 — ZT-030 … ZT-049 recorded, fixed, and merged to `main`; the 2026-06 Resolved set is unchanged._

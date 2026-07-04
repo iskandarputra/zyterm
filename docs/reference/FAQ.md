@@ -156,8 +156,8 @@ ZT-004/ZT-013.
 
 - **Fuzzy finder** (`Ctrl+A .`) — **works** as of the 2026-06 fix (**ZT-008**): type to
   filter your command history, `Enter` to recall, `Esc` to cancel.
-- **OSC 8 hyperlinks** — still inert: the settings toggle flips a flag nothing reads and the
-  rewrite routine has no call site (it is now bounds-correct, **ZT-019**, but unused).
+- **OSC 8 hyperlinks** — **removed** (2026-07, **ZT-019**): the rewrite routine had no call site
+  and the settings toggle read nothing, so both were deleted rather than left as a no-op toggle.
 - **Multi-pane** — a stub; not wired or keybound.
 
 All tracked in [KNOWN_ISSUES](../tracking/KNOWN_ISSUES.md). See

@@ -25,7 +25,7 @@ shared state struct lives in `src/zt_ctx.h`.
 | `core/`    | `internal/core.h`   | Cross-cutting helpers: `zt_warn`/`zt_die`/`zt_trace`, the shared stdout output buffer (`ob_*`), signal & terminal management, monotonic time, CRC algorithms, the embed `siglongjmp` hook. |
 | `serial/`  | `internal/serial.h` | Port open (`termios2`/`BOTHER`, macOS `IOSSIOSPEED`), flow control, USB port discovery (`--port-glob` / `--match-vid-pid`), `tcp://`+`telnet://` transport, kernel UART counters. |
 | `log/`     | `internal/log.h`    | Persistent log file + rotation, NDJSON emit (`log_json`), asciinema cast recording (`--rec`), and the scrollback ring **storage** (the viewport/selection is a tui concern, `tui/scrollback_view.c`). |
-| `proto/`   | `internal/proto.h`  | Wire/escape protocols: frame decoders + CRC (`framing`), X/Y/ZMODEM transfer, F-key macros, OSC 52 clipboard + `osc8_rewrite` (**dead**, §6), native X11 clipboard, bounded SGR-only filter (`sgr_feed`, §6/ADR-0009), KGDB raw pass-through, line-ending translation. |
+| `proto/`   | `internal/proto.h`  | Wire/escape protocols: frame decoders + CRC (`framing`), X/Y/ZMODEM transfer, F-key macros, OSC 52 clipboard, native X11 clipboard, bounded SGR-only filter (`sgr_feed`, §6/ADR-0009), KGDB raw pass-through, line-ending translation. |
 | `render/`  | `internal/render.h` | The RX byte-stream → screen pipeline (`render_rx`, `rx_ingest`, colorizing, hex view) and the throughput sparkline. |
 | `tui/`     | `internal/tui.h`    | Terminal UI: HUD, input bar, dialogs, search/rename overlays, settings menu, the less-style pager, the fuzzy finder, and the scrollback viewport + mouse text-selection/copy (`scrollback_view.c`). |
 | `net/`     | `internal/net.h`    | Network-facing services: the HTTP/SSE/WS bridge + Prometheus `--metrics` exporter, and the detach/attach session multiplexer (local UNIX sockets). |
@@ -184,9 +184,9 @@ in the 2026-07 architecture cleanup — see [plans/HARDENING_2026-07.md](../plan
   "rfc2217:// is not yet implemented; use ser2net raw + tcp://" (`src/serial/transport.c:95`).
   Native `tcp://` and `telnet://` *do* work. See
   [decisions/0005-rfc2217-deferred.md](../decisions/0005-rfc2217-deferred.md).
-- **`osc8_rewrite()` (OSC 8 hyperlinks) — dead code.** Defined at `src/proto/osc.c:238` with
-  **zero call sites**; the `Ctrl+A o` settings "OSC 8" toggle flips a flag nothing reads. It also
-  carries a latent out-of-bounds write → [KNOWN_ISSUES ZT-019](../tracking/KNOWN_ISSUES.md).
+- **OSC 8 hyperlinks — removed (2026-07).** `osc8_rewrite()` had zero call sites and the settings
+  "OSC 8" toggle read nothing, so the routine, the toggle, and the `proto.hyperlinks` flag were
+  deleted → closed as [KNOWN_ISSUES ZT-019](../tracking/KNOWN_ISSUES.md).
 - **Fuzzy finder (`Ctrl+A .`) — functional** as of the 2026-06 fix: `tui/fuzzy.c` scans history
   from index 1 and `input.c`'s `handle_stdin_chunk` routes keystrokes to it →
   [KNOWN_ISSUES ZT-008](../tracking/KNOWN_ISSUES.md).

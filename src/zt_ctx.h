@@ -419,10 +419,7 @@ typedef struct zt_ctx {
                                    across as a function-static (Phase 7). */
 
         /* Tier 4 — clipboard (OSC 52) */
-        bool osc52_enabled;
-
-        /* Tier 4 — OSC 8 hyperlink detection */
-        bool   hyperlinks;
+        bool   osc52_enabled;
 
         bool   local_echo;
         bool   color_on;

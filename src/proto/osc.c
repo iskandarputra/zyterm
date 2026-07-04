@@ -1,15 +1,13 @@
 /**
  * @file osc.c
- * @brief OSC 52 clipboard + OSC 8 hyperlink helpers.
+ * @brief OSC 52 clipboard helper.
  *
  * OSC 52 lets the terminal emulator place arbitrary text on the system
  * clipboard via `ESC ] 52 ; c ; <base64> BEL`. Used for "copy match"
  * (Ctrl+A Y) when the user has `osc52_enabled == true`.
  *
- * OSC 8 wraps URL-like substrings in
- *   `ESC ] 8 ; ; <url> ST <text> ESC ] 8 ; ; ST`
- * so that modern terminals render them as clickable hyperlinks. We keep
- * a simple scanner that matches `http://`, `https://`, and `file://`.
+ * (An OSC 8 hyperlink rewriter used to live here but was dead code with no
+ * call site and a no-op UI toggle — removed, ZT-019.)
  *
  * @author  Iskandar Putra (www.iskandarputra.com)
  * @copyright Copyright (c) 2026 Iskandar Putra. All rights reserved.
@@ -18,7 +16,6 @@
 #include "zt_ctx.h"
 #include "zyterm/internal/proto.h"
 
-#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -233,44 +230,4 @@ void osc52_copy(zt_ctx *c, const char *buf, size_t n) {
     } else {
         set_flash(c, "copy failed \xe2\x80\x94 no clipboard backend");
     }
-}
-
-size_t osc8_rewrite(const unsigned char *in, size_t n, unsigned char *out, size_t cap) {
-    if (!in || !out || cap == 0) return 0;
-    size_t o = 0;
-    for (size_t i = 0; i < n; i++) {
-        /* look for "http://" / "https://" / "file://" starts */
-        if (o + 64 >= cap) break;
-        int    is_url  = 0;
-        size_t url_len = 0;
-        if (i + 7 <= n && (!memcmp(in + i, "http://", 7) || !memcmp(in + i, "file://", 7)))
-            is_url = 1;
-        else if (i + 8 <= n && !memcmp(in + i, "https://", 8))
-            is_url = 2;
-        if (is_url) {
-            size_t start = i;
-            while (i < n && !isspace((unsigned char)in[i]) && in[i] != '"' && in[i] != '\'' &&
-                   in[i] != '<' && in[i] != '>')
-                i++;
-            url_len = i - start;
-            /* ZT-019 (INVARIANTS §5): the URL is emitted twice — once inside
-             * the OSC 8 target ("\x1b]8;;<url>\x1b\\") and again as the visible
-             * link text — so the guard must reserve 2*url_len, not url_len. The
-             * old single-count bound overflowed `out` for url_len > ~18. */
-            if (o + 2 * url_len + 32 >= cap) break;
-            /* prefix OSC 8 ; ; url ST */
-            o += (size_t)snprintf((char *)out + o, cap - o, "\x1b]8;;%.*s\x1b\\", (int)url_len,
-                                  in + start);
-            memcpy(out + o, in + start, url_len);
-            o += url_len;
-            /* suffix OSC 8 ; ; ST */
-            const char *end = "\x1b]8;;\x1b\\";
-            memcpy(out + o, end, 7);
-            o += 7;
-            i--; /* compensate for upcoming loop i++ */
-        } else {
-            out[o++] = in[i];
-        }
-    }
-    return o;
 }

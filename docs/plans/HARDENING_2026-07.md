@@ -252,9 +252,9 @@ have regression tests; and a coverage floor is enforced in CI.
 
 ## Phase 7 — Architecture accuracy & dead code
 
-Two marquee guarantees were documented but false; this phase made them true. **Largely DONE
-(2026-07)** — the layering is now compiler-enforced and the embed-reset registry is in; only a couple
-of minor per-session file-static pulls and the `osc8_rewrite` removal remain.
+Two marquee guarantees were documented but false; this phase made them true. **DONE (2026-07-04)** —
+the layering is compiler-enforced, the embed-reset registry is in, the last per-session file-statics
+are handled, and the dead `osc8_rewrite` + its inert toggle are removed.
 
 - **The "compiler-enforced" layering is now actually enforced. DONE (2026-07).** A strict build
   surfaced **15 up-calls across 8 files** — far more than the review's "3 back-edges." All are
@@ -290,12 +290,12 @@ of minor per-session file-static pulls and the `osc8_rewrite` removal remain.
   both had zero callers, and `multi.c` reintroduced the file-static session state + a blocking loop
   read the invariants forbid; the `epoll` runtime was never worth it over `--threaded`, and the one
   real idea (`splice` serial→logfile on the raw-dump path) is noted in [ROADMAP.md](./ROADMAP.md).
-  **Still open — needs a product decision:** `proto/osc.c` `osc8_rewrite` (0 callers, ZT-019) is dead,
-  and the "Hyperlinks (OSC 8)" settings toggle (`input.c` `E`, shown in `hud.c`) sets
-  `proto.hyperlinks` but nothing ever reads it — so the toggle is a **no-op that lies to the user**.
-  Resolving it is either *remove* (delete `osc8_rewrite` + the toggle + renumber the settings menu) or
-  *implement* (call `osc8_rewrite` on the render path when the flag is on). Both change user-facing
-  behaviour, so it's left for an explicit call rather than settled silently.
+  **OSC 8 — removed (2026-07-04, ZT-019).** `osc8_rewrite` had zero callers and the "Hyperlinks
+  (OSC 8)" settings toggle (`input.c` `E`) set `proto.hyperlinks` but nothing read it — a no-op that
+  misreported its state. The chosen resolution was *remove*: the routine, the toggle (page-3 `E`,
+  functional keys F/G kept stable), the HUD row, and the flag are all deleted, and its unit/pty tests
+  dropped. (Implementing OSC 8 for real would have to route through the device-RX escape policy,
+  INVARIANTS §6 — noted for the future in ROADMAP.)
   **`profile` round-trip: `flow` DONE (2026-07-04)** — `flow` is now written and parsed
   (`none`/`rtscts`/`xonxoff`), guarded by a round-trip test. Still open (feature, not a bug): watches
   and macros are not persisted across a profile save/load.

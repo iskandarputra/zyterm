@@ -225,9 +225,10 @@ accumulator is fixed-size, so **every write into a decoder buffer is bounded** a
   statics for exactly this reason.
   - `where`: `src/zt_ctx.h:351-365` and the rationale comment at `:355-361`.
 
-- **OSC-8 rewrite stays disabled (dead code), but is now bounds-correct.** `osc8_rewrite` emits each
-  URL twice (target + visible text); its guard now reserves `2*url_len`, closing the prior OOB write
-  for `url_len > ~18`. It still has **zero call sites** — do not advertise it as a feature.
+- **OSC-8 rewrite removed (2026-07, ZT-019).** `osc8_rewrite`, the inert `Ctrl+A o` "OSC 8" toggle,
+  and the `proto.hyperlinks` flag were deleted — the routine had zero call sites and the toggle read
+  nothing. If OSC 8 is ever implemented, it must go through the device-RX escape policy (§6), not a
+  raw rewrite.
   - `where`: `src/proto/osc.c`. Closed [ZT-019](../tracking/KNOWN_ISSUES.md); see also the
     "dead code, do not advertise" note in [`tracking/STATUS.md`](../tracking/STATUS.md).
 
