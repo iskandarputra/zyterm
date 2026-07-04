@@ -36,7 +36,7 @@ HOW TO ADD A DEFECT
 | ID | Sev | Area | Location | Status | What's wrong → fix direction |
 |----|-----|------|----------|--------|------------------------------|
 
-_None open. ZT-030 … ZT-049 are fixed on branch `fix/zt-030-033-high-severity` (three `fix:` commits, pending merge) — see **Resolved**._
+_None open. ZT-030 … ZT-049 are fixed and merged to `main` (2026-07-04) — see **Resolved**._
 
 ## Resolved
 
@@ -133,4 +133,4 @@ don't-regress rule in [INVARIANTS.md](../invariants/INVARIANTS.md):
 - **F — Advertised-but-dead code** (ZT-008, ZT-019, ZT-023): the fuzzy finder is wired and bounded;
   the OSC 8 rewrite is bounds-correct (still uncalled) → [STATUS.md](STATUS.md).
 
-_Last updated: 2026-07-03 — ZT-030 … ZT-049 recorded and fixed on branch `fix/zt-030-033-high-severity`; the 2026-06 Resolved set is unchanged._
+_Last updated: 2026-07-04 — ZT-030 … ZT-049 recorded, fixed, and merged to `main`; the 2026-06 Resolved set is unchanged._

@@ -3,7 +3,7 @@
 - **Severity:** 🔴 high (heap corruption / abort on a documented, routine invocation; in the
   embedded `zy` builtin it can corrupt the long-lived host allocator)
 - **Area:** ownership / memsafety
-- **Status:** **fixed** 2026-07-03 on branch `fix/zt-030-033-high-severity` (recorded 2026-07-03, pending merge) — see [KNOWN_ISSUES Resolved](../KNOWN_ISSUES.md#resolved)
+- **Status:** **fixed** — merged to `main` 2026-07-04 (recorded 2026-07-03) — see [KNOWN_ISSUES Resolved](../KNOWN_ISSUES.md#resolved)
 - **Location:** `src/main.c:723` (the borrowed `argv` assignment), `src/main.c:730` (the
   `cleanup_ctx` call), freed at `src/main.c:329` (`free((void *)c->serial.device)`)
 

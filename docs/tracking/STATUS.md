@@ -11,8 +11,8 @@ tracks feature/work state, not correctness.
 This board records *state*, not the detailed work. Where the work itself lives:
 
 - Feature direction and future epics → [ROADMAP.md](../plans/ROADMAP.md).
-- Fix order, perf, testing, and security-posture hardening → [RELIABILITY_HARDENING.md](../plans/RELIABILITY_HARDENING.md) (wave 1, ZT-001…028, COMPLETE) and [HARDENING_2026-07.md](../plans/HARDENING_2026-07.md) (wave 2 — ZT-030…049 defects fixed on branch; arch/testability/perf work still open).
-- Confirmed defects (with severity, location, and fix direction) → [KNOWN_ISSUES.md](KNOWN_ISSUES.md) — **ZT-030 … ZT-049 fixed** on branch `fix/zt-030-033-high-severity` (pending merge); none open.
+- Fix order, perf, testing, and security-posture hardening → [RELIABILITY_HARDENING.md](../plans/RELIABILITY_HARDENING.md) (wave 1, ZT-001…028, COMPLETE) and [HARDENING_2026-07.md](../plans/HARDENING_2026-07.md) (wave 2 — ZT-030…049 defects merged to main; arch/testability/perf work still open).
+- Confirmed defects (with severity, location, and fix direction) → [KNOWN_ISSUES.md](KNOWN_ISSUES.md) — **ZT-030 … ZT-049 fixed** on branch `fix/zt-030-033-high-severity` (merged); none open.
 
 ## Shipped
 

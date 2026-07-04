@@ -3,7 +3,7 @@
 - **Severity:** 🔴 high (any `--filter` child that drains its stdin slower than the device streams
   hard-hangs the UI — no serial reads, no repaint, no quit)
 - **Area:** ext (filter) / blocking-in-loop
-- **Status:** **fixed** 2026-07-03 on branch `fix/zt-030-033-high-severity` (recorded 2026-07-03, pending merge) — see [KNOWN_ISSUES Resolved](../KNOWN_ISSUES.md#resolved)
+- **Status:** **fixed** — merged to `main` 2026-07-04 (recorded 2026-07-03) — see [KNOWN_ISSUES Resolved](../KNOWN_ISSUES.md#resolved)
 - **Location:** `src/ext/filter.c:39` (pipe created `O_CLOEXEC`-only), `:70` (blocking write end stored
   into `c->ext.filter_stdin_fd`), and the dead drop-branch at `src/ext/filter.c:127` in `filter_feed`
 
