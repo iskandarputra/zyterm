@@ -135,8 +135,68 @@ static void fill_pattern(unsigned char *p, size_t n) {
     if (n) p[n - 1] = 0x55;                                /* ensure no trailing 0x1A to trim */
 }
 
+/* ZT-050 regression: send block 1 with a BAD block-number complement first, so
+ * the receiver must NAK it and read the retransmission — the old code `continue`d
+ * without reading and spun forever. After the NAK we resend the whole payload
+ * correctly (from block 1, since a rejected block doesn't advance the number),
+ * then EOT. Returns 0 on success. */
+static int peer_sender_corrupt_first(int fd, const unsigned char *data, size_t len) {
+    int b;
+    do {
+        b = rb(fd, 3000);
+        if (b < 0) return 1;
+    } while (b != 'C');
+
+    unsigned char bad[133];
+    bad[0]        = SOH;
+    bad[1]        = 1;
+    bad[2]        = 0x00; /* wrong: the valid complement of 0x01 is 0xFE */
+    size_t chunk0 = len < 128 ? len : 128;
+    memset(bad + 3, 0x1A, 128);
+    memcpy(bad + 3, data, chunk0);
+    uint32_t crc0 = crc_compute(ZT_CRC_CCITT, bad + 3, 128);
+    bad[131]      = (unsigned char)((crc0 >> 8) & 0xFF);
+    bad[132]      = (unsigned char)(crc0 & 0xFF);
+    if (write(fd, bad, 133) != 133) return 2;
+    if (rb(fd, 3000) != NAK) return 3; /* receiver must reject the bad block, not hang */
+
+    /* Retransmit the whole transfer correctly, starting at block 1. */
+    int    blk = 1;
+    size_t off = 0;
+    while (off < len) {
+        unsigned char block[133];
+        block[0]     = SOH;
+        block[1]     = (unsigned char)(blk & 0xFF);
+        block[2]     = (unsigned char)(~blk & 0xFF);
+        size_t chunk = len - off < 128 ? len - off : 128;
+        memset(block + 3, 0x1A, 128);
+        memcpy(block + 3, data + off, chunk);
+        uint32_t crc = crc_compute(ZT_CRC_CCITT, block + 3, 128);
+        block[131]   = (unsigned char)((crc >> 8) & 0xFF);
+        block[132]   = (unsigned char)(crc & 0xFF);
+        if (write(fd, block, 133) != 133) return 4;
+        if (rb(fd, 3000) != ACK) return 5;
+        off += chunk;
+        blk++;
+    }
+    unsigned char eot = EOT;
+    if (write(fd, &eot, 1) != 1) return 6;
+    rb(fd, 3000); /* final ACK */
+    return 0;
+}
+
+/* Watchdog: a ZT-050-style hang would otherwise wedge the whole suite. */
+static void on_alarm(int sig) {
+    (void)sig;
+    static const char m[] = "  FAIL  xmodem_receive HUNG — ZT-050 regression\n";
+    ssize_t           w   = write(2, m, sizeof m - 1);
+    (void)w;
+    _exit(1);
+}
+
 int main(void) {
     signal(SIGPIPE, SIG_IGN);
+    signal(SIGALRM, on_alarm);
 
     const size_t  LEN = 300; /* spans 3 XMODEM blocks (128+128+44) */
     unsigned char payload[300];
@@ -267,6 +327,42 @@ int main(void) {
                "received file is the exact payload length (0x1A padding trimmed)");
         ASSERT(gn == (ssize_t)LEN && memcmp(got, payload, LEN) == 0,
                "received bytes == sent payload");
+        close(sp[0]);
+        unlink(outtmpl);
+    }
+
+    SECTION("xmodem_receive — NAKs a bad block-number complement, no hang (ZT-050)");
+    {
+        char outtmpl[] = "/tmp/zyterm_xm_out2_XXXXXX";
+        int  ofd       = mkstemp(outtmpl);
+        close(ofd);
+        int sp[2];
+        socketpair(AF_UNIX, SOCK_STREAM, 0, sp);
+        pid_t pid = fork();
+        if (pid == 0) {
+            close(sp[0]);
+            _exit(peer_sender_corrupt_first(sp[1], payload, LEN));
+        }
+        close(sp[1]);
+        zt_ctx c;
+        memset(&c, 0, sizeof c);
+        c.serial.fd = sp[0];
+        c.log.fd    = -1;
+        alarm(10); /* pre-fix this call never returned */
+        int rc = xmodem_receive(&c, outtmpl);
+        alarm(0);
+        int st = 0;
+        waitpid(pid, &st, 0);
+        ASSERT(rc == 0, "xmodem_receive completes after NAKing the corrupt block (no hang)");
+        ASSERT(WIFEXITED(st) && WEXITSTATUS(st) == 0,
+               "sender saw the NAK then the transfer finish");
+
+        int           rfd = open(outtmpl, O_RDONLY);
+        unsigned char got[512];
+        ssize_t       gn = rfd >= 0 ? read(rfd, got, sizeof got) : -1;
+        if (rfd >= 0) close(rfd);
+        ASSERT(gn == (ssize_t)LEN && memcmp(got, payload, LEN) == 0,
+               "recovered payload is exact after the retransmission");
         close(sp[0]);
         unlink(outtmpl);
     }

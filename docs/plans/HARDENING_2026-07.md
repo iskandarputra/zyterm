@@ -205,14 +205,16 @@ fix above shipped unguarded against regression. First tranche landed 2026-07:
   reassembly), a NAK→retransmit recovery, a receiver-CAN abort (returns -1, no hang), and
   `xmodem_receive` accepting a 3-block transfer with the 0x1A padding trimmed. (YMODEM/ZMODEM batch
   headers are a follow-on.)
-- **Fuzzing — framing DONE** (`tests/fuzz/fuzz_framing.c`, `make fuzz`, + a `fuzz` CI job): a
-  coverage-guided libFuzzer target drives `framing_feed` (mode + CRC from the first two bytes, rest as
-  the wire stream) under `-fsanitize=fuzzer,address,undefined`, 30 s on every PR. A crash/leak/UB
-  fails CI. `classify_request`/`hc_pump_new` and `xmodem_receive` fuzz targets are follow-ons.
-- **Still open:** the two remaining fuzz targets (HTTP request parser, xmodem receive); HTTP parser
-  unit tests for the oversized-header 431 and 5 s slowloris-drain paths (split-body/routing already
-  covered by the socket tests; idle SSE/WS reaping needs slot introspection); and a `make coverage`
-  ratchet gate.
+- **Fuzzing — framing + XMODEM receive DONE** (`tests/fuzz/fuzz_framing.c`, `tests/fuzz/fuzz_xmodem.c`,
+  `make fuzz`, + the `fuzz` CI job): coverage-guided libFuzzer targets drive `framing_feed` (mode + CRC
+  from the first two bytes) and `xmodem_receive` (fuzz bytes fed as the device stream over a half-closed
+  socketpair, SOH-primed into the block parser) under `-fsanitize=fuzzer,address,undefined`, each 30 s
+  on every PR; a crash/leak/UB fails CI. `make fuzz` auto-discovers every `tests/fuzz/fuzz_*.c`. The
+  XMODEM target immediately found **ZT-050** (a corrupt block-number complement spun the modal receive
+  loop forever) — fixed and regression-guarded in the same change.
+- **Still open:** the HTTP request-parser fuzz target + the `classify_request`/`hc_pump_new` unit tests
+  for the oversized-header 431 and 5 s slowloris-drain paths (best built on the Phase-2 split, so
+  sequenced after that PR lands); and a `make coverage` ratchet gate.
 
 ---
 

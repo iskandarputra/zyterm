@@ -198,16 +198,20 @@ int xmodem_receive(zt_ctx *c, const char *path) {
             unsigned char pending[XM_BLK];
             bool          have_pending = false;
             while (1) {
-                int bn_rcv = blk[1];
-                int bn_inv = blk[2];
-                if ((bn_rcv ^ bn_inv) != 0xFF) {
-                    unsigned char nak = XM_NAK;
-                    (void)write_all(c->serial.fd, &nak, 1);
-                    continue;
-                }
+                int      bn_rcv  = blk[1];
+                int      bn_inv  = blk[2];
                 uint32_t crc_rcv = ((uint32_t)blk[3 + XM_BLK] << 8) | blk[3 + XM_BLK + 1];
                 uint32_t crc_cmp = crc_compute(ZT_CRC_CCITT, blk + 3, XM_BLK);
-                if (crc_rcv != crc_cmp) {
+                /* ZT-050: a bad block-number complement is a corrupt block just
+                 * like a CRC mismatch — NAK it and read the sender's
+                 * retransmission at the bottom of the loop. The old code
+                 * `continue`d here without reading a new block, so `blk` never
+                 * changed and the test stayed true: a single byte on the line
+                 * with an invalid complement (line noise or a hostile peer)
+                 * spun this modal loop forever, writing NAKs and hanging the UI
+                 * until SIGKILL. Merge it with the CRC path, which already fell
+                 * through to the retransmission read. */
+                if ((bn_rcv ^ bn_inv) != 0xFF || crc_rcv != crc_cmp) {
                     unsigned char nak = XM_NAK;
                     (void)write_all(c->serial.fd, &nak, 1);
                 } else if (bn_rcv == (blknum & 0xFF)) {

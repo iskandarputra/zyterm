@@ -70,6 +70,16 @@ non-blocking filter fd, the split-body `POST /tx`, path-anchored routing, and C1
 | ZT-048 | ⚪ | leak | **Fixed** — the `--replay` branch frees a prior `--profile` heap device before aliasing `replay_path`. `src/main.c`. |
 | ZT-049 | ⚪ | fd-leak | **Fixed** — the clipboard wake-pipe is closed on every worker-exit path; `wake_worker` is mutex-guarded. `src/proto/clipboard.c`. |
 
+### 2026-07-04 — fuzz-driven find (ZT-050)
+
+Surfaced by the new `xmodem_receive` libFuzzer target (`tests/fuzz/fuzz_xmodem.c`) on its first runs;
+fixed and regression-guarded in the same change (`tests/integration/test_xmodem.c`, with a `SIGALRM`
+watchdog), ASan-clean.
+
+| ID | Sev | Area | Resolution |
+|----|-----|------|------------|
+| [ZT-050](issues/ZT-050-xmodem-receive-bad-complement-hang.md) | 🟠 | hang/DoS | **Fixed** — `xmodem_receive` no longer `continue`s on a bad block-number complement (which re-tested the same unchanged block forever); the complement check is merged into the CRC-mismatch NAK path, so a corrupt complement byte is NAK'd and the sender's retransmission is read. `src/proto/xmodem.c`. |
+
 
 Fixed on branch `fix/zt-001-ownership-and-ui-hangs` (stacked on the docs rebuild). Verified with a
 clean `-Werror` build + the full test suite (unit + integration + pty) under AddressSanitizer/UBSan
