@@ -17,7 +17,7 @@
  * @license MIT — see LICENSE for details.
  */
 #include "zt_ctx.h"
-#include "zt_internal.h"
+#include "zyterm/internal/proto.h"
 #include <string.h>
 
 /* ── helpers ───────────────────────────────────────────────────────────── */

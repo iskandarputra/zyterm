@@ -13,7 +13,7 @@
  * @license MIT — see LICENSE for details.
  */
 #include "zt_ctx.h"
-#include "zt_internal.h"
+#include "zyterm/internal/serial.h"
 
 #include <errno.h>
 #include <string.h>

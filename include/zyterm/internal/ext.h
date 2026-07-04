@@ -54,13 +54,6 @@ void hooks_free(zt_ctx *c);
 /* ── ext/loglevel.c ────────────────────────────────────────────────────── */
 bool loglevel_muted(const zt_ctx *c, const unsigned char *line, size_t len);
 
-/* ── ext/multi.c ───────────────────────────────────────────────────────── */
-int  multi_start(zt_ctx *primary, const char **extra_devices, int n);
-void multi_stop(zt_ctx *c);
-void multi_tick(zt_ctx *c);
-void multi_render(zt_ctx *c);
-void multi_embed_reset(void);
-
 /* ── ext/profile.c ─────────────────────────────────────────────────────── */
 int profile_load(zt_ctx *c, const char *name);
 int profile_save(zt_ctx *c, const char *name);
@@ -79,8 +72,5 @@ int profile_watch_start(zt_ctx *c, const char *name);
 void profile_watch_tick(zt_ctx *c);
 /** Stop watching and release inotify resources. */
 void profile_watch_stop(zt_ctx *c);
-
-/* ── ext/reconnect.c ───────────────────────────────────────────────────── */
-void run_reconnect_loop(zt_ctx *c);
 
 #endif /* ZYTERM_INTERNAL_EXT_H_ */

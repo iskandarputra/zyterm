@@ -21,7 +21,11 @@
 CC       ?= cc
 CSTD     ?= -std=gnu11
 OPT      ?= -O3
-WARN     ?= -Wall -Wextra -pedantic
+# -Werror=implicit-function-declaration turns the module layering into a
+# compiler-enforced invariant: every non-main .c includes only its own narrow
+# module header (core←serial←…←loop), so a call UP the chain has no declaration
+# in scope and fails to compile instead of silently linking (INVARIANTS §8).
+WARN     ?= -Wall -Wextra -pedantic -Werror=implicit-function-declaration
 INCS     ?= -Iinclude -Isrc
 CFLAGS   ?= $(OPT) $(WARN) $(CSTD) -D_GNU_SOURCE $(INCS)
 LDFLAGS  ?=
@@ -117,6 +121,21 @@ lint:
 	    --suppress=missingIncludeSystem $(INCS) $(SRC_DIR)/ \
 	    || echo "(cppcheck missing — apt install cppcheck)"
 
+# Module-layering guard (INVARIANTS §8): every non-main .c must include only its
+# own narrow module header and must not reach up the chain via a bare `extern`.
+# Together with -Werror=implicit-function-declaration this keeps the layering
+# acyclic and compiler-checkable.
+layering-check:
+	@bad=0; \
+	for f in $$(find $(SRC_DIR) -name '*.c' ! -name main.c); do \
+	    if grep -q '#include "zt_internal.h"' "$$f"; then \
+	        echo "✖ $$f includes the umbrella zt_internal.h — use its own module header"; bad=1; fi; \
+	    if grep -qE '^[[:space:]]*extern[[:space:]].*\(' "$$f"; then \
+	        echo "✖ $$f declares a bare extern function — route up-calls through a c->core sink"; bad=1; fi; \
+	done; \
+	if [ $$bad -eq 0 ]; then echo "✔ module layering: narrow includes, no up-layer externs"; \
+	else echo "layering check failed (INVARIANTS §8)"; exit 1; fi
+
 format:
 	@command -v clang-format >/dev/null \
 	    && find $(SRC_DIR) include -name '*.[ch]' -print0 | xargs -0 clang-format -i \
@@ -151,7 +170,7 @@ modules:
 	printf "  %-12s  %2d files  %5d LOC\n" "main.c" 1 \
 	    "$$(wc -l < $(SRC_DIR)/main.c)"
 
-check: lint
+check: lint layering-check
 	@$(MAKE) --no-print-directory all >/dev/null && echo "ok release build"
 
 help:

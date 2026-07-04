@@ -20,7 +20,7 @@ void        flush_line(zt_ctx *c);
 void        hex_flush_row(zt_ctx *c);
 void        emit_colored_line(zt_ctx *c, const unsigned char *line, size_t len);
 void        render_rx(zt_ctx *c, const unsigned char *buf, size_t n);
-void        rx_ingest(zt_ctx *c, const unsigned char *buf, size_t n);
+/* rx_ingest() is file-static in loop/runtime.c (its only caller). */
 
 /* ── render/sparkline.c ────────────────────────────────────────────────── */
 void        sparkline_push(zt_ctx *c, uint64_t bps);

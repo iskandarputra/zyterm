@@ -7,7 +7,7 @@
  * @license MIT — see LICENSE for details.
  */
 #include "zt_ctx.h"
-#include "zt_internal.h"
+#include "zyterm/internal/render.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -128,7 +128,9 @@ void flush_line(zt_ctx *c) {
     scrollback_push(c);
 
     int watch_idx = watch_match(c, c->log.line, c->log.line_len);
-    hooks_on_line(c, c->log.line, c->log.line_len);
+    /* Fire per-line event hooks through the ctx sink (wired to hooks_on_line by
+     * the loop) so the render layer doesn't name the ext-layer symbol. */
+    if (c->core.line_hook) c->core.line_hook(c, c->log.line, c->log.line_len);
 
     if (c->tui.sb_offset == 0 && !c->tui.popup_active) {
         if (watch_idx) {
@@ -430,88 +432,10 @@ void render_rx(zt_ctx *c, const unsigned char *buf, size_t n) {
     c->tui.ui_dirty = true;
 }
 
-/* Single RX ingestion dispatcher. Used by runtime.c for each chunk read
- * from the serial device. Responsibilities:
- *   1. HTTP / JSONL side-channels get the raw bytes first.
- *   2. If a filter subprocess is running, bytes go through it and the
- *      transformed output re-enters via filter_drain() → render_rx().
- *   3. If a frame_mode is configured (COBS/SLIP/HDLC/lenpfx), bytes go
- *      through framing_feed() which calls render_rx() only with
- *      complete CRC-verified payloads.
- *   4. Otherwise, straight to render_rx().
- * Recursion is impossible because framing.c / filter.c always deliver
- * raw line content via render_rx(), never via rx_ingest(). */
-void rx_ingest(zt_ctx *c, const unsigned char *buf, size_t n) {
-    if (!c || !buf || n == 0) return;
+/* rx_ingest() — the per-chunk RX dispatcher — moved to loop/runtime.c
+ * (INVARIANTS §8): it orchestrates the ext (filter, hooks) and net
+ * (http_broadcast) layers above render, so it belongs in the loop layer that
+ * already owns the read loop; it's only ever called from runtime.c. */
 
-    /* Telnet IAC stripping (telnet:// transport only) — runs before EOL
-     * translation so the IAC parser sees raw wire bytes. The filter is
-     * stateful across read() chunks via c->serial.telnet_rx_st. We must
-     * copy into a writable scratch buffer because the parser strips in
-     * place. */
-    unsigned char *telnet_heap = NULL;
-    if (c->serial.telnet) {
-        unsigned char  tscratch[4096];
-        unsigned char *tb = (n <= sizeof tscratch) ? tscratch : (telnet_heap = malloc(n));
-        if (!tb) return;
-        memcpy(tb, buf, n);
-        n = telnet_rx_filter(&c->serial.telnet_rx_st, tb, n);
-        if (!n) {
-            free(telnet_heap);
-            return;
-        }
-        buf = tb;
-    }
-
-    /* Apply --map-in line-ending translation up-front so every downstream
-     * consumer (JSONL log, HTTP/SSE, filter subprocess, framer, render)
-     * sees the same normalised stream. */
-    unsigned char  scratch[4096];
-    unsigned char *heap = NULL;
-    if (c->proto.map_in != ZT_EOL_NONE) {
-        size_t         cap = ZT_EOL_OUT_CAP(n);
-        unsigned char *xb  = (cap <= sizeof scratch) ? scratch : (heap = malloc(cap));
-        if (!xb) {
-            free(telnet_heap);
-            return;
-        }
-        n   = eol_translate_in(c->proto.map_in, &c->proto.eol_state_in, buf, n, xb, cap);
-        buf = xb;
-        if (!n) {
-            free(heap);
-            free(telnet_heap);
-            return;
-        }
-    }
-
-    if (c->log.format == ZT_LOG_JSON) log_json_rx(c, buf, n);
-    if (c->net.http_fd >= 0) http_broadcast(c, buf, n);
-    if (c->ext.filter_pid > 0) {
-        filter_feed(c, buf, n);
-        free(heap);
-        free(telnet_heap);
-        return;
-    }
-    if (c->proto.mode != ZT_FRAME_RAW) {
-        framing_feed(c, buf, n);
-        free(heap);
-        free(telnet_heap);
-        return;
-    }
-    render_rx(c, buf, n);
-    free(heap);
-    free(telnet_heap);
-}
-
-__attribute__((format(printf, 2, 3))) void log_notice(zt_ctx *c, const char *fmt, ...) {
-    char    b[512];
-    va_list ap;
-    va_start(ap, fmt);
-    int n = vsnprintf(b, sizeof b, fmt, ap);
-    va_end(ap);
-    if (n <= 0) return;
-    ob_cstr("\0338\033[38;5;60m\xe2\x94\x82\033[0m \033[38;5;245m");
-    ob_write(b, (size_t)n);
-    ob_cstr("\033[0m\r\n\0337");
-    c->tui.ui_dirty = true;
-}
+/* log_notice() moved to core.c (INVARIANTS §8 — it uses only the core output
+ * buffer + a ctx flag, so every layer can call down to it). Declared in core.h. */

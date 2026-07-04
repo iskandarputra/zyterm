@@ -23,25 +23,31 @@ shared state struct lives in `src/zt_ctx.h`.
 | Module     | Header              | One-line responsibility |
 |------------|---------------------|-------------------------|
 | `core/`    | `internal/core.h`   | Cross-cutting helpers: `zt_warn`/`zt_die`/`zt_trace`, the shared stdout output buffer (`ob_*`), signal & terminal management, monotonic time, CRC algorithms, the embed `siglongjmp` hook. |
-| `serial/`  | `internal/serial.h` | Port open (`termios2`/`BOTHER`, macOS `IOSSIOSPEED`), flow control, reconnect, autobaud probe, USB port discovery (`--port-glob` / `--match-vid-pid`), `tcp://`+`telnet://` transport, kernel UART counters — and `fastio.c` (an **unwired** epoll/splice path, see §6). |
-| `log/`     | `internal/log.h`    | Persistent log file + rotation, NDJSON emit (`log_json`), asciinema cast recording (`--rec`), the scrollback ring, and mouse-driven text selection. |
+| `serial/`  | `internal/serial.h` | Port open (`termios2`/`BOTHER`, macOS `IOSSIOSPEED`), flow control, USB port discovery (`--port-glob` / `--match-vid-pid`), `tcp://`+`telnet://` transport, kernel UART counters. |
+| `log/`     | `internal/log.h`    | Persistent log file + rotation, NDJSON emit (`log_json`), asciinema cast recording (`--rec`), and the scrollback ring **storage** (the viewport/selection is a tui concern, `tui/scrollback_view.c`). |
 | `proto/`   | `internal/proto.h`  | Wire/escape protocols: frame decoders + CRC (`framing`), X/Y/ZMODEM transfer, F-key macros, OSC 52 clipboard + `osc8_rewrite` (**dead**, §6), native X11 clipboard, bounded SGR-only filter (`sgr_feed`, §6/ADR-0009), KGDB raw pass-through, line-ending translation. |
 | `render/`  | `internal/render.h` | The RX byte-stream → screen pipeline (`render_rx`, `rx_ingest`, colorizing, hex view) and the throughput sparkline. |
-| `tui/`     | `internal/tui.h`    | Terminal UI: HUD, input bar, dialogs, search/rename overlays, settings menu, the less-style pager, and the fuzzy finder. |
+| `tui/`     | `internal/tui.h`    | Terminal UI: HUD, input bar, dialogs, search/rename overlays, settings menu, the less-style pager, the fuzzy finder, and the scrollback viewport + mouse text-selection/copy (`scrollback_view.c`). |
 | `net/`     | `internal/net.h`    | Network-facing services: the HTTP/SSE/WS bridge + Prometheus `--metrics` exporter, and the detach/attach session multiplexer (local UNIX sockets). |
-| `ext/`     | `internal/ext.h`    | Optional extensions: bookmarks, `--diff`, the `--filter` subprocess, log-level mute, profiles + inotify hot-reload, event hooks, the reconnect popup loop, and `multi.c` (a **stub**, §6). |
-| `loop/`    | `internal/loop.h`   | Event-loop primitives: keyboard input parsing (`input.c`), the TX send pipeline (`send.c`), the optional `--threaded` reader (`rx_thread.c`), and the top-level run modes (`runtime.c`). |
-| `main.c`   | (no header)         | CLI parsing (`getopt_long`), context init, and the `zyterm_main` entry point. The only translation unit allowed to call into `loop/`. |
+| `ext/`     | `internal/ext.h`    | Optional extensions: bookmarks, `--diff`, the `--filter` subprocess, log-level mute, profiles + inotify hot-reload, and event hooks. |
+| `loop/`    | `internal/loop.h`   | Event-loop primitives + cross-layer orchestrators: keyboard input parsing (`input.c`), the TX send pipeline (`send.c`), the optional `--threaded` reader (`rx_thread.c`), autobaud (`autobaud.c`), the reconnect wait-loop (`reconnect.c`), and the top-level run modes incl. the `rx_ingest` dispatcher (`runtime.c`). |
+| `main.c`   | (no header)         | CLI parsing (`getopt_long`), context init, and the `zyterm_main` entry point. The only non-`loop/` translation unit that includes the umbrella / reaches into `loop/`. |
 
 Run `make modules` for a live per-module file/LOC summary.
 
 ---
 
-## 2. The dependency chain (enforced by headers)
+## 2. The dependency chain (compiler-enforced)
 
 Modules form a strict linear chain. Each lower layer is usable by every layer above it and
-**must not** reference anything above it. The chain is not just convention — it is mechanically
-enforced because each module header `#include`s exactly the one beneath it:
+**must not** reference anything above it. This is mechanically enforced, not just convention:
+each non-`main` `.c` includes **only its own** module header (which pulls in exactly the one
+beneath it), so a call up the chain has no declaration in scope; the release/debug builds pass
+`-Werror=implicit-function-declaration`, turning any such call into a compile error, and
+`make layering-check` rejects umbrella includes or bare up-layer `extern`s under `src/`. Where a
+lower layer genuinely must reach a higher-layer primitive it calls **down** through a `c->core`
+function pointer wired once by the loop (`rx_sink`, `tx_direct`, `tx_trickle`, `line_hook`,
+`input_notify`); no lower module ever names a higher-layer symbol. The chain of headers:
 
 ```
 core ← serial ← log ← proto ← render ← tui ← net ← ext ← loop
@@ -61,9 +67,9 @@ core ← serial ← log ← proto ← render ← tui ← net ← ext ← loop
 
 Consequences:
 
-- A translation unit includes only the highest module header it needs; everything beneath
-  comes transitively. `src/zt_internal.h` is a compatibility umbrella that `#include`s only
-  `internal/loop.h`, which transitively pulls every module.
+- A `.c` includes exactly its own module header; everything beneath comes transitively.
+  `src/zt_internal.h` is the umbrella (`#include`s only `internal/loop.h`) and is used by
+  **`main.c` only** — every other TU uses its narrow header so the compiler can enforce the layer.
 - `loop/` is the topmost internal module. **`main.c` is the only TU allowed above `loop/`**
   (`loop.h:6-7`).
 - There is no separate dependency-injection wiring: the linear chain plus the single shared
@@ -171,19 +177,13 @@ The deep mechanics of both live in [INTERNALS.md](./INTERNALS.md).
 ## 6. Not wired / deferred (honest status)
 
 Some code is present but **not reachable** in 1.4.0. Do not treat these as working features.
+(`serial/fastio.c` and `ext/multi.c`, both previously listed here as dead/stubbed, were **deleted**
+in the 2026-07 architecture cleanup — see [plans/HARDENING_2026-07.md](../plans/HARDENING_2026-07.md) §7.)
 
-- **`serial/fastio.c` (epoll/splice fast path) — entirely unwired.** No call site exists; the
-  runtime uses `poll(2)`. The `--epoll` flag was removed in 1.2.0 (only the `serial.epoll_fd = -1`
-  init remains, `main.c:330`). Deferred — see
-  [decisions/0003-epoll-splice-fastpath-deferred.md](../decisions/0003-epoll-splice-fastpath-deferred.md)
-  and [tracking/STATUS.md](../tracking/STATUS.md).
 - **`rfc2217://` transport — intentional stub.** `transport_open()` calls `zt_die` with
   "rfc2217:// is not yet implemented; use ser2net raw + tcp://" (`src/serial/transport.c:95`).
   Native `tcp://` and `telnet://` *do* work. See
   [decisions/0005-rfc2217-deferred.md](../decisions/0005-rfc2217-deferred.md).
-- **`ext/multi.c` (multi-pane) — a stub.** `multi_render()` is a no-op `(void)c;`
-  (`src/ext/multi.c:113-119`); it is not wired, not keybound, and not discoverable. Real
-  multi-pane is future work — see [plans/ROADMAP.md](../plans/ROADMAP.md).
 - **`osc8_rewrite()` (OSC 8 hyperlinks) — dead code.** Defined at `src/proto/osc.c:238` with
   **zero call sites**; the `Ctrl+A o` settings "OSC 8" toggle flips a flag nothing reads. It also
   carries a latent out-of-bounds write → [KNOWN_ISSUES ZT-019](../tracking/KNOWN_ISSUES.md).

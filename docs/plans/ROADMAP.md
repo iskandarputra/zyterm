@@ -112,13 +112,12 @@ scraping. Both reuse existing counters and the NDJSON writer — libc-only, no n
 ### Real multi-pane
 - **Impact: high · Effort: high**
 
-`src/ext/multi.c` is a **stub today**: `multi_render()` is a no-op (`src/ext/multi.c:113`), it is
-not keybound, not discoverable, and `multi_tick` only prefix-tags extra devices into the shared
-log (`src/ext/multi.c:96`). Real multi-pane needs row-addressed rendering that the current
-single-pane render path doesn't provide (the stub's own comment says so), independent
-scrollback per pane, focus routing for keystrokes, and a split layout that survives `SIGWINCH`.
-This is a renderer refactor first, a feature second. Do **not** advertise multi-pane until this
-lands; the stub is tracked in [STATUS.md](../tracking/STATUS.md).
+This is **greenfield** — the earlier non-functional `src/ext/multi.c` stub (a no-op `multi_render`,
+file-static pane state, a blocking pane read) was removed in the 2026-07 architecture cleanup, so
+there is no code to mislead. Real multi-pane needs row-addressed rendering that the current
+single-pane render path doesn't provide, independent scrollback per pane, focus routing for
+keystrokes, and a split layout that survives `SIGWINCH`. This is a renderer refactor first, a
+feature second. Do **not** advertise multi-pane until this lands.
 
 ### Modbus-RTU / NMEA-0183 decode views
 - **Impact: medium · Effort: medium**
@@ -182,24 +181,24 @@ control channel) on top of the existing telnet transport and IAC filter
 (`telnet_rx_filter`, `src/serial/transport.c:163`), so a remote port can be configured from
 zyterm's own CLI flags instead of pre-configuring ser2net.
 
-### Wire up — or delete — the epoll/splice fast path
-- **Impact: low · Effort: low (decision), medium (if built)**
+### (Maybe) a `splice`-to-logfile fast path
+- **Impact: low · Effort: medium**
 
-`src/serial/fastio.c` is **entirely unwired**: no call site, the runtime uses `poll(2)`, and the
-`--epoll` flag was removed in 1.2.0. The deferral rationale is ADR
-[0003-epoll-splice-fastpath-deferred](../decisions/0003-epoll-splice-fastpath-deferred.md).
-This needs a decision, not drift: either wire `epoll` + `splice` into the runtime behind a flag
-*with a benchmark that justifies it over the existing `--threaded` SPSC reader*, or delete the
-module so it stops reading as a shipped feature. Leaving dead code that looks like a feature is
-exactly the failure mode the docs are trying to end. Tracked as a stub in
-[STATUS.md](../tracking/STATUS.md).
+The unwired `src/serial/fastio.c` (epoll + splice) was **deleted** in the 2026-07 architecture
+cleanup — it was dead code masquerading as a feature. The `epoll` half was never worth it over the
+existing `--threaded` SPSC reader for zyterm's tiny fd set. The one idea worth keeping is
+`fastio_splice_log()`: on the raw-`--dump`/log-only path (no rendering) a `splice(2)` could move
+serial→logfile with zero userspace copies. If that's ever built, do it as a small, benchmarked,
+self-contained addition on the dump path — not a general epoll runtime. Rationale + old code:
+[ADR-0003](../decisions/0003-epoll-splice-fastpath-deferred.md) and git history.
 
 ---
 
 ## Explicitly not planned (here)
 
 Dead/broken code is **not** a roadmap item to "advertise" — the fuzzy finder
-(`Ctrl+A .`, non-functional, ZT-008), OSC 8 hyperlinks (dead `osc8_rewrite`, ZT-019), and the
-multi-pane stub are either repaired through the work above or removed. Their current broken
-status lives in [tracking/KNOWN_ISSUES.md](../tracking/KNOWN_ISSUES.md) and
+(`Ctrl+A .`, now functional, ZT-008) and OSC 8 hyperlinks (dead `osc8_rewrite`, ZT-019 — still
+present pending a settings-menu cleanup) are repaired or removed rather than advertised; the
+`fastio.c` and `multi.c` dead units were deleted in the 2026-07 cleanup. Their status
+lives in [tracking/KNOWN_ISSUES.md](../tracking/KNOWN_ISSUES.md) and
 [tracking/STATUS.md](../tracking/STATUS.md), never in feature copy.

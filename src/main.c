@@ -354,7 +354,6 @@ int zyterm_main(int argc, char **argv) {
     c.serial.fd            = -1;
     c.log.fd               = -1;
     c.net.http_fd          = -1;
-    c.serial.epoll_fd      = -1;
     c.ext.filter_stdin_fd  = -1;
     c.ext.filter_stdout_fd = -1;
     c.net.metrics_fd       = -1;
@@ -388,6 +387,11 @@ int zyterm_main(int argc, char **argv) {
     c.tui.hist_view = 0;
     c.log.sb_lines  = calloc(ZT_SCROLLBACK_CAP, sizeof(char *));
     if (!c.log.sb_lines) zt_die("zyterm: out of memory (scrollback)");
+
+    /* Wire the RX/TX dependency-inversion sinks before any subsystem runs, so
+     * proto/ext/net modules reach render_rx and the send primitives through the
+     * ctx rather than by naming loop/render symbols (INVARIANTS §8). */
+    loop_wire_sinks(&c);
 
     enum {
         OPT_NOCOLOR = 0x1000,

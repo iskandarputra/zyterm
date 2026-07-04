@@ -4,8 +4,10 @@
 > in Phases 1–4 below are fixed on branch `fix/zt-030-033-high-severity` (pending merge) — see the
 > Resolved table in [tracking/KNOWN_ISSUES.md](../tracking/KNOWN_ISSUES.md). The **non-defect**
 > engineering work is still open: the `http.c` split (Phase 2), SPSC drop accounting + a TSan CI leg
-> (Phase 3), the performance hot-path work (Phase 5), the testability foundation (Phase 6), and the
-> architecture-accuracy / dead-code cleanup (Phase 7). This is the sequel to
+> (Phase 3), the performance hot-path work (Phase 5), and the testability foundation (Phase 6).
+> **Phase 7 (architecture accuracy) is largely done** — the module layering is now compiler-enforced
+> (narrow includes + `-Werror=implicit-function-declaration` + `make layering-check`), the embed-reset
+> registry is in, and `fastio.c`/`multi.c` are deleted. This is the sequel to
 > [RELIABILITY_HARDENING.md](./RELIABILITY_HARDENING.md) (wave 1, ZT-001…028, COMPLETE), not a
 > replacement — that file stays as the historical record of the first wave.
 
@@ -212,31 +214,45 @@ fix above ships unguarded against regression. The root blocker is that `framing_
 
 ## Phase 7 — Architecture accuracy & dead code
 
-Two marquee guarantees are documented but currently false; make them real (cheaply) or correct the
-docs. Both come with a fix, so they are tracked here rather than as defects.
+Two marquee guarantees were documented but false; this phase made them true. **Largely DONE
+(2026-07)** — the layering is now compiler-enforced and the embed-reset registry is in; only a couple
+of minor per-session file-static pulls and the `osc8_rewrite` removal remain.
 
-- **The "compiler-enforced" layering is not enforced.** Every `.c` includes the umbrella
-  `src/zt_internal.h` (which transitively pulls `loop.h` and thus every layer), and three back-edges
-  already exist via bare `extern`: `proto/framing.c` → `render_rx`, `proto/macros.c` → the `send`
-  primitives, `ext/hooks.c` → `direct_send`. **Fix:** have each `.c` include only its own narrow
-  module header (umbrella stays for `main.c`), add a CI lint flagging any up-layer `extern` or
-  non-`main` umbrella include, and resolve the back-edges by relocating the shared cores downward (the
-  RX sink from Phase 6 removes `proto→render`; move the encode+write send core into `proto`/`serial`
-  so `macros.c`/`hooks.c` call a same-or-lower-layer helper). Update **INVARIANTS §8** /
-  **ARCHITECTURE §2/§9** to match reality once the lint lands — until then §8 overstates enforcement.
-- **"All per-process state lives in one `zt_ctx`" is contradicted by ~20 file-statics**, of which
-  `zt_embed_reset` scrubs only two — a real cross-run bug (`proto/passthrough.c:40` KGDB `~.` state
-  bleeds between embedded runs). **Fix:** pull genuinely per-session state into `zt_ctx`; for state
-  that must stay module-private (http `g_conn`, clipboard handle), replace the hard-coded resets with
-  a small registry each module registers into, plus a lint mirroring the layering check.
-- **Dead code shipping in every binary** — `serial/fastio.c` (epoll+splice, 0 callers),
-  `proto/osc.c` `osc8_rewrite` (0 callers), and `ext/multi.c` (0 callers, and it reintroduces the
-  file-static session state + a blocking loop read the invariants forbid). **Fix:** delete or
-  `#ifdef`-gate all three (the `fastio` epoll/splice decision is already open in
-  [ROADMAP.md](./ROADMAP.md) and [ADR-0003](../decisions/0003-epoll-splice-fastpath-deferred.md));
-  the one real `fastio` win — `splice`ing serial→logfile on the raw-dump path — is the only piece
-  worth wiring. Also close the `profile_save`/`profile_load` round-trip gaps (`flow` is documented but
-  neither written nor parsed; watches/macros aren't persisted).
+- **The "compiler-enforced" layering is now actually enforced. DONE (2026-07).** A strict build
+  surfaced **15 up-calls across 8 files** — far more than the review's "3 back-edges." All are
+  resolved and the narrow includes + lint are on:
+
+  | Up-call | Resolution |
+  |---|---|
+  | `render_rx`, `direct_send`/`trickle_send` back-edges | inverted through `c->core` sinks (`rx_sink`/`tx_direct`/`tx_trickle`). |
+  | core → `session_`/`rx_thread_embed_reset` | embed-reset registry (below). |
+  | `set_flash` ×6 (serial/proto/log → render) | moved down to `core` (pure ctx mutation, like `zt_warn`). |
+  | `log_notice` (serial → log) | moved down to `core` (uses only the core output buffer). |
+  | `rx_thread_pause`/`unpause` ×2 (autobaud/serial → loop) | `autobaud.c` relocated to the loop layer. |
+  | `filter_feed`, `http_broadcast` (`rx_ingest` → ext/net) | `rx_ingest` moved to `loop/runtime.c` (file-static). |
+  | `hooks_on_line` (`flush_line` → ext) | inverted via the `c->core.line_hook` sink. |
+  | `http_notify_input` (`hud.c`/tui → net) | inverted via the `c->core.input_notify` sink. |
+  | `emit_colored_line`, `osc52_copy` (`scrollback.c`/log → render/proto) | `scrollback.c` split — storage stays in `log`, the draw/selection/copy viewport moved to `tui/scrollback_view.c`. |
+
+  With zero up-calls, every non-`main` `.c` now includes only its own narrow module header;
+  `-Werror=implicit-function-declaration` (Makefile `WARN`) makes any future up-call a compile error,
+  and `make layering-check` (in `make check`) rejects umbrella includes / bare up-layer `extern`s.
+  **INVARIANTS §8** and **ARCHITECTURE §2** are updated to match — the claim is now true.
+- **"All per-process state lives in one `zt_ctx`" — registry landed. DONE (2026-07)** for the reset
+  mechanism: the hard-coded two-entry list is a **registry** — modules with per-run file-statics
+  (`net/session.c`, `loop/rx_thread.c`) self-register a reset hook via a constructor, and
+  `zt_embed_reset()`/`zt_die()` run the table, so core no longer names them. **Still open (minor):**
+  pull the last genuinely-per-session file-statics into `zt_ctx` — `proto/passthrough.c`'s KGDB `~.`
+  parser `state` (a real cross-run bug: it bleeds between embedded runs) and `log/record_cast.c`'s
+  cast `t0`; add a lint so a new file-static must either live in `zt_ctx` or register a reset hook.
+- **Dead code shipping in every binary** — **`serial/fastio.c` and `ext/multi.c` deleted (2026-07)**:
+  both had zero callers, and `multi.c` reintroduced the file-static session state + a blocking loop
+  read the invariants forbid; the `epoll` runtime was never worth it over `--threaded`, and the one
+  real idea (`splice` serial→logfile on the raw-dump path) is noted in [ROADMAP.md](./ROADMAP.md).
+  **Still open:** `proto/osc.c` `osc8_rewrite` (0 callers, ZT-019) — its removal is entangled with
+  the user-facing "Hyperlinks (OSC 8)" settings toggle (`hud.c` row `E`, `input.c`), so it needs a
+  small settings-menu renumber to remove cleanly. Also still open: the `profile_save`/`profile_load`
+  round-trip gaps (`flow` documented but neither written nor parsed; watches/macros not persisted).
 
 ---
 

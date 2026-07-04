@@ -19,7 +19,7 @@
  * @license MIT — see LICENSE for details.
  */
 #include "zt_ctx.h"
-#include "zt_internal.h"
+#include "zyterm/internal/net.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -99,6 +99,12 @@ void       session_embed_reset(void) {
     }
 }
 
+/* Self-register the reset above so core's zt_embed_reset() runs it without
+ * naming this net-layer symbol (INVARIANTS §8). */
+__attribute__((constructor)) static void session_register_embed_reset(void) {
+    zt_register_embed_reset(session_embed_reset);
+}
+
 void session_tick(zt_ctx *c) {
     if (!c || c->net.session_fd < 0) return;
     while (1) {
@@ -127,7 +133,7 @@ void session_tick(zt_ctx *c) {
         unsigned char buf[1024];
         ssize_t       n = read(att_fds[i], buf, sizeof buf);
         if (n > 0 && c->serial.fd >= 0)
-            direct_send(c, buf, (size_t)n);
+            c->core.tx_direct(c, buf, (size_t)n);
         else if (n == 0 || (n < 0 && errno != EAGAIN)) {
             close(att_fds[i]);
             att_fds[i] = -1;

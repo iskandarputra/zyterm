@@ -31,7 +31,23 @@ void   draw_disconnect_popup(zt_ctx *c, int dots);
 void   draw_search_bar(zt_ctx *c);
 void   draw_rename_bar(zt_ctx *c);
 int    search_scrollback(zt_ctx *c, int dir);
-void   set_flash(zt_ctx *c, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+/* set_flash() moved to core.h (cross-cutting notification primitive). */
+
+/* ── tui/scrollback_view.c ─────────────────────────────────────────────── */
+/* Viewport over the log/scrollback.c line ring: draw, scroll, and mouse-driven
+ * text selection → OSC 52 copy. In the tui layer because it reaches down into
+ * render (emit_colored_line) and proto (osc52_copy). */
+void redraw_scrollback(zt_ctx *c);
+void scroll_up(zt_ctx *c, int lines);
+void scroll_down(zt_ctx *c, int lines);
+void leave_scroll(zt_ctx *c);
+/* In-app text selection (mouse-driven). All coordinates are 1-based screen
+ * cells; row must be inside the body region (2..rows-1). */
+void selection_begin(zt_ctx *c, int row, int col);
+void selection_extend(zt_ctx *c, int row, int col);
+void selection_finish(zt_ctx *c); /**< Release -> build text + OSC 52 copy. */
+void selection_clear(zt_ctx *c);
+void selection_copy(zt_ctx *c); /**< Re-copy current selection (right-click). */
 
 /* ── tui/pager.c ───────────────────────────────────────────────────────── */
 bool pager_handle(zt_ctx *c, unsigned char k);

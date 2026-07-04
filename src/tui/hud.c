@@ -7,7 +7,7 @@
  * @license MIT — see LICENSE for details.
  */
 #include "zt_ctx.h"
-#include "zt_internal.h"
+#include "zyterm/internal/tui.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -292,8 +292,9 @@ void draw_input(zt_ctx *c) {
     int  mvn = snprintf(mv, sizeof mv, "\033[%d;%zuH", c->tui.rows, curs_col);
     if (mvn > 0) ob_write(mv, (size_t)mvn);
 
-    /* Push input state to HTTP peers so the web input bar stays in sync. */
-    http_notify_input(c);
+    /* Push input state to HTTP peers so the web input bar stays in sync — via
+     * the ctx sink (wired to http_notify_input) so tui doesn't name net. */
+    if (c->core.input_notify) c->core.input_notify(c);
 }
 
 void apply_layout(zt_ctx *c) {
@@ -504,17 +505,8 @@ void draw_cmd_popup(zt_ctx *c) {
     ob_flush();
 }
 
-__attribute__((format(printf, 2, 3))) void set_flash(zt_ctx *c, const char *fmt, ...) {
-    va_list ap;
-    va_start(ap, fmt);
-    vsnprintf(c->tui.flash, sizeof c->tui.flash, fmt, ap);
-    va_end(ap);
-    struct timespec t;
-    now(&t);
-    c->tui.flash_until = t;
-    c->tui.flash_until.tv_sec += 2;
-    c->tui.ui_dirty = true;
-}
+/* set_flash() moved to core.c (INVARIANTS §8 — cross-cutting notification
+ * primitive callable from every layer). Declared in core.h. */
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Minicom-style settings menu  (Ctrl+A o)

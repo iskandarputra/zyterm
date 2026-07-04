@@ -18,7 +18,7 @@
  * @license MIT — see LICENSE for details.
  */
 #include "zt_ctx.h"
-#include "zt_internal.h"
+#include "zyterm/internal/net.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -1151,7 +1151,7 @@ static void classify_request(zt_ctx *c, int i) {
              * has already waited for the full declared body to arrive. */
             long clen = http_content_length(req, (size_t)(body - req));
             if (clen > 0 && (size_t)clen < blen) blen = (size_t)clen;
-            direct_send(c, (const unsigned char *)body, blen);
+            c->core.tx_direct(c, (const unsigned char *)body, blen);
         }
         send_text_c(c, cfd, "204 No Content", "text/plain", "", 0);
         hc_close(i);

@@ -52,7 +52,6 @@ static void ctx_init(zt_ctx *c) {
     c->serial.fd            = -1;
     c->log.fd               = -1;
     c->net.http_fd          = -1;
-    c->serial.epoll_fd      = -1;
     c->ext.filter_stdin_fd  = -1;
     c->ext.filter_stdout_fd = -1;
     c->net.metrics_fd       = -1;
@@ -63,6 +62,7 @@ static void ctx_init(zt_ctx *c) {
     c->serial.stop_bits     = 1;
     c->proto.color_on       = true;
     c->log.sb_lines         = calloc(ZT_SCROLLBACK_CAP, sizeof(char *));
+    loop_wire_sinks(c); /* so send:/framing paths reach TX/RX via the ctx */
 }
 
 static void ctx_free(zt_ctx *c) {
@@ -1049,7 +1049,6 @@ static void test_init_wiring(void) {
     ASSERT(c.ext.filter_stdout_fd == -1, "filter_stdout_fd initialized to -1");
     ASSERT(c.net.metrics_fd == -1, "metrics_fd initialized to -1");
     ASSERT(c.net.session_fd == -1, "session_fd initialized to -1");
-    ASSERT(c.serial.epoll_fd == -1, "epoll_fd initialized to -1");
 
     /* http_start should succeed (not return -1 due to fd=0 bug) */
     int port = find_free_port();

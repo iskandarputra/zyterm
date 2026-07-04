@@ -22,16 +22,17 @@
  * @license MIT — see LICENSE for details.
  */
 #include "zt_ctx.h"
-#include "zt_internal.h"
+#include "zyterm/internal/proto.h"
 
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
 
-/* render_rx() is what a legitimate "line arrived from device" triggers —
- * we reuse it so framed output is indistinguishable from raw output
- * downstream (logging, search, JSON, broadcast, etc.). */
-extern void render_rx(zt_ctx *c, const unsigned char *buf, size_t n);
+/* A decoded frame is delivered through c->core.rx_sink (wired to render_rx by
+ * the loop layer) so framed output is indistinguishable from raw output
+ * downstream (logging, search, JSON, broadcast, etc.) — without proto naming
+ * the render-layer symbol directly (INVARIANTS §8). TX likewise goes via
+ * c->core.tx_direct. */
 
 const char *framing_name(zt_frame_mode m) {
     switch (m) {
@@ -82,7 +83,7 @@ static void frame_dispatch(zt_ctx *c) {
         n -= csz; /* strip trailing CRC from what we render */
     }
 
-    render_rx(c, c->proto.buf, n);
+    c->core.rx_sink(c, c->proto.buf, n);
     c->proto.len = 0;
 }
 
@@ -238,7 +239,7 @@ void framing_feed(zt_ctx *c, const unsigned char *buf, size_t n) {
     case ZT_FRAME_SLIP: feed_slip(c, buf, n); break;
     case ZT_FRAME_HDLC: feed_hdlc(c, buf, n); break;
     case ZT_FRAME_LENPFX: feed_len16(c, buf, n); break;
-    default: render_rx(c, buf, n); break;
+    default: c->core.rx_sink(c, buf, n); break;
     }
 }
 
@@ -359,6 +360,6 @@ int framing_send(zt_ctx *c, const unsigned char *payload, size_t n) {
         break;
     }
     if (en == 0) return -1;
-    direct_send(c, encoded, en);
+    c->core.tx_direct(c, encoded, en);
     return (int)en;
 }

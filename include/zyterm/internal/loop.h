@@ -28,6 +28,10 @@ void handle_stdin_chunk(zt_ctx *c, const unsigned char *buf, size_t n);
 void trickle_send(zt_ctx *c, const unsigned char *buf, size_t n);
 void direct_send(zt_ctx *c, const unsigned char *buf, size_t n);
 void flush_unsent(zt_ctx *c);
+/* Point c->core.rx_sink / tx_direct / tx_trickle at render_rx / direct_send /
+ * trickle_send. Call once from the loop layer before any subsystem runs so
+ * lower layers reach TX/RX through the ctx, not by naming these symbols. */
+void loop_wire_sinks(zt_ctx *c);
 
 /* ── loop/rx_thread.c ──────────────────────────────────────────────────── */
 int    rx_thread_start(zt_ctx *c);
@@ -48,5 +52,19 @@ void rx_thread_embed_reset(void);
 int run_interactive(zt_ctx *c);
 int run_dump(zt_ctx *c, int seconds);
 int run_replay(zt_ctx *c);
+
+/* ── loop/autobaud.c ───────────────────────────────────────────────────── */
+/* Probe common baud rates and adopt the best; pauses the reader thread around
+ * the fd swap, so it lives in the loop layer (called only from main/input). */
+int autobaud_probe(zt_ctx *c);
+
+/* ── loop/reconnect.c ──────────────────────────────────────────────────── */
+/* One reconnect attempt (re-resolve + reopen the device); returns 0 on success.
+ * Declared here, not in serial.h: it orchestrates loop concerns (reader-thread
+ * pause, framing reset) so it lives in the loop layer. */
+int reconnect_attempt(zt_ctx *c);
+/* The responsive wait-for-device loop: pauses the reader, pumps stdin for quit,
+ * rediscovers the port, and unpauses on success. */
+void run_reconnect_loop(zt_ctx *c);
 
 #endif /* ZYTERM_INTERNAL_LOOP_H_ */

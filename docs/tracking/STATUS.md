@@ -55,9 +55,9 @@ functionality and never re-advertised in the README. Latent bugs in the dead pat
 
 | Item | State | Why / where |
 |------|-------|-------------|
-| epoll/splice fast path | ⏸ | `src/serial/fastio.c` is entirely unwired (no call site); the runtime uses `poll(2)` and the `--epoll` flag was removed in 1.2.0 → [ADR-0003](../decisions/0003-epoll-splice-fastpath-deferred.md). |
+| epoll/splice fast path | ⏸ | **Removed 2026-07** — `src/serial/fastio.c` was entirely unwired dead code (no call site) and is deleted; the runtime uses `poll(2)`. Rationale in [ADR-0003](../decisions/0003-epoll-splice-fastpath-deferred.md); the old code is in git history if the `splice`-to-logfile idea is ever revived ([ROADMAP](../plans/ROADMAP.md)). |
 | `rfc2217://` transport | ⏸ | Intentional stub: `transport_open()` `zt_die`s "NYI; use ser2net raw + tcp://" (`src/serial/transport.c`) → [ADR-0005](../decisions/0005-rfc2217-deferred.md). |
-| Multi-pane | 🟡 | `multi_render()` is a no-op stub (`src/ext/multi.c`); not wired, not keybound, not discoverable. Real multi-pane is on the [ROADMAP](../plans/ROADMAP.md). |
+| Multi-pane | 📋 | **No code today** — the non-functional stub (`src/ext/multi.c`, file-static panes + a blocking read) was removed 2026-07. Real multi-pane is greenfield on the [ROADMAP](../plans/ROADMAP.md). |
 | In-memory history & bookmarks | ⏸ | History and bookmarks are in-memory only and lost on exit; no `~/.zyterm_history` / `~/.zyterm/bookmarks` file is written → [ADR-0006](../decisions/0006-in-memory-history-and-bookmarks.md). |
 
 _Last updated: 2026-07-03._

@@ -27,7 +27,7 @@
  * @license MIT — see LICENSE for details.
  */
 #include "zt_ctx.h"
-#include "zt_internal.h"
+#include "zyterm/internal/loop.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -227,6 +227,12 @@ void rx_thread_stop(zt_ctx *c) {
  * Idempotent: rx_thread_stop() nulls g_rx_embed_ctx and spsc_impl. */
 void rx_thread_embed_reset(void) {
     if (g_rx_embed_ctx) rx_thread_stop(g_rx_embed_ctx);
+}
+
+/* Self-register the reset above so core's zt_embed_reset() / zt_die() run it
+ * without naming this loop-layer symbol (INVARIANTS §8). */
+__attribute__((constructor)) static void rx_thread_register_embed_reset(void) {
+    zt_register_embed_reset(rx_thread_embed_reset);
 }
 
 size_t rx_thread_drain(zt_ctx *c, unsigned char *dst, size_t cap) {

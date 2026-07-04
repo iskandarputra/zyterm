@@ -34,7 +34,7 @@
  * @license MIT — see LICENSE for details.
  */
 #include "zt_ctx.h"
-#include "zt_internal.h"
+#include "zyterm/internal/ext.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -69,8 +69,6 @@ typedef struct {
     pid_t  pids[ZT_HOOK_PIDS_MAX]; /* outstanding shelled-out children */
     int    pids_count;
 } hooks_state;
-
-extern void direct_send(zt_ctx *c, const unsigned char *buf, size_t n);
 
 /* ── helpers ───────────────────────────────────────────────────────────── */
 
@@ -132,7 +130,7 @@ static void run_shell_action(zt_ctx *c, const hook_t *h, const unsigned char *li
 static void run_send_action(zt_ctx *c, const hook_t *h) {
     char   buf[1024];
     size_t n = expand_escapes(h->action, buf, sizeof buf);
-    if (n > 0) direct_send(c, (const unsigned char *)buf, n);
+    if (n > 0) c->core.tx_direct(c, (const unsigned char *)buf, n);
 }
 
 static void fire_hook(zt_ctx *c, hook_t *h, const unsigned char *line, size_t line_len) {

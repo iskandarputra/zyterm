@@ -7,7 +7,7 @@
  * @license MIT — see LICENSE for details.
  */
 #include "zt_ctx.h"
-#include "zt_internal.h"
+#include "zyterm/internal/loop.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -172,4 +172,19 @@ void flush_unsent(zt_ctx *c) {
         c->tui.sent_len = c->tui.input_len;
         c->tui.cursor   = 0;
     }
+}
+
+/* Wire the ctx's dependency-inversion sinks (c->core.rx_sink / tx_direct /
+ * tx_trickle) to the real primitives. Called by the loop layer — zyterm_main()
+ * before any subsystem runs, and the test harness's ctx init — so lower-layer
+ * modules can inject device TX or deliver a decoded RX line through the ctx
+ * without naming these loop/render symbols (INVARIANTS §8). This lives in the
+ * loop layer, which may legitimately name render_rx and the send primitives. */
+void loop_wire_sinks(zt_ctx *c) {
+    if (!c) return;
+    c->core.rx_sink      = render_rx;
+    c->core.tx_direct    = direct_send;
+    c->core.tx_trickle   = trickle_send;
+    c->core.line_hook    = hooks_on_line;
+    c->core.input_notify = http_notify_input;
 }
