@@ -9,7 +9,7 @@ in [`docs/`](docs/) — this file points at them.
 zyterm is a single-binary Linux serial-terminal emulator written in C (~12.5K LOC, version
 **1.5.0**). It opens a serial port (or a `tcp://` / `telnet://` transport), renders RX in a small
 TUI with a HUD, and supports framing/CRC decoders, XMODEM/YMODEM/ZMODEM transfers, autobaud,
-auto-reconnect with port discovery, logging (text/json/raw with rotation), scrollback with regex
+auto-reconnect with port discovery, logging (text/json/raw with rotation), scrollback with substring
 search and bookmarks, profiles, event hooks, detach/attach sessions, an HTTP/SSE/WS bridge with
 Prometheus metrics, and an embedding API. Several historically advertised features are **dead,
 stubbed, or broken** — see "The one rule" and [`docs/tracking/KNOWN_ISSUES.md`](docs/tracking/KNOWN_ISSUES.md)
