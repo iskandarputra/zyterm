@@ -38,7 +38,7 @@ absent or marked deferred below is not a working feature.
 | Recording (asciinema) | ✅ | `--rec <file>` cast capture (`src/log/record_cast.c`). |
 | Replay | ✅ | `--replay <file>` / `--replay-speed <x>`. |
 | Logging | ✅ | `--log` with `text` / `json` (NDJSON) / `raw` formats + size rotation (`src/log/logio.c`, `log_json.c`). |
-| Scrollback & search | ✅ | Ring buffer + regex search + bookmarks (in-memory) — `src/log/scrollback`, `src/tui/search.c`, `src/ext/bookmarks.c`. |
+| Scrollback & search | ✅ | Ring buffer + **case-sensitive substring** search (`strstr`, `src/tui/search.c:46` — *not* regex) + bookmarks (in-memory) — `src/log/scrollback`, `src/ext/bookmarks.c`. |
 | Pager | ✅ | `src/tui/pager.c`. |
 | Settings menu | ✅ | `Ctrl+A o` — 4 pages (serial / screen / keyboard / logging). |
 | Clipboard | ✅ | In-app mouse selection, OSC 52, and native xcb clipboard (runtime `dlopen("libxcb.so.1")`) — `src/proto/clipboard.c`. |
@@ -60,4 +60,4 @@ functionality and never re-advertised in the README. Latent bugs in the dead pat
 | Multi-pane | 📋 | **No code today** — the non-functional stub (`src/ext/multi.c`, file-static panes + a blocking read) was removed 2026-07. Real multi-pane is greenfield on the [ROADMAP](../plans/ROADMAP.md). |
 | In-memory history & bookmarks | ⏸ | History and bookmarks are in-memory only and lost on exit; no `~/.zyterm_history` / `~/.zyterm/bookmarks` file is written → [ADR-0006](../decisions/0006-in-memory-history-and-bookmarks.md). |
 
-_Last updated: 2026-07-03._
+_Last updated: 2026-09-06._

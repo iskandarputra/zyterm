@@ -21,33 +21,64 @@ That's pretty much it. You get a live HUD, scrollback, and search out of the box
 
 ## Why zyterm?
 
-If you work with microcontrollers or embedded boards, you've probably spent a lot of time in `screen`, `minicom`, or `picocom`. They're solid tools and they've served the community well for decades. But they can feel a little dated sometimes — no built-in scrollback, no easy way to search past output, and they can get sluggish when a board dumps a wall of text.
+`screen`, `minicom` and `picocom` already cover the basics well. `screen`'s copy
+mode has regex scrollback search; `minicom` has a searchable scrollback window.
+Use either if that is what you need.
 
-We wanted something that felt a bit more comfortable for daily use, so we built zyterm. It's nothing revolutionary — just a serial terminal that tries to stay out of your way while giving you a few nice things:
+zyterm covers what they don't: a live HUD with throughput, framing and CRC
+decoders, structured JSONL logs, a browser bridge, and a render path that treats
+device bytes as untrusted.
 
-- **Stays responsive under load** — Uses ANSI scrolling regions and an optional reader thread (`--threaded`), so your input bar doesn't freeze when the board is spewing boot logs. It handles high baud rates reasonably well, though your mileage may vary depending on the USB adapter.
-- **Built-in search & scrollback** — Press `Ctrl+A` then `/` to search through what your board has printed. Handy when you're looking for that one error buried in a thousand lines.
-- **Live HUD** — A small status bar showing baud rate, parity, throughput, and a sparkline. Nothing fancy, but useful at a glance.
-- **Survives USB unplug** — Pull the adapter out mid-session and zyterm shows a disconnect dialog instead of crashing. Scrollback, search, and copy still work while the link is down; reconnecting restores the live tail without disturbing what you were reading.
-- **Small and self-contained** — It's a single C binary. No Python, no Node, no runtime dependencies beyond your system's libc. Linux is the supported and CI-tested target (termios2 custom baud, inotify config reload, `/sys/class/tty` USB discovery); it may build on other Unixes but we don't ship binaries for them.
+What you get:
+
+- **An input bar the device can't scroll over** — ANSI scroll regions split HUD, output and prompt into three zones. `--threaded` adds an optional reader draining into a lock-free ring, for rates the main loop can't keep up with.
+- **Scrollback search** — `Ctrl+A` then `/`. Case-sensitive substring, not regex; `screen` is better at this specific job.
+- **Live HUD** — Baud, parity, throughput and a sparkline. SPSC ring drops are counted here rather than swallowed.
+- **Survives USB unplug** — Scrollback, search and copy keep working while the link is down. Reconnect restores the live tail without moving your view.
+- **Single C binary** — libc is the only runtime dependency. Linux is the supported and CI-tested target (termios2 custom baud, inotify config reload, `/sys/class/tty` USB discovery); it may build on other Unixes but no binaries ship for them.
 
 ### How it compares
 
-A rough feature snapshot against the usual suspects on Linux. None of these
-tools are bad — pick whatever fits your workflow:
+Every cell below was checked against that tool's own manual page at the version
+named. The rows zyterm **loses** are listed first.
 
-| Feature                                            | minicom | picocom | screen | tio | zyterm |
-| -------------------------------------------------- | :-----: | :-----: | :----: | :-: | :----: |
-| Scrollback + in-stream search                      |    —    |    —    |   ·    |  ·  |   ✓    |
-| Built-in HUD (baud, throughput, sparkline)         |    —    |    —    |   —    |  —  |   ✓    |
-| USB hot-plug rediscovery (`--port-glob` / VID:PID) |    —    |    —    |   —    |  ✓  |   ✓    |
-| Network transports (`tcp://`, `telnet://`)         |    —    |    —    |   —    |  ·  |   ✓    |
-| Line-ending translation (CRLF / LF / CR / mixed)   |    ✓    |    ✓    |   —    |  ✓  |   ✓    |
-| Timestamped + JSONL logging                        |    ·    |    ·    |   —    |  ✓  |   ✓    |
-| HTTP/SSE bridge for browsers                       |    —    |    —    |   —    |  —  |   ✓    |
-| Single static C binary, no runtime deps            |    ✓    |    ✓    |   ✓    |  ✓  |   ✓    |
+|                                              | minicom 2.10 | picocom 3.1 | screen 4.09 | tio 3.9 | zyterm 1.5.0 |
+| -------------------------------------------- | :----------: | :---------: | :---------: | :-----: | :----------: |
+| In your distro's repositories                |      ✓       |      ✓      |      ✓      |    ✓    |      —       |
+| Terminal emulation (ANSI / VT100)            |      ✓       |      —      |      ✓      |    —    |      —       |
+| Case-insensitive scrollback search           |      ✓       |      —      |      ✓      |    —    |      —       |
+| A scripting language for automation          |      ✓       |      ·      |      —      |    ✓    |      ·       |
+| Scrollback search, built in                  |      ✓       |      —      |      ✓      |    —    |      ✓       |
+| Detach and reattach a session                |      —       |      —      |      ✓      |    —    |      ✓       |
+| File transfer without external tools         |      —       |      —      |      —      |    ✓    |      ✓       |
+| Reconnects when the device drops             |      —       |      —      |      —      |    ✓    |      ✓       |
+| Line timestamps in logs                      |      —       |      —      |      —      |    ✓    |      ✓       |
+| Live throughput HUD with sparkline           |      ·       |      —      |      —      |    ·    |      ✓       |
+| Connects out to `tcp://` / `telnet://`       |      —       |      —      |      —      |    —    |      ✓       |
+| Framing decoders (COBS / SLIP / HDLC) + CRC  |      —       |      —      |      —      |    —    |      ✓       |
+| JSONL structured logs                        |      —       |      —      |      —      |    —    |      ✓       |
+| HTTP / SSE / WebSocket browser bridge        |      —       |      —      |      —      |    —    |      ✓       |
 
-✓ first-class · partial / via add-on — not supported
+✓ first-class · partial, or via an external tool — not supported
+
+Notes on the close calls:
+
+- **Scrollback search** — `screen` wins outright (`/` and `?` vi search, `n`/`N`,
+  plus Emacs incremental search over its history buffer). `minicom` has `s` and
+  `S` for case-sensitive and case-insensitive search in its scrollback window.
+  zyterm's is a plain `strstr` (`src/tui/search.c`).
+- **Terminal emulation** — `minicom` and `screen` interpret ANSI/VT100. zyterm
+  deliberately does not; device escapes are neutralized by policy and only SGR
+  colour is allowed back through a bounded parser
+  ([INVARIANTS §6](docs/invariants/INVARIANTS.md)). Given up on purpose.
+- **Scripting** — `minicom` ships `runscript` (swappable for `expect` or a
+  shell); `tio` embeds Lua. zyterm has event hooks and `--filter`, which is not
+  the same thing.
+- **Reconnect** — `tio` does this by default too, with its own device-lookup
+  strategies. zyterm is not first here.
+- **Portability** — `tio` ships macOS builds and a Homebrew formula; `picocom`'s
+  README says it moves to other Unix-like systems with minor changes. zyterm is
+  Linux-only, on purpose.
 
 ## Quick Start
 
